@@ -20,6 +20,9 @@
     "model": "node scripts/fetch-model.mjs && node scripts/build-grid.mjs",
     "model:fetch": "node scripts/fetch-model.mjs",
     "model:grid": "node scripts/build-grid.mjs",
+    "shots": "node scripts/capture-shots.mjs",
+    "sweep": "node scripts/sweep.mjs",
+    "video": "node scripts/export-video.mjs",
     "audit:runtime": "npm audit --omit=dev --audit-level=high",
     "audit:full": "npm audit --audit-level=high"
   },
