@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sculpture — engine development page</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        /* Not the sky colour, on purpose: a screenshot then shows whether the canvas drew. */
+        background: #202020;
+      }
+      canvas {
+        display: block;
+      }
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        padding: 8px 10px;
+        font: 13px/1.4 ui-monospace, Consolas, monospace;
+        color: #f4f1ea;
+        background: rgba(20, 20, 20, 0.6);
+        border-radius: 4px;
+        white-space: pre;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud" data-testid="engine-hud">loading</div>
+    <script type="module" src="/src/stock/dev/main.ts"></script>
+  </body>
+</html>
