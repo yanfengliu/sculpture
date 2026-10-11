@@ -1,18 +1,21 @@
 /**
- * The blow cycle's invariants (docs/design/spec.md, Tools): continuity in phase and across blows, the tip at the point at the strike, the mallet's face on the chisel's head at the strike, the documented angles, the bite bound, the rest poses on the bench and the reach bound.
- * Bound: poses are checked against the blow's own point and normal; whether a pose clips the stock elsewhere needs the stock and is the page's visual check.
+ * The blow cycle's invariants (docs/design/spec.md, Tools): continuity in phase and across blows, the tip at the point at the strike, the mallet's face on the chisel's head at the strike, the documented angles, the bite and feed bounds, the clearance of the approach, the rest poses on the bench and the reach bound.
+ * Bound: poses are checked against the blow's own point and normal, the block's box and the tangent planes; whether a pose clips a carved, non-convex stock elsewhere needs the stock and is the page's visual check.
  */
 import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 
 import type { Blow, ToolId, ToolPose } from '../contracts/making';
+import { STRIKE_PHASE } from '../contracts/making';
+import { BLOCK_M } from '../david/frame';
 import { BENCH } from './bench';
-import { APPROACH_END, STRIKE, SWING_RADIUS, clampAngle, createBlowCycle, isReachable, swingAngle } from './blow-cycle';
+import { APPROACH_END, MAX_CARRY_SECONDS, STRIKE, SWING_RADIUS, clampAngle, createBlowCycle, faceOffset, isReachable, swingAngle, toolLength } from './blow-cycle';
 import { CATALOG_IDS, dimension } from './catalog';
 import { DEG, fromQuat, toVector } from './math';
 
 const cycle = createBlowCycle();
-const FRONT_Z = 0.7;
+const FRONT_Z = BLOCK_M.depth / 2;
+const HALF_W = BLOCK_M.width / 2;
 
 /** A blow on the block's front face (normal +z) at `height`, the tool pointing down into the stone at `angle` degrees to the surface. */
 function blow(tool: ToolId, height: number, angle: number, overrides: Partial<Blow> = {}): Blow {
@@ -26,10 +29,30 @@ const find = (poses: readonly ToolPose[], tool: string): ToolPose => {
   return found;
 };
 
+/** Where a posed tool touches the stone: its origin, or for a rubbing tool the working face below its axis. */
+function contactPoint(pose: ToolPose): Vector3 {
+  return toVector(pose.position).sub(new Vector3(0, 0, faceOffset(pose.tool)).applyQuaternion(fromQuat(pose.quaternion)));
+}
+
+/** The tip and the shaft's far end of a posed tool. */
+function shaft(pose: ToolPose, length: number): [Vector3, Vector3] {
+  const tip = toVector(pose.position);
+  return [tip, tip.clone().add(new Vector3(0, length, 0).applyQuaternion(fromQuat(pose.quaternion)))];
+}
+
+function strictlyInsideBlock(p: Vector3): boolean {
+  const eps = 1e-6;
+  return Math.abs(p.x) < HALF_W - eps && Math.abs(p.z) < BLOCK_M.depth / 2 - eps && p.y > eps && p.y < BLOCK_M.height - eps;
+}
+
 const STRUCK: readonly ToolId[] = ['point', 'two-tooth', 'claw', 'fine-claw', 'roundel', 'flat'];
 const UNSTRUCK: readonly ToolId[] = ['charcoal', 'drill', 'rasp', 'file', 'pumice', 'polish', 'gilding'];
 
 describe('blow cycle', () => {
+  it('strikes at the contract\u2019s STRIKE_PHASE, the symbol the engine applies the cut at, not a number of its own', () => {
+    expect(STRIKE).toBe(STRIKE_PHASE);
+  });
+
   it.each(STRUCK)('%s: tip at the point at the strike, mallet face on the chisel head, both poses present', (tool) => {
     const b = blow(tool, 1.5, 45);
     const poses = cycle.posesAt(b, null, STRIKE);
@@ -44,10 +67,20 @@ describe('blow cycle', () => {
     expect(faceNormal.dot(axisDown)).toBeCloseTo(1, 6);
   });
 
-  it.each(UNSTRUCK)('%s: tip at the point at the strike and no mallet', (tool) => {
+  it.each(UNSTRUCK)('%s: working point at the blow point at the strike and no mallet', (tool) => {
     const poses = cycle.posesAt(blow(tool, 1.5, 40), null, STRIKE);
     expect(poses.map((p) => p.tool)).toEqual([tool]);
-    expect(toVector(find(poses, tool).position).distanceTo(new Vector3(0.2, 1.5, FRONT_Z))).toBeLessThan(1e-9);
+    expect(contactPoint(find(poses, tool)).distanceTo(new Vector3(0.2, 1.5, FRONT_Z))).toBeLessThan(1e-9);
+  });
+
+  it.each(['rasp', 'file', 'polish'] as const)('%s: lies on the stone by its working face, its axis above the surface by the face offset', (tool) => {
+    expect(faceOffset(tool)).toBeGreaterThan(0.003);
+    const b = blow(tool, 1.5, 10);
+    const pose = find(cycle.posesAt(b, null, STRIKE), tool);
+    const above = toVector(pose.position).sub(toVector(b.point)).dot(toVector(b.normal));
+    expect(above).toBeGreaterThan(0.9 * faceOffset(tool));
+    expect(above).toBeLessThanOrEqual(faceOffset(tool) + 1e-9);
+    expect(contactPoint(pose).distanceTo(toVector(b.point))).toBeLessThan(1e-9);
   });
 
   it('settles the point at the sculptor’s stroke, steeply only for bulk cuts, and the toothed chisels within 35 to 60 degrees', () => {
@@ -64,6 +97,9 @@ describe('blow cycle', () => {
     expect(angleOf(blow('claw', 1.5, 45))).toBeCloseTo(45, 6);
     expect(angleOf(blow('claw', 1.5, 80))).toBeCloseTo(60, 6);
     expect(angleOf(blow('drill', 1.5, 90))).toBeCloseTo(90, 6);
+    expect(angleOf(blow('drill', 1.5, 80))).toBeCloseTo(90, 6);
+    expect(angleOf(blow('drill', 1.5, 60))).toBeCloseTo(45, 6);
+    expect(angleOf(blow('drill', 1.5, 40))).toBeCloseTo(40, 6);
     expect(angleOf(blow('drill', 1.5, 20))).toBeCloseTo(35, 6);
     expect(angleOf(blow('rasp', 1.5, 45))).toBeCloseTo(15, 6);
   });
@@ -71,6 +107,33 @@ describe('blow cycle', () => {
   it('clamps a direction pointing out of the stone back into it', () => {
     const out = clampAngle(new Vector3(0, 0, 1), new Vector3(0, 0, 1), 30, 50);
     expect(Math.asin(-out.dot(new Vector3(0, 0, 1))) / DEG).toBeCloseTo(30, 6);
+  });
+
+  it.each([...STRUCK, ...UNSTRUCK])('%s: the settled shaft lies outside the half-space behind the surface, whatever direction the engine gives', (tool) => {
+    const normals: [number, number, number][] = [
+      [0, 0, 1],
+      [1, 0, 0],
+      [0, 1, 0],
+      [0.6, 0.8, 0],
+      [-0.5, 0.5, 0.707],
+    ];
+    const directions: [number, number, number][] = [
+      [0, -0.707, -0.707],
+      [0, 0, -1],
+      [0.9, -0.1, -0.4],
+      [0, 0.2, -0.98],
+      [0.3, -0.95, 0.1],
+    ];
+    for (const n of normals) {
+      const normal = new Vector3(...n).normalize();
+      for (const d of directions) {
+        const b: Blow = { tool, point: [0.2, 2.0, 0.6], normal: [normal.x, normal.y, normal.z], direction: d, size: 0.01, stroke: 0 };
+        const posed = find(cycle.posesAt(b, null, STRIKE), tool);
+        const [tip, far] = shaft(posed, toolLength(tool));
+        expect(contactPoint(posed).distanceTo(new Vector3(0.2, 2.0, 0.6))).toBeLessThan(1e-9);
+        expect(far.clone().sub(tip).dot(normal), `${tool} with normal ${n.join(',')} and direction ${d.join(',')}`).toBeGreaterThan(0.08 * toolLength(tool));
+      }
+    }
   });
 
   it('bites in by at most the blow size after the strike and lifts out before the cycle ends', () => {
@@ -85,6 +148,24 @@ describe('blow cycle', () => {
     expect(deepest).toBeGreaterThan(b.size * 0.5);
     const end = toVector(find(cycle.posesAt(b, null, 1 - 1e-6), 'point').position);
     expect(end.distanceTo(toVector(b.point))).toBeLessThan(1e-6);
+  });
+
+  it('keeps the drill bit at the surface until the strike, feeds it in after the hole is cut and draws it out by the end', () => {
+    const b = blow('drill', 1.5, 90, { direction: [0, 0, -1], size: 0.015 });
+    const depthAt = (phase: number): number => -toVector(find(cycle.posesAt(b, null, phase), 'drill').position).sub(toVector(b.point)).dot(toVector(b.normal));
+    for (let phase = APPROACH_END; phase < STRIKE; phase += 0.005) expect(Math.abs(depthAt(phase)), `phase ${phase.toFixed(3)} before the strike`).toBeLessThan(1e-9);
+    expect(depthAt(STRIKE)).toBeLessThan(1e-9);
+    expect(depthAt(STRIKE + 0.1)).toBeGreaterThan(0.2 * b.size);
+    expect(depthAt(STRIKE + 0.2)).toBeGreaterThan(0.8 * b.size);
+    let deepest = 0;
+    for (let phase = STRIKE; phase < 1; phase += 0.005) {
+      const depth = depthAt(phase);
+      deepest = Math.max(deepest, depth);
+      expect(depth).toBeLessThanOrEqual(b.size + 1e-9);
+      expect(depth).toBeGreaterThanOrEqual(-1e-9);
+    }
+    expect(deepest).toBeCloseTo(b.size, 6);
+    expect(depthAt(1 - 1e-6)).toBeLessThan(1e-6);
   });
 
   it('moves continuously in phase within a blow and across blows, from the bench and along a stroke', () => {
@@ -103,9 +184,9 @@ describe('blow cycle', () => {
         before = now;
       }
     };
-    check(first, null, 0.12);
+    check(first, null, 0.25);
     check(second, first, 0.04);
-    check(third, second, 0.04);
+    check(third, second, 0.06);
     const endOfFirst = cycle.posesAt(first, null, 1 - 1e-9);
     const startOfSecond = cycle.posesAt(second, first, 0);
     for (const p of startOfSecond) expect(toVector(p.position).distanceTo(toVector(find(endOfFirst, p.tool).position))).toBeLessThan(1e-6);
@@ -121,6 +202,55 @@ describe('blow cycle', () => {
     const expected = new Vector3(0.2, 1.485, FRONT_Z);
     expect(mid.distanceTo(expected)).toBeLessThan(0.01);
     expect(mid.z).toBeGreaterThanOrEqual(FRONT_Z);
+  });
+
+  it('lifts out along the normal by at least the tool’s length between strokes on one face, the whole shaft staying outside the stone', () => {
+    const first = blow('point', 1.5, 45, { point: [0.2, 1.5, FRONT_Z], stroke: 0 });
+    const second = blow('point', 1.2, 45, { point: [0.6, 1.2, FRONT_Z], stroke: 1 });
+    const length = toolLength('point');
+    let highest = 0;
+    for (let phase = 0; phase < APPROACH_END; phase += 0.002) {
+      const [tip, far] = shaft(find(cycle.posesAt(second, first, phase), 'point'), length);
+      highest = Math.max(highest, tip.z - FRONT_Z);
+      for (const s of [0, 0.25, 0.5, 0.75, 1]) expect(tip.clone().lerp(far, s).z, `shaft point at phase ${phase.toFixed(3)}`).toBeGreaterThanOrEqual(FRONT_Z - 1e-6);
+    }
+    expect(highest).toBeGreaterThanOrEqual(length - 1e-6);
+    // Blows of one stroke further apart than STROKE_SPAN carry too.
+    const far = blow('point', 1.5, 45, { point: [0.2, 1.1, FRONT_Z], stroke: 0 });
+    let farHighest = 0;
+    for (let phase = 0; phase < APPROACH_END; phase += 0.002) farHighest = Math.max(farHighest, toVector(find(cycle.posesAt(far, first, phase), 'point').position).z - FRONT_Z);
+    expect(farHighest).toBeGreaterThanOrEqual(length - 1e-6);
+  });
+
+  it('carries round the block’s corner between a front and a side face, every shaft point outside one of the two half-spaces', () => {
+    const front = blow('claw', 2.0, 45, { point: [0.5, 2.0, FRONT_Z], stroke: 0 });
+    const side: Blow = { tool: 'claw', point: [HALF_W, 2.0, 0.3], normal: [1, 0, 0], direction: [-0.707, -0.707, 0], size: 0.01, stroke: 1 };
+    const length = toolLength('claw');
+    for (let phase = 0; phase < APPROACH_END; phase += 0.002) {
+      const [tip, far] = shaft(find(cycle.posesAt(side, front, phase), 'claw'), length);
+      for (const s of [0, 0.5, 1]) {
+        const p = tip.clone().lerp(far, s);
+        const outsideFront = p.z >= FRONT_Z - 1e-6;
+        const outsideSide = p.x >= HALF_W - 1e-6;
+        expect(outsideFront || outsideSide, `shaft point ${p.toArray().map((n) => n.toFixed(3)).join(',')} at phase ${phase.toFixed(3)} is inside the corner`).toBe(true);
+      }
+    }
+  });
+
+  it.each([
+    ['front', [0.0, 2.0, FRONT_Z], [0, 0, 1], [0, -0.707, -0.707]],
+    ['right', [HALF_W, 2.0, 0.0], [1, 0, 0], [-0.707, -0.707, 0]],
+    ['back', [0.0, 2.0, -FRONT_Z], [0, 0, -1], [0, -0.707, 0.707]],
+    ['top', [0.0, BLOCK_M.height, 0.0], [0, 1, 0], [0.707, -0.707, 0]],
+  ] as const)('carries the chisel and the mallet from the bench to the %s face without passing through the block', (_face, point, normal, direction) => {
+    const b: Blow = { tool: 'point', point, normal, direction, size: 0.01, stroke: 0 };
+    for (let phase = 0; phase < APPROACH_END; phase += 0.001) {
+      for (const p of cycle.posesAt(b, null, phase)) {
+        const position = toVector(p.position);
+        expect(strictlyInsideBlock(position), `${p.tool} at phase ${phase.toFixed(3)} is inside the block at ${position.toArray().map((n) => n.toFixed(3)).join(',')}`).toBe(false);
+      }
+    }
+    expect(toVector(find(cycle.posesAt(b, null, APPROACH_END), 'point').position).distanceTo(toVector(point))).toBeLessThan(1e-9);
   });
 
   it('keeps the mallet swinging on the side away from the stone and its arc within the swing radius', () => {
@@ -154,7 +284,6 @@ describe('blow cycle', () => {
       for (const other of spots) expect(spot.distanceTo(other), `${id} shares a slot`).toBeGreaterThan(0.015);
       spots.push(spot);
     }
-    // A chisel lies along the bench: its axis (local +Y) is horizontal along +x, so its tip is the lowest point and the handle points at the block.
     const axis = new Vector3(0, 1, 0).applyQuaternion(fromQuat(cycle.restPose('point').quaternion));
     expect(axis.x).toBeCloseTo(1, 6);
     expect(Math.abs(axis.y)).toBeLessThan(1e-6);
@@ -162,13 +291,12 @@ describe('blow cycle', () => {
     expect(Math.abs(strawAxis.y)).toBeLessThan(1e-6);
   });
 
-  it('bounds reach by the scaffold decks and the block', () => {
-    expect(isReachable([0, 0.1, 0.7])).toBe(true);
-    expect(isReachable([1.0, 5.4, 0.7])).toBe(true);
-    expect(isReachable([0, 5.7, 0.7])).toBe(false);
-    expect(isReachable([0, -0.1, 0.7])).toBe(false);
-    expect(isReachable([3, 1, 0])).toBe(false);
-    expect(isReachable([0, 1, 2.5])).toBe(false);
+  it('bounds reach by the scaffold’s decks and bridges (src/tools/scaffold.ts)', () => {
+    expect(isReachable([0, 0.1, FRONT_Z])).toBe(true);
+    expect(isReachable([-0.103, 4.707, 0.199])).toBe(true);
+    expect(isReachable([0, 5.7, FRONT_Z])).toBe(false);
+    expect(isReachable([0, -0.1, FRONT_Z])).toBe(false);
+    expect(isReachable([5, 3, 5])).toBe(false);
   });
 
   it('gives a carry from the bench more time than a slide along a furrow', () => {
@@ -177,6 +305,7 @@ describe('blow cycle', () => {
     const carry = cycle.approachSeconds(first, null);
     const slide = cycle.approachSeconds(second, first);
     expect(carry).toBeGreaterThan(1.5);
+    expect(carry).toBeLessThanOrEqual(MAX_CARRY_SECONDS);
     expect(slide).toBeGreaterThanOrEqual(0.05);
     expect(slide).toBeLessThan(0.1);
   });

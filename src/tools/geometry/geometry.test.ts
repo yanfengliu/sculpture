@@ -66,6 +66,35 @@ describe('tool geometry', () => {
     }
   });
 
+  it.each([
+    ['point', 'tip'],
+    ['charcoal', 'tip'],
+    ['drill', 'bit-point'],
+  ] as const)('%s: the %s cone has its apex at the origin and its base up the shaft', (id, name) => {
+    const found = toolModel(id).getObjectByName(name);
+    const isMesh = (object: Object3D | undefined): object is Mesh => object instanceof Mesh;
+    expect(isMesh(found)).toBe(true);
+    if (!isMesh(found)) return;
+    const positions = found.geometry.getAttribute('position');
+    let apexCount = 0;
+    let baseRadius = 0;
+    let maxY = 0;
+    for (let i = 0; i < positions.count; i += 1) {
+      const y = positions.getY(i);
+      const radius = Math.hypot(positions.getX(i), positions.getZ(i));
+      maxY = Math.max(maxY, y);
+      if (y < 1e-6) {
+        expect(radius, `${id} ${name}: a vertex at y = 0 lies ${radius.toFixed(5)} m off the axis, so the cone is base down`).toBeLessThan(1e-6);
+        apexCount += 1;
+      } else {
+        baseRadius = Math.max(baseRadius, radius);
+      }
+    }
+    expect(apexCount).toBeGreaterThan(0);
+    expect(baseRadius).toBeGreaterThan(0.002);
+    expect(maxY).toBeGreaterThan(0.004);
+  });
+
   it('hands out separate instances that share one cached geometry', () => {
     const a = toolModel('point');
     const b = toolModel('point');
@@ -100,7 +129,7 @@ describe('tool geometry', () => {
     const positions = blade.geometry.getAttribute('position');
     const edgeXs = new Set<number>();
     for (let i = 0; i < positions.count; i += 1) if (Math.abs(positions.getY(i)) < 1e-6) edgeXs.add(Number(positions.getX(i).toFixed(4)));
-    const notch = dimension('two-tooth', 'toothPitch') * 0.35;
+    const notch = dimension('two-tooth', 'notchWidth');
     const sorted = [...edgeXs].sort((p, q) => p - q);
     expect(sorted.length).toBe(4);
     expect((sorted[2] ?? 0) - (sorted[1] ?? 0)).toBeCloseTo(notch, 4);

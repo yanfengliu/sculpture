@@ -30,8 +30,14 @@ export function shank(y0: number, y1: number, radiusBottom: number, radiusTop: n
 export function pyramidTip(radius: number, height: number): BufferGeometry {
   const geometry = new ConeGeometry(radius, height, 4);
   geometry.rotateY(Math.PI / 4);
-  geometry.translate(0, height / 2, 0);
-  return geometry;
+  return apexDown(geometry, height);
+}
+
+/** A cone turned apex down: three.js builds a cone with its apex at +Y, so it is turned over about X before it is raised, leaving the apex at the origin and the base at `y = height`. */
+export function apexDown(cone: BufferGeometry, height: number): BufferGeometry {
+  cone.rotateX(Math.PI);
+  cone.translate(0, height / 2, 0);
+  return cone;
 }
 
 /** The slightly mushroomed struck head of a chisel: a lathe of a rounded profile from `y0` to `y1`, no wider than `radius`. */

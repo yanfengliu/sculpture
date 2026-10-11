@@ -5,7 +5,7 @@
 import { ConeGeometry, CylinderGeometry, Group, LatheGeometry, Vector2, Vector3 } from 'three';
 
 import { dimension } from '../catalog';
-import { box, part, shank } from './parts';
+import { apexDown, box, part, shank } from './parts';
 
 export function buildPumice(): Group {
   const length = dimension('pumice', 'length');
@@ -53,8 +53,7 @@ export function buildCharcoal(): Group {
   const length = dimension('charcoal', 'length');
   const radius = dimension('charcoal', 'diameter') / 2;
   const tipLength = radius * 2;
-  const tip = new ConeGeometry(radius, tipLength, 6);
-  tip.translate(0, tipLength / 2, 0);
+  const tip = apexDown(new ConeGeometry(radius, tipLength, 6), tipLength);
   const group = new Group();
   group.add(part(tip, 'charcoal', 'tip'), part(shank(tipLength, length, radius, radius * 0.9, 6), 'charcoal', 'stick'));
   return group;
