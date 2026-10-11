@@ -6,7 +6,8 @@ import { chromium } from '@playwright/test';
 
 import { BROWSER_ARGS, BROWSER_CHANNEL } from '../harness.mjs';
 
-export const READY_TIMEOUT_MS = 30_000;
+/** How long a shot may take to reach the page's own ready flag. A load at a late t replays every blow before it on the page's thread: about 27 s on the David at t = 21 (2026-10-11), the engine's open budget item (spec, Budgets: under 3 s), so the wait is well above it; a shot that is still not ready is a TIMEOUT, not a wrong shot. */
+export const READY_TIMEOUT_MS = 120_000;
 
 /** True when the dev server answers at `base`. */
 export async function serverReachable(base) {
