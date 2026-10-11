@@ -9,15 +9,16 @@ import { DAVID_STEPS } from './choreography/david-steps';
 import { STAGES } from './choreography/stages';
 import type { GridHeader } from './contracts/grid';
 import type { Making } from './contracts/making';
-import { BASE_SECONDS } from './contracts/making';
 import { DEFAULT_CELL_M } from './david/frame';
 import { syntheticFigure } from './david/synthetic';
 import { loadFigureGrid } from './stock/grid';
 import type { Grid } from './stock/grid';
 import { defaultWorkerCount } from './stock/pool';
+import type { CarrySeconds } from './timeline/carry';
+import { advanceWithCarry } from './timeline/carry';
 import { createMaking } from './timeline/making';
 import { createPlayer } from './timeline/player';
-import { APPROACH_END, createBlowCycle } from './tools/blow-cycle';
+import { createBlowCycle } from './tools/blow-cycle';
 import { TOOL_CATALOG } from './tools/catalog';
 import type { CatalogId } from './tools/catalog';
 import { ChipPool } from './tools/chips';
@@ -246,23 +247,11 @@ if (query.shot) {
   };
 }
 
-/**
- * How much slower wall time runs while a step's first tool is carried from the bench: the approach window of its first blow (src/tools/blow-cycle.ts, APPROACH_END) is stretched to the hand's carry time, so a tool never crosses metres in a frame. 1 outside that window, backward, or in capture mode.
- */
-function carryScale(): number {
-  const current = making.current;
-  const carry = bundle.carrySeconds;
-  if (query.shot || carry === undefined || current === null || current.phase >= APPROACH_END) return 1;
-  const forward = player.playing === 'forward' || (player.target !== null && player.target > player.t);
-  const step = making.steps[Math.floor(player.t)];
-  if (!forward || step === undefined || making.blowsApplied !== step.firstBlow) return 1;
-  const approachWall = (APPROACH_END * step.weight * BASE_SECONDS) / step.blowCount / player.speed;
-  const needed = carry(current.blow) / player.speed;
-  return needed > approachWall ? approachWall / needed : 1;
-}
+/** The carry a step's first approach gets (src/timeline/carry.ts): the tools' carry time from the bench, so a tool never crosses metres in a frame; none in capture mode, where nothing plays. */
+const carry: CarrySeconds = query.shot ? null : (bundle.carrySeconds ?? null);
 
 viewer.start((seconds) => {
-  player.update(seconds * carryScale());
+  advanceWithCarry(seconds, player, making, carry);
   if (player.t !== making.t) making.setTime(player.t);
   const current = making.current;
   rig.update(making.poses, current === null ? null : { tool: current.blow.tool, phase: current.phase });
