@@ -403,7 +403,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     id: 'last-touches',
     stage: 'on-site',
     title: 'Last touches on the nose and the hair',
-    detail: 'Dente di cane (fine claw): on the ringhiera from 8 June 1504, the scaffold still up when Soderini spoke of the nose, last touches on face and hair; one blow for about 200 (technique.md, stage 8).',
+    detail: 'Dente di cane (fine claw): on the ringhiera from 8 June 1504, the scaffold still up when Soderini spoke of the nose, last touches on face and hair; one blow for about 50 (technique.md, stage 8).',
     tool: 'fine-claw',
     region: union('face-and-hair', FACE, HAIR),
     margin: 0.001,

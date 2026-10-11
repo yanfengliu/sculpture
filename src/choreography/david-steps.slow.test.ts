@@ -1,6 +1,6 @@
 /**
  * The 8 mm case of the David steps, run on its own by `npm run test:slow` because it takes about a minute (a full plan and replay at the page's resolution) and the unit gate must stay fast (fleet R22). What a green run proves: the whole plan holds under the spec's 60,000-blow budget at 8 mm on the synthetic figure, the engine's bulk-cut size equals the catalog's, and the undo log is in use; it logs the per-step counts, the planning and replay times, the mean apply time per blow and the undo memory for the record.
- * Bounds: the plan is judged by its data on the synthetic mannequin, not by its look or on the David grid; the times are this machine's and prove the budget, not the frame rate.
+ * Bounds: the plan is judged by its data on the synthetic mannequin, not by its look or on the David grid; the only budget this asserts is the blow count. The logged times are this machine's record for the handoff and assert nothing: the page's first-frame, frame-rate, jump and memory budgets have no automated measurement yet (docs/work/0_making-of/plan.md).
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
