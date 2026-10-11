@@ -62,4 +62,40 @@ export function inside(region: RegionDef, point: Vec3, normal: Vec3): boolean {
   return region.contains === undefined ? true : region.contains(point, normal);
 }
 
-export const REGIONS: readonly RegionDef[] = [WHOLE, FRONT, BACK, LEFT_SIDE, RIGHT_SIDE, HIGH_POINTS, CHEST_AND_FACE, HEAD, HAIR, FACE, LEFT_HAND, RIGHT_HAND, SLING, STUMP, BASE, FLESH, NODO];
+/** The union of regions, over the box that holds them all. */
+export function union(label: string, ...regions: readonly RegionDef[]): RegionDef {
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (const region of regions) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      min[axis] = Math.min(min[axis] ?? Infinity, region.min[axis] ?? 0);
+      max[axis] = Math.max(max[axis] ?? -Infinity, region.max[axis] ?? 0);
+    }
+  }
+  return { label, min, max, contains: (point, normal) => regions.some((region) => inside(region, point, normal)) };
+}
+
+/** The crown of the head, where Condivi saw the block's old crust left: untouched after the point. */
+export const CROWN = box('crown', 5.08, TOP + 0.1, -WIDE, WIDE, -DEEP, DEEP, facing(1, 1, 0.8));
+
+/** The whole figure except the crown, for the passes that bring the skin to its last millimetres. */
+export const WHOLE_BUT_CROWN: RegionDef = { label: 'whole-but-crown', min: WHOLE.min, max: WHOLE.max, contains: (point, normal) => !inside(CROWN, point, normal) };
+
+/** The sides and the back together, reached last in the same order of tools. */
+export const SIDES_AND_BACK = union('sides-and-back', LEFT_SIDE, RIGHT_SIDE, BACK);
+/** Where the roundel scoops: the head's hollows and the two hands. */
+export const HOLLOWS = union('hollows', HEAD, LEFT_HAND, RIGHT_HAND);
+/** What the files and the last touches refine. */
+export const DETAILS = union('details', FACE, LEFT_HAND, RIGHT_HAND);
+/** What was gilded in 1504. */
+export const GILT = union('gilt', SLING, STUMP);
+
+/** A region cut to the front half of the block (z at or above -0.1), the half relief Cellini describes; `back` the same from behind. */
+export function relief(region: RegionDef, side: 'front' | 'back'): RegionDef {
+  const min: Vec3 = side === 'front' ? [region.min[0], region.min[1], -0.1] : region.min;
+  const max: Vec3 = side === 'back' ? [region.max[0], region.max[1], 0.1] : region.max;
+  const result: RegionDef = { label: `${region.label}-${side}-relief`, min, max };
+  return region.contains === undefined ? result : { ...result, contains: region.contains };
+}
+
+export const REGIONS: readonly RegionDef[] = [WHOLE, FRONT, BACK, LEFT_SIDE, RIGHT_SIDE, HIGH_POINTS, CHEST_AND_FACE, HEAD, HAIR, FACE, LEFT_HAND, RIGHT_HAND, SLING, STUMP, BASE, FLESH, NODO, CROWN, WHOLE_BUT_CROWN, SIDES_AND_BACK, HOLLOWS, DETAILS, GILT];
