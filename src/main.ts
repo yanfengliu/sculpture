@@ -187,12 +187,13 @@ const actions = {
   stepForward: act(() => {
     player.stepForward();
   }),
+  // Play at the end and Play backward at the start do nothing: a jump to the other end would replay the whole plan in one frame (Claude 3.1), and the start and end buttons are there for that choice.
   playPause: act(() => {
     if (player.playing !== null) {
       player.pause();
       return;
     }
-    if (player.t >= making.N) player.seek(0);
+    if (player.t >= making.N) return;
     player.play('forward');
   }),
   playBackward: act(() => {
@@ -200,7 +201,7 @@ const actions = {
       player.pause();
       return;
     }
-    if (player.t <= 0) player.seek(making.N);
+    if (player.t <= 0) return;
     player.play('backward');
   }),
   seek: act((t: number) => {
