@@ -101,8 +101,8 @@ function initialPosition(query: ViewerQuery, making: Making, problems: string[])
   return null;
 }
 
-/** `cam=` wins over `view=` when the orbit's limits keep it (src/viewer/orbit-limits.ts), else it is reported and `view=` stands; `view=follow` frames the blow in progress at the initial position. */
-function initialCamera(query: ViewerQuery, making: Making, problems: string[]): { pose: CameraPose; view: string } {
+/** `cam=` wins over `view=` when the orbit's limits keep it (src/viewer/orbit-limits.ts), else it is reported and `view=` stands; `view=follow` starts from the default pose and is framed by `applyFollowView` once the making is at the position. */
+function initialCamera(query: ViewerQuery, problems: string[]): { pose: CameraPose; view: string } {
   const fallback = { pose: findPreset(DEFAULT_PRESET)?.pose ?? PRESETS[0]?.pose ?? { position: [7, 4, 8], target: [0, 2.5, 0] }, view: DEFAULT_PRESET };
   if (query.cam !== null) {
     const problem = poseProblem(query.cam);
@@ -110,12 +110,7 @@ function initialCamera(query: ViewerQuery, making: Making, problems: string[]): 
     problems.push(`query parameter cam=${JSON.stringify([...query.cam.position, ...query.cam.target].join(','))} was ignored: ${problem}.`);
   }
   if (query.view === null) return fallback;
-  if (query.view === FOLLOW_VIEW) {
-    const current = making.current;
-    if (current !== null) return { pose: framingFor(current.blow.point, focusDistance(making, making.t), viewDirectionFor(current.blow.normal)), view: FOLLOW_VIEW };
-    problems.push(`query parameter view="follow" was ignored: no blow is in progress at t=${String(making.t)}; it takes a t inside a step.`);
-    return fallback;
-  }
+  if (query.view === FOLLOW_VIEW) return { pose: fallback.pose, view: FOLLOW_VIEW };
   const preset = findPreset(query.view);
   if (preset !== undefined) return { pose: preset.pose, view: preset.id };
   problems.push(`query parameter view=${JSON.stringify(query.view)} was ignored: it takes one of ${PRESETS.map((item) => item.id).join(', ')} or follow.`);
@@ -140,8 +135,8 @@ const { making } = bundle;
 const player = createPlayer(making.steps.map((step) => step.weight));
 const position = initialPosition(query, making, problems);
 player.seek(position ?? 0);
-making.setTime(player.t);
-const camera = initialCamera(query, making, problems);
+// The making stays at t = 0 until the first frame has rendered: the replay to the position runs from the second frame on (see the frame loop), so a load at t = N shows the block within the grid's load time instead of after the whole replay (Claude 3.1).
+const camera = initialCamera(query, problems);
 for (const problem of problems) console.warn(problem);
 
 const viewer = createViewer(document.body, { shot: query.shot, pose: camera.pose });
@@ -275,9 +270,28 @@ function followFraming(): { readonly target: Vec3; readonly distance: number; re
   return current === null ? null : { target: current.blow.point, distance, direction };
 }
 
+let followPending = view === FOLLOW_VIEW;
+/** Frames the blow in progress for `view=follow` once the making is at the requested position; a position with no blow in progress is reported and the default preset stands. */
+function applyFollowView(): void {
+  followPending = false;
+  const current = making.current;
+  if (current !== null) {
+    viewer.setPose(framingFor(current.blow.point, focusDistance(making, player.t), viewDirectionFor(current.blow.normal)));
+    return;
+  }
+  const problem = `query parameter view="follow" was ignored: no blow is in progress at t=${String(player.t)}; it takes a t inside a step.`;
+  problems.push(problem);
+  console.warn(problem);
+  view = DEFAULT_PRESET;
+}
+
 viewer.start((seconds) => {
-  advanceWithCarry(seconds, player, making, carry);
-  if (player.t !== making.t) making.setTime(player.t);
+  // The first frame draws the untouched block at once; from the second frame on the making follows the player, which replays to the requested position.
+  if (viewer.frames > 0) {
+    advanceWithCarry(seconds, player, making, carry);
+    if (player.t !== making.t) making.setTime(player.t);
+    if (followPending) applyFollowView();
+  }
   const current = making.current;
   rig.update(making.poses, current === null ? null : { tool: current.blow.tool, phase: current.phase });
   chips.update(making.chips);

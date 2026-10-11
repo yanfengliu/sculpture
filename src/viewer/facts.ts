@@ -135,5 +135,5 @@ export function publishFacts(facts: SculptureFacts): void {
 
 /** The fields that change frame to frame, as one string, so the page republishes only on a change. */
 export function factsSignature(facts: SculptureFacts): string {
-  return [facts.t, facts.blowsApplied, facts.dirtyChunks, facts.playing, facts.speed, facts.moving, facts.view, facts.follow, facts.finish, facts.yard, facts.hiddenSpans.join(','), facts.planLength].join('|');
+  return [facts.t, facts.blowsApplied, facts.dirtyChunks, facts.playing, facts.speed, facts.moving, facts.view, facts.follow, facts.finish, facts.yard, facts.hiddenSpans.join(','), facts.planLength, facts.queryProblems.length].join('|');
 }
