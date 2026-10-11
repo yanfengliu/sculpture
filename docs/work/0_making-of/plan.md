@@ -36,16 +36,17 @@ Milestones (R6): M1 fleet onboarding, research and contract; M2 scaffold, engine
 
 ## Implementation steps
 
-- [x] Repo docs base, fleet census, work folder (coordinator).
-- [ ] Research: candidates and history (worker `research-candidates`); technique and tools (worker `research-technique`); mesh source (worker `research-model`); engine options (worker `research-engine`).
-- [ ] Contract: `docs/design/spec.md` from the research (coordinator).
-- [ ] Scaffold: toolchain, configs, gates, AGENTS.md Gates section (worker `scaffold`).
-- [ ] Engine: distance grid, strokes, chunked meshing in workers, determinism test (worker `engine`; needs scaffold).
-- [ ] Tools: procedural tool models at documented sizes and their motion (worker `tools`; needs scaffold).
-- [ ] Model pipeline: fetch the recorded mesh, normalise, build the distance grid (worker `model`; needs scaffold and research-model).
-- [ ] Page: timeline, controls, presets, capture mode, e2e (worker `page`; needs engine).
-- [ ] Choreography by stage (workers per stage; need engine, tools, model).
-- [ ] Integration, visual audit, independent review, fixes (coordinator with reviewer).
+- [x] Repo docs base, fleet census (fleet `3570860`), work folder (coordinator).
+- [x] Research, merged to main: `choice.md` and `david-history.md` and `references.md` (worker `research-candidates`, `8b9a5ab`); `tools.md` and `technique.md` (worker `research-technique`, `8dab0ba`); `mesh-sources.md` (worker `research-model`, `508a498`); `engine-options.md` (worker `research-engine`, `de69be2`). The pick is Michelangelo's David; it won every criterion.
+- [x] Contract: `docs/design/spec.md`, `src/contracts/`, `src/david/frame.ts`, `docs/research/decisions.md`, `src/choreography/stages.ts` (coordinator). The block's depth stays provisional until the pipeline measures the figure.
+- [x] Scaffold: toolchain, gates, query reader, placeholder yard (worker `scaffold`, `5777593`, merged).
+- [ ] Model pipeline: fetch the recorded mesh, normalise, build the 8 mm grid (worker `model-pipeline`, running from `a52efe2`).
+- [ ] Engine: grids, carving rule and tool volumes, chunked meshing in workers, undo log, Making, generators, dev page (worker `engine`, running from `8b72871`).
+- [ ] Tools: catalog, procedural tool models at documented sizes, blow cycle, chips, gallery (worker `tools`, running from `8b72871`).
+- [ ] Page: yard and shed, marble, player, timeline bar and menus, presets, capture, sweep and video scripts, e2e against a stub (worker `page`, running from `8b72871`).
+- [ ] Integration of M2: wire the engine and tools into the page, run the pipeline's grid through the engine, gates, captures, merge (coordinator).
+- [ ] Choreography of the David by stage from `technique.md` and `tools.md` (coordinator writes the step list; stage workers own generators that the generic ones do not cover).
+- [ ] Visual audit against `references.md` (including the one visual pass over the uncategorised JBS/JBU detail series it flags), independent review, fixes (coordinator with reviewer).
 - [ ] Docs, devlog, merge, push, worktree cleanup (coordinator).
 
 ## Outcome
