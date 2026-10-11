@@ -147,3 +147,14 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# sculpture: task-run evidence, fetched assets and local caches (never tracked; see AGENTS.md)
+.shots/
+output/
+tmp/
+test-results/
+playwright-report/
+assets/cache/
+public/model/
+.claude/worktrees/
+.claude/settings.local.json
