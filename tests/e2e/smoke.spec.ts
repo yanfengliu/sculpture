@@ -1,6 +1,6 @@
 /**
- * Smoke test of the capture contract (docs/design/spec.md, Query contract): `/?shot=1` loads on the dev server, draws one canvas of 1400×1000 CSS pixels at a 1400×1000 viewport, reports `window.__shotReady`, is not blank, exposes `window.__sculpture` with a making in it, and logs no console error or uncaught exception.
- * Bound: it proves the toolchain, the WebGL path and the contract's plumbing; "not blank" means the sampled pixels are not all one colour, which says nothing about what was drawn. It does not test the built `dist/`. The making is whatever src/main.ts boots (the development stub until integration); the test asks only that it has steps.
+ * Smoke test of the capture contract (docs/design/spec.md, Query contract): `/?shot=1` loads on the dev server, draws one canvas of 1400×1000 CSS pixels at a 1400×1000 viewport, reports `window.__shotReady`, is not blank, exposes `window.__sculpture` with a making in it, labels the first step as Day 1 of 9 September 1501 (the first chisel blows, src/ui/label.ts), and logs no console error or uncaught exception.
+ * Bound: it proves the toolchain, the WebGL path and the contract's plumbing on the synthetic figure; "not blank" means the sampled pixels are not all one colour, which says nothing about what was drawn. It does not test the built `dist/`. The making is whatever src/main.ts boots; the test asks only that it has steps whose first one starts on the day origin.
  */
 import { expect, test } from '@playwright/test';
 
@@ -21,8 +21,8 @@ test.use({ viewport: VIEWPORT });
 test('/?shot=1 draws the yard and block to a 1400x1000 canvas, reaches shot-ready and exposes the facts', async ({ page }) => {
   const problems = collectProblems(page);
 
-  const response = await page.goto('/?shot=1');
-  expect(response?.status(), 'GET /?shot=1').toBe(200);
+  const response = await page.goto('/?shot=1&model=synthetic');
+  expect(response?.status(), 'GET /?shot=1&model=synthetic').toBe(200);
 
   const canvas = page.locator('canvas');
   await expect(canvas).toHaveCount(1);
@@ -46,7 +46,7 @@ test('/?shot=1 draws the yard and block to a 1400x1000 canvas, reaches shot-read
   expect(facts?.stages.length).toBeGreaterThan(0);
   expect(facts?.planLength).toBeGreaterThan(0);
   expect(facts?.planDigest).toMatch(/^[0-9a-f]{8,}$/);
-  await expect(page.getByTestId('label')).toHaveText(/^Day 1 · 13 September 1501 · /);
+  await expect(page.getByTestId('label')).toHaveText(new RegExp(`^Day 1 · 9 September 1501 · .+ — ${(facts?.stepTitles[0] ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
   await expect(page.getByTestId('attribution')).toBeVisible();
   await expect(page.getByTestId('time-lapse')).toContainText('Time-lapse');
 

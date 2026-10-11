@@ -1,12 +1,12 @@
 /**
  * The timeline label (docs/design/spec.md, Page): `Day d · <date> · <stage> — <title>` from the step's calendar, with the detail line beneath naming the tool and the real blows each shown blow stands for.
- * Pure string functions, unit-tested in label.test.ts. Day 1 is 13 September 1501, the documented start (docs/research/technique.md, The record that anchors the timeline); the date within a step is interpolated over its calendar span by the step's local progress.
+ * Pure string functions, unit-tested in label.test.ts. Day 1 is 9 September 1501, the first chisel blows (the nodo; docs/research/technique.md, The record that anchors the timeline), so the formal start of 13 September is Day 5; the date within a step is interpolated over its calendar span by the step's local progress.
  * Dates are the ISO strings of the choreography, taken as calendar days; day counts use UTC arithmetic, which agrees with the Julian calendar's day counts between 1501 and 1504 (no Gregorian century exception falls in the span).
  */
 import type { StepInfo } from '../contracts/making';
 import type { ToolNames } from '../viewer/bundle';
 
-export const CALENDAR_START = '1501-09-13';
+export const CALENDAR_START = '1501-09-09';
 export const CALENDAR_END = '1504-09-08';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];

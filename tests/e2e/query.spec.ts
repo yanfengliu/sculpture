@@ -1,11 +1,11 @@
 /**
  * The query contract as the page honours it (docs/design/spec.md, Query contract): `noui=1`, `autoplay=0` and the default autoplay, `t=`, `step=` by index and by id, `view=`, `cam=` over `view=`, `finish=1`, `shot=1`, and the problems the page reports for values it cannot honour.
- * Bound: against the development stub (N = 9, step ids of src/viewer/stub-making.ts); the parser itself is pinned by src/viewer/query.test.ts.
+ * Bound: positions, ids and labels come from the step list the page publishes (helpers.ts, `stepData`), so the test holds for any making with at least six steps on the synthetic figure; the parser itself is pinned by src/viewer/query.test.ts.
  */
 import { expect, test } from '@playwright/test';
 
 import { BLOCK_M } from '../../src/david/frame';
-import { VIEWPORT, canvasBlocks, expectDifferentCanvas, expectSameCanvas, facts, labelAndScrubber, openPage, waitFrames } from './helpers';
+import { VIEWPORT, canvasBlocks, expectDifferentCanvas, expectSameCanvas, facts, labelAndScrubber, openPage, stepData, waitFrames } from './helpers';
 
 test.use({ viewport: VIEWPORT });
 
@@ -29,26 +29,29 @@ test('the first load plays forward from t = 0; autoplay=0 keeps it still', async
 });
 
 test('t= sets the position; step= by index or id wins over it; a step the making lacks is reported', async ({ page }) => {
+  // Five loads, each booting the figure grid and replaying the steps before its position.
+  test.slow();
   await openPage(page, 'autoplay=0&t=3.5');
+  const steps = await stepData(page);
   expect((await facts(page)).t).toBe(3.5);
   expect(await labelAndScrubber(page)).toMatchObject({ scrubber: '3.5' });
-  await expect(page.getByTestId('label')).toHaveText(/The two-tooth and the coarse claw — Combing the masses with the claw$/);
+  await expect(page.getByTestId('label')).toHaveText(steps.labelAt(3.5));
 
   await openPage(page, 'autoplay=0&step=3&t=1');
   expect((await facts(page)).t).toBe(3);
-  await openPage(page, 'autoplay=0&step=drill-hair');
+  const sixth = steps.stepIds[5];
+  if (sixth === undefined) throw new Error('this test needs a sixth step');
+  await openPage(page, `autoplay=0&step=${encodeURIComponent(sixth)}`);
   expect((await facts(page)).t).toBe(6);
-  // The end of the drilling step is the rest position before rasping, so the label names the step about to start.
-  await expect(page.getByTestId('label')).toHaveText(/Rasps and files — Rasps and files over the flesh$/);
+  await expect(page.getByTestId('label')).toHaveText(steps.labelAt(6));
 
   await openPage(page, 'autoplay=0&step=no-such-step&t=2');
   const missing = await facts(page);
   expect(missing.t).toBe(2);
   expect(missing.queryProblems).toEqual([expect.stringContaining('query parameter step="no-such-step" was ignored')]);
-  await openPage(page, 'autoplay=0&step=99');
-  expect((await facts(page)).queryProblems).toEqual(['query parameter step="99" was ignored: it takes a step id or a 1-based index from 1 to 9.']);
-  await openPage(page, 'autoplay=0&t=99');
-  expect((await facts(page)).t).toBe(9);
+  await openPage(page, 'autoplay=0&step=999');
+  expect((await facts(page)).queryProblems).toEqual([`query parameter step="999" was ignored: it takes a step id or a 1-based index from 1 to ${String(steps.N)}.`]);
+  // The clamp of t= to [0, N] is the player's (src/timeline/player.test.ts); loading at t above N would replay the whole plan here for nothing new.
 });
 
 test('view= picks a preset, cam= wins over it, and an unknown view is reported', async ({ page }) => {
@@ -87,7 +90,7 @@ test('shot=1 never plays, reports ready and frames the working tip for view=foll
   await openPage(page, 'shot=1&t=2.5&view=follow');
   await page.waitForFunction(() => window.__shotReady === true);
   const shot = await facts(page);
-  expect(shot).toMatchObject({ playing: null, moving: false, t: 2.5, view: 'follow', queryProblems: [] });
+  expect(shot).toMatchObject({ playing: null, moving: false, t: 2.5, view: 'follow', dirtyChunks: 0, queryProblems: [] });
   await openPage(page, 'shot=1&t=2&view=follow');
   await page.waitForFunction(() => window.__shotReady === true);
   expect((await facts(page)).queryProblems).toEqual(['query parameter view="follow" was ignored: no blow is in progress at t=2; it takes a t inside a step.']);
