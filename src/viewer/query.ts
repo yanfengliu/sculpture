@@ -2,7 +2,7 @@
  * The only reader of the page URL (docs/design/spec.md, Query contract; `src/repo-conventions.test.ts` enforces it).
  *
  * Every parameter is parsed here into one typed object; the rest of the app takes it from that object and never touches the URL.
- * The viewer uses `shot` and `cam` today; `view`, `autoplay`, `noui`, `model`, `finish`, `t` and `step` are parsed and exposed for the page, timeline and model owners.
+ * The viewer uses `shot` and `cam` today; `view`, `autoplay`, `noui`, `model`, `finish`, `yard`, `t` and `step` are parsed and exposed for the page, timeline and model owners.
  * A value that does not fit its parameter is dropped to the parameter's default and named in `problems`, so a typo in a capture URL is reported, not silently a different shot.
  */
 
@@ -32,6 +32,8 @@ export interface ViewerQuery {
   readonly model: ModelId;
   /** `finish=1`: show the finish grid as flat colours. */
   readonly finish: boolean;
+  /** `yard=0`: hide every yard structure (the enclosure, the scaffold, the bench, the model stand); the floor stays. */
+  readonly yard: boolean;
   /** `t=<number>`, a finite timeline position at or above 0; clamping to `[0, N]` is the timeline's job. */
   readonly t: number | null;
   /** `step=<id or 1-based index>`: position at the end of that step; wins over `t`. */
@@ -69,7 +71,7 @@ export function parseViewerQuery(search: string): ViewerQuery {
   const t = parseT(params.get('t'), reject);
   const step = parseStep(params.get('step'));
 
-  return { shot, view, cam, autoplay: autoplayFlag && !shot, noui: flag('noui', false), model, finish: flag('finish', false), t, step, problems };
+  return { shot, view, cam, autoplay: autoplayFlag && !shot, noui: flag('noui', false), model, finish: flag('finish', false), yard: flag('yard', true), t, step, problems };
 }
 
 /** Reads the live page URL. The only place in `src/` that touches `location`. */

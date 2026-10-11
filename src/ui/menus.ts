@@ -1,5 +1,5 @@
 /**
- * The stage menu and the view menu (docs/design/spec.md, Page): the stages in order, the camera presets, the follow-tool toggle and the finish toggle, with the finish-code legend shown while the toggle is on.
+ * The stage menu and the view menu (docs/design/spec.md, Page): the stages in order, the camera presets, the follow-tool toggle, the finish toggle, with the finish-code legend shown while the toggle is on, and the yard toggle (pressed while the yard structures show).
  * Each control has an accessible name and a `data-testid`; the menus report choices to their actions and reflect the state they are given.
  */
 import { FINISH } from '../contracts/grid';
@@ -12,6 +12,7 @@ export interface MenuActions {
   readonly chooseView: (id: string) => void;
   readonly toggleFollow: () => void;
   readonly toggleFinish: () => void;
+  readonly toggleYard: () => void;
 }
 
 export interface MenuState {
@@ -20,6 +21,8 @@ export interface MenuState {
   readonly view: string;
   readonly follow: boolean;
   readonly finish: boolean;
+  /** Whether the yard structures show. */
+  readonly yard: boolean;
 }
 
 export interface Menus {
@@ -99,8 +102,10 @@ export function createMenus(stages: readonly StageDef[], presets: readonly Prese
 
   const follow = toggle('follow-toggle', 'Follow tool', actions.toggleFollow);
   const finish = toggle('finish-toggle', 'Finish codes', actions.toggleFinish);
+  const yard = toggle('yard-toggle', 'Yard', actions.toggleYard);
+  yard.setAttribute('aria-pressed', 'true');
   const legend = buildLegend();
-  element.append(stageLabel, viewLabel, follow, finish);
+  element.append(stageLabel, viewLabel, follow, finish, yard);
 
   return {
     element,
@@ -110,6 +115,7 @@ export function createMenus(stages: readonly StageDef[], presets: readonly Prese
       if (viewMenu.value !== state.view) viewMenu.value = state.view;
       follow.setAttribute('aria-pressed', state.follow ? 'true' : 'false');
       finish.setAttribute('aria-pressed', state.finish ? 'true' : 'false');
+      yard.setAttribute('aria-pressed', state.yard ? 'true' : 'false');
       legend.hidden = !state.finish;
     },
   };

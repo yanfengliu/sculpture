@@ -33,6 +33,7 @@ export interface UiState {
   readonly view: string;
   readonly follow: boolean;
   readonly finish: boolean;
+  readonly yard: boolean;
 }
 
 export interface Ui {
@@ -78,7 +79,7 @@ export function createUi(container: HTMLElement, options: UiOptions): Ui {
         label: step === undefined ? 'No steps' : formatLabel(step, stageTitle, f),
         detail: step === undefined ? '' : formatDetail(step, options.toolNames(step.tool)),
       });
-      menus.update({ stage: step?.stage ?? '', view: state.view, follow: state.follow, finish: state.finish });
+      menus.update({ stage: step?.stage ?? '', view: state.view, follow: state.follow, finish: state.finish, yard: state.yard });
     },
   };
 }

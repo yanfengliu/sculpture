@@ -16,6 +16,7 @@ describe('parseViewerQuery', () => {
       noui: false,
       model: 'david',
       finish: false,
+      yard: true,
       t: null,
       step: null,
       problems: [],
@@ -27,6 +28,15 @@ describe('parseViewerQuery', () => {
     expect(parseViewerQuery('?shot=1&noui=1&finish=1')).toMatchObject({ shot: true, noui: true, finish: true });
     expect(parseViewerQuery('shot=1')).toMatchObject({ shot: true });
     expect(parseViewerQuery('shot=0&noui=0&finish=0')).toMatchObject({ shot: false, noui: false, finish: false, problems: [] });
+  });
+
+  it('keeps the yard unless yard=0', () => {
+    expect(parseViewerQuery('').yard).toBe(true);
+    expect(parseViewerQuery('yard=1').yard).toBe(true);
+    expect(parseViewerQuery('yard=0').yard).toBe(false);
+    const bad = parseViewerQuery('yard=off');
+    expect(bad.yard).toBe(true);
+    expect(bad.problems).toEqual(['query parameter yard="off" was ignored: it takes 1 or 0.']);
   });
 
   it('switches autoplay off for autoplay=0 and for every shot', () => {

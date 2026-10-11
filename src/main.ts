@@ -130,6 +130,7 @@ const camera = initialCamera(query, making, problems);
 for (const problem of problems) console.warn(problem);
 
 const viewer = createViewer(document.body, { shot: query.shot, pose: camera.pose });
+viewer.yard.setEnabled(query.yard);
 const isGroup = (object: Object3D): object is Group => object instanceof Group;
 const rig = createToolRig({
   meshes: bundle.toolMeshes,
@@ -149,7 +150,7 @@ viewer.controls.addEventListener('start', () => {
 let lastSignature = '';
 /** Publishes the facts when any of them changed: every frame, and right after a control acts, so a test that reads them after a click never sees the frame before it. */
 function publish(): void {
-  const facts = buildFacts(making, player, { view, follow: follow.enabled, finish: marble.flat, queryProblems: problems });
+  const facts = buildFacts(making, player, { view, follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled, hiddenSpans: viewer.yard.hidden, queryProblems: problems });
   const signature = factsSignature(facts);
   if (signature === lastSignature) return;
   lastSignature = signature;
@@ -220,6 +221,9 @@ const actions = {
   toggleFinish: act(() => {
     marble.setFlat(!marble.flat);
   }),
+  toggleYard: act(() => {
+    viewer.yard.setEnabled(!viewer.yard.enabled);
+  }),
 };
 
 const ui = query.noui ? null : createUi(document.body, { making, presets: PRESETS, attribution: attributionOf(bundle), toolNames: bundle.toolNames, actions });
@@ -262,7 +266,7 @@ viewer.start((seconds) => {
   rig.update(making.poses, current === null ? null : { tool: current.blow.tool, phase: current.phase });
   chips.update(making.chips);
   if (!query.shot && player.moving) follow.update(seconds, current?.blow.point ?? null, DEFAULT_FOLLOW_DISTANCE);
-  ui?.update({ t: player.t, playing: player.playing, speed: player.speed, view: isPresetId(view) ? view : 'free', follow: follow.enabled, finish: marble.flat });
+  ui?.update({ t: player.t, playing: player.playing, speed: player.speed, view: isPresetId(view) ? view : 'free', follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled });
   publish();
   if (query.shot) {
     if (making.dirtyChunks === 0 && !player.moving) {
