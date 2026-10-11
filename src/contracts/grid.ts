@@ -36,8 +36,8 @@ export interface GridHeader extends GridSpec {
 /** Values are signed distances in cells times FIXED_POINT, stored as little-endian Int16, negative inside stone or statue, clamped to ±band × FIXED_POINT. */
 export const FIXED_POINT = 256;
 
-/** Clamp distance of every grid, in cells. Wide enough for a stage margin plus the deepest tool cut; narrow enough that the far field is constant and compresses well. */
-export const DEFAULT_BAND_CELLS = 32;
+/** Clamp distance of the figure grid, in cells: 128 mm at 8 mm cells, wider than the largest stage margin (30 mm) plus the deepest tool cut (about 80 mm), so the carving rule never clamps a cut short; narrow enough that most of the block is constant and the gzipped file stays small (docs/research/decisions.md). The stock grid's band is STOCK_BAND_CELLS in src/david/frame.ts. */
+export const DEFAULT_BAND_CELLS = 16;
 
 /** Cell (i, j, k) of a grid of `size` is value index `i + nx * (j + ny * k)`: x fastest, then y, then z. */
 export function cellIndex(size: readonly [number, number, number], i: number, j: number, k: number): number {

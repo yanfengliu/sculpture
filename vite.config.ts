@@ -13,5 +13,9 @@ export default defineConfig({
   base: './',
   server: { host: '127.0.0.1', port, strictPort: true },
   preview: { host: '127.0.0.1', port, strictPort: true },
-  build: { chunkSizeWarningLimit: 1000 },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    // The tools gallery (tools.html, src/tools/dev) is a second page entry.
+    rolldownOptions: { input: ['index.html', 'tools.html'] },
+  },
 });
