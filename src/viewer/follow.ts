@@ -1,5 +1,5 @@
 /**
- * The follow-tool camera (docs/design/spec.md, Page, View menu): while playback moves, the orbit target glides to the working tip and the camera keeps its viewing direction at the step's focus distance, with a soft lag; a drag on the canvas switches it off.
+ * The follow-tool camera (docs/design/spec.md, Page, View menu): while playback moves, the orbit target glides to the working tip (or the step's focus point) and the camera to the side the blow's normal faces (`viewDirectionFor`), at the step's focus distance, with a soft lag; a drag on the canvas switches it off.
  * `framingFor` is the same framing as one fixed pose, for `?view=follow` captures where nothing moves.
  */
 import type { PerspectiveCamera } from 'three';
@@ -20,8 +20,8 @@ const MIN_CAMERA_HEIGHT = 0.3;
 export interface FollowCamera {
   readonly enabled: boolean;
   setEnabled(on: boolean): void;
-  /** Moves the camera toward the framing of `tip` over `seconds`; a null tip (a rest position) leaves the camera where it is. */
-  update(seconds: number, tip: Vec3 | null, distance: number): void;
+  /** Moves the camera toward the framing of `tip` from `viewDirection` (the current direction when null) at `distance` over `seconds`; a null tip (a rest position) leaves the camera where it is. */
+  update(seconds: number, tip: Vec3 | null, distance: number, viewDirection?: Vec3 | null): void;
   /** Listener for the drag switch-off, so the menu's toggle can follow. */
   onDisabled(listener: () => void): void;
   dispose(): void;
@@ -63,11 +63,15 @@ export function createFollow(camera: PerspectiveCamera, controls: OrbitControls)
     setEnabled(on) {
       enabled = on;
     },
-    update(seconds, tip, distance) {
+    update(seconds, tip, distance, viewDirection = null) {
       if (!enabled || tip === null) return;
       desiredTarget.set(...tip);
-      direction.subVectors(camera.position, controls.target);
-      if (direction.lengthSq() < 1e-6) direction.set(...DEFAULT_VIEW_DIRECTION);
+      if (viewDirection === null) {
+        direction.subVectors(camera.position, controls.target);
+        if (direction.lengthSq() < 1e-6) direction.set(...DEFAULT_VIEW_DIRECTION);
+      } else {
+        direction.set(...viewDirection);
+      }
       direction.normalize();
       desiredPosition.copy(desiredTarget).addScaledVector(direction, distance);
       desiredPosition.y = Math.max(MIN_CAMERA_HEIGHT, desiredPosition.y);

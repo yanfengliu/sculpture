@@ -8,7 +8,7 @@ import type { Material, Object3D } from 'three';
 import { DAVID_STEPS } from './choreography/david-steps';
 import { STAGES } from './choreography/stages';
 import type { GridHeader } from './contracts/grid';
-import type { Making } from './contracts/making';
+import type { Making, Vec3 } from './contracts/making';
 import { DEFAULT_CELL_M } from './david/frame';
 import { syntheticFigure } from './david/synthetic';
 import { loadFigureGrid } from './stock/grid';
@@ -109,7 +109,7 @@ function initialCamera(query: ViewerQuery, making: Making, problems: string[]): 
   if (query.view === null) return fallback;
   if (query.view === FOLLOW_VIEW) {
     const current = making.current;
-    if (current !== null) return { pose: framingFor(current.blow.point, DEFAULT_FOLLOW_DISTANCE, viewDirectionFor(current.blow.normal)), view: FOLLOW_VIEW };
+    if (current !== null) return { pose: framingFor(current.blow.point, focusDistance(making, making.t), viewDirectionFor(current.blow.normal)), view: FOLLOW_VIEW };
     problems.push(`query parameter view="follow" was ignored: no blow is in progress at t=${String(making.t)}; it takes a t inside a step.`);
     return fallback;
   }
@@ -117,6 +117,11 @@ function initialCamera(query: ViewerQuery, making: Making, problems: string[]): 
   if (preset !== undefined) return { pose: preset.pose, view: preset.id };
   problems.push(`query parameter view=${JSON.stringify(query.view)} was ignored: it takes one of ${PRESETS.map((item) => item.id).join(', ')} or follow.`);
   return fallback;
+}
+
+/** The follow distance of the step at `t`: its focus distance, or the default (docs/design/spec.md, Page, View menu). */
+function focusDistance(making: Making, t: number): number {
+  return making.steps[Math.min(making.N - 1, Math.floor(t))]?.focus?.distance ?? DEFAULT_FOLLOW_DISTANCE;
 }
 
 function attributionOf(bundle: MakingBundle): Attribution | null {
@@ -250,12 +255,22 @@ if (query.shot) {
     making.setTime(player.t);
     // A follow shot re-frames the blow in progress at the new position, as a fresh load with view=follow would.
     const current = making.current;
-    if (view === FOLLOW_VIEW && current !== null) viewer.setPose(framingFor(current.blow.point, DEFAULT_FOLLOW_DISTANCE, viewDirectionFor(current.blow.normal)));
+    if (view === FOLLOW_VIEW && current !== null) viewer.setPose(framingFor(current.blow.point, focusDistance(making, player.t), viewDirectionFor(current.blow.normal)));
   };
 }
 
 /** The carry a step's first approach gets (src/timeline/carry.ts): the tools' carry time from the bench, so a tool never crosses metres in a frame; none in capture mode, where nothing plays. */
 const carry: CarrySeconds = query.shot ? null : (bundle.carrySeconds ?? null);
+
+/** What the follow camera frames at the player's position: the step's focus point, else the working tip, at the step's focus distance and from the side the blow's normal faces; null at a rest position without a focus point. */
+function followFraming(): { readonly target: Vec3; readonly distance: number; readonly direction: Vec3 | null } | null {
+  const current = making.current;
+  const focus = making.steps[Math.min(making.N - 1, Math.floor(player.t))]?.focus;
+  const distance = focusDistance(making, player.t);
+  const direction = current === null ? null : viewDirectionFor(current.blow.normal);
+  if (focus?.kind === 'point' && focus.point !== undefined) return { target: focus.point, distance, direction };
+  return current === null ? null : { target: current.blow.point, distance, direction };
+}
 
 viewer.start((seconds) => {
   advanceWithCarry(seconds, player, making, carry);
@@ -263,7 +278,10 @@ viewer.start((seconds) => {
   const current = making.current;
   rig.update(making.poses, current === null ? null : { tool: current.blow.tool, phase: current.phase });
   chips.update(making.chips);
-  if (!query.shot && player.moving) follow.update(seconds, current?.blow.point ?? null, DEFAULT_FOLLOW_DISTANCE);
+  if (!query.shot && player.moving) {
+    const framing = followFraming();
+    follow.update(seconds, framing?.target ?? null, framing?.distance ?? DEFAULT_FOLLOW_DISTANCE, framing?.direction ?? null);
+  }
   ui?.update({ t: player.t, playing: player.playing, speed: player.speed, view: isPresetId(view) ? view : 'free', follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled });
   publish();
   if (query.shot) {
