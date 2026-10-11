@@ -164,10 +164,11 @@ function publish(): void {
   publishFacts(facts);
 }
 
-/** A control action: runs, then publishes the facts it changed. */
+/** A control action: runs, brings the making to the player's position, then publishes the facts it changed, so a read right after a control never sees the player ahead of the stock. */
 function act<A extends unknown[]>(run: (...args: A) => void): (...args: A) => void {
   return (...args) => {
     run(...args);
+    if (player.t !== making.t) making.setTime(player.t);
     publish();
   };
 }
