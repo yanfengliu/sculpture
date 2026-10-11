@@ -29,7 +29,14 @@ export function noServerMessage(name, base) {
  */
 export async function openCapturePage({ width, height }) {
   const browser = await chromium.launch({ channel: BROWSER_CHANNEL, headless: true, args: [...BROWSER_ARGS] });
-  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+  let page;
+  try {
+    page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+  } catch (error) {
+    // A browser without a page would outlive the script; close it before reporting why the page could not open.
+    await browser.close();
+    throw error;
+  }
   const errors = [];
   const warnings = [];
   page.on('console', (message) => {
