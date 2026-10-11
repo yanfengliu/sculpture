@@ -1,30 +1,36 @@
 /**
- * The yard and the block: renderer, scene, lights, camera and orbit controls.
- * World frame per docs/design/spec.md: 1 unit = 1 metre, +Y up, the figure faces +Z, the origin is the centre of the block's footprint on the yard floor.
- *
- * The block is a placeholder box until `src/david/frame.ts` (coordinator) lands the researched constants; the page then reads them from there and these three numbers go.
+ * The viewer: renderer, scene, warm daylight, camera and orbit controls, and the frame loop the page drives.
+ * World frame per docs/design/spec.md: 1 unit = 1 metre, +Y up, the figure faces +Z, the origin is the centre of the block's footprint on the yard floor. The yard itself is src/viewer/yard.ts.
+ * Rendering choices follow docs/research/decisions.md (WebGLRenderer, GLSL injection) and docs/research/engine-options.md section 6.
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
+import { BLOCK_M } from '../david/frame';
 import type { CameraPose } from './query';
+import { buildYard } from './yard';
 
-/** Placeholder block, metres: width across the front (x), height (y), depth (z). Replaced by `src/david/frame.ts`. */
-export const PLACEHOLDER_BLOCK = { width: 2.0, height: 5.5, depth: 1.2 } as const;
+/** Kept for src/tools/dev/main.ts, which looks for a placeholder block of this height; the scene holds no block of its own any more (the stock comes from the making). */
+export const PLACEHOLDER_BLOCK = BLOCK_M;
+/** The three-quarter framing of src/viewer/presets.ts, for a caller that passes no pose. */
+const DEFAULT_POSE: CameraPose = { position: [7, 4.2, 8.2], target: [0, BLOCK_M.height / 2 - 0.15, 0] };
 
-const YARD_SIZE = 40;
-const SKY_COLOUR = 0xcfd9e3;
-const YARD_COLOUR = 0xa89c86;
-const MARBLE_COLOUR = 0xece9e2;
-/** Frames the whole block from the front right, a little above eye height. */
-const DEFAULT_CAMERA: CameraPose = { position: [7, 4.5, 10], target: [0, PLACEHOLDER_BLOCK.height / 2, 0] };
-const READY_FRAMES = 5;
+/** Neutral sky: a pale grey-blue, not the page background (#202020), so a blank canvas is told from a drawn one. */
+const SKY_COLOUR = 0xd8dee5;
+/** Warm Tuscan sun from the front right, high enough that the turata's walls shade none of the block. */
+const SUN_DIRECTION = new THREE.Vector3(5, 14, 9);
+const SUN_COLOUR = 0xfff1dc;
+const SUN_INTENSITY = 2.3;
+const SHADOW_EXTENT = 10;
+const MAX_FRAME_SECONDS = 0.1;
 
 export interface ViewerOptions {
-  /** Capture mode: no damping, so the first frames show the requested pose exactly, and `window.__shotReady` after `READY_FRAMES`. */
+  /** Capture mode: no damping, so the first frames show the requested pose exactly. */
   readonly shot: boolean;
-  /** Explicit camera from `?cam=`; the default framing when null. */
-  readonly cam: CameraPose | null;
+  /** The initial camera; `cam` is the older name src/tools/dev/main.ts still passes (null for the default). */
+  readonly pose?: CameraPose;
+  readonly cam?: CameraPose | null;
 }
 
 export interface Viewer {
@@ -32,8 +38,11 @@ export interface Viewer {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly controls: OrbitControls;
-  /** Starts the render loop; resizes with the window. */
-  start(): void;
+  /** Frames rendered since `start`. */
+  readonly frames: number;
+  setPose(pose: CameraPose): void;
+  /** Starts the render loop; `tick` runs before every render with the clamped seconds since the previous frame. */
+  start(tick?: (seconds: number) => void): void;
 }
 
 export function createViewer(container: HTMLElement, options: ViewerOptions): Viewer {
@@ -42,19 +51,33 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.92;
+  renderer.domElement.setAttribute('aria-label', 'The workshop yard');
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(SKY_COLOUR);
-  scene.add(...buildLights(), buildYard(), buildBlock());
+  scene.fog = new THREE.Fog(SKY_COLOUR, 40, 90);
+  const environment = new THREE.PMREMGenerator(renderer);
+  scene.environment = environment.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.25;
+  scene.add(...buildLights(), buildYard());
 
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 500);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = !options.shot;
   controls.maxPolarAngle = Math.PI / 2 - 0.02;
-  controls.minDistance = 1;
+  // 20 cm tools must be framed from close by in the follow view.
+  controls.minDistance = 0.2;
   controls.maxDistance = 80;
-  applyPose(camera, controls, options.cam ?? DEFAULT_CAMERA);
+
+  function setPose(pose: CameraPose): void {
+    camera.position.set(...pose.position);
+    controls.target.set(...pose.target);
+    controls.update();
+  }
+  setPose(options.pose ?? options.cam ?? DEFAULT_POSE);
 
   function resize(): void {
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -63,68 +86,48 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
   }
 
   let frames = 0;
-  function frame(): void {
-    controls.update();
-    renderer.render(scene, camera);
-    frames += 1;
-    if (options.shot && frames === READY_FRAMES) window.__shotReady = true;
-    requestAnimationFrame(frame);
-  }
-
+  let last: number | null = null;
   return {
     renderer,
     scene,
     camera,
     controls,
-    start(): void {
+    get frames() {
+      return frames;
+    },
+    setPose,
+    start(tick) {
       window.addEventListener('resize', resize);
       resize();
+      const frame = (now: number): void => {
+        const seconds = last === null ? 0 : Math.min(MAX_FRAME_SECONDS, (now - last) / 1000);
+        last = now;
+        tick?.(seconds);
+        controls.update();
+        renderer.render(scene, camera);
+        frames += 1;
+        requestAnimationFrame(frame);
+      };
       requestAnimationFrame(frame);
     },
   };
 }
 
-function applyPose(camera: THREE.PerspectiveCamera, controls: OrbitControls, pose: CameraPose): void {
-  camera.position.set(...pose.position);
-  controls.target.set(...pose.target);
-  controls.update();
-}
-
-/** Neutral daylight: a sky-and-ground hemisphere plus one sun, low enough in front that the block's vertical faces read as white stone, casting its shadow on the yard. */
-function buildLights(): THREE.Light[] {
-  const hemisphere = new THREE.HemisphereLight(0xdfe8f0, 0x8a7a66, 0.9);
-  const sun = new THREE.DirectionalLight(0xfff2e0, 2.5);
-  sun.position.set(6, 9, 12);
+/** Daylight: a sky-and-ground hemisphere fill plus one sun with soft shadows over the yard; the sun's target is returned with it so the scene holds both. */
+function buildLights(): THREE.Object3D[] {
+  const hemisphere = new THREE.HemisphereLight(0xdde6ef, 0x8a7a66, 0.55);
+  const sun = new THREE.DirectionalLight(SUN_COLOUR, SUN_INTENSITY);
+  sun.position.copy(SUN_DIRECTION).normalize().multiplyScalar(35);
+  sun.target.position.set(0, 2, 0);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -8;
-  sun.shadow.camera.right = 8;
-  sun.shadow.camera.top = 10;
-  sun.shadow.camera.bottom = -4;
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 40;
-  sun.shadow.bias = -0.0005;
-  return [hemisphere, sun];
-}
-
-function buildYard(): THREE.Mesh {
-  const yard = new THREE.Mesh(
-    new THREE.PlaneGeometry(YARD_SIZE, YARD_SIZE),
-    new THREE.MeshStandardMaterial({ color: YARD_COLOUR, roughness: 1, metalness: 0 }),
-  );
-  yard.rotation.x = -Math.PI / 2;
-  yard.receiveShadow = true;
-  return yard;
-}
-
-function buildBlock(): THREE.Mesh {
-  const { width, height, depth } = PLACEHOLDER_BLOCK;
-  const block = new THREE.Mesh(
-    new THREE.BoxGeometry(width, height, depth),
-    new THREE.MeshStandardMaterial({ color: MARBLE_COLOUR, roughness: 0.85, metalness: 0 }),
-  );
-  block.position.y = height / 2;
-  block.castShadow = true;
-  block.receiveShadow = true;
-  return block;
+  sun.shadow.camera.left = -SHADOW_EXTENT;
+  sun.shadow.camera.right = SHADOW_EXTENT;
+  sun.shadow.camera.top = SHADOW_EXTENT;
+  sun.shadow.camera.bottom = -SHADOW_EXTENT;
+  sun.shadow.camera.near = 5;
+  sun.shadow.camera.far = 70;
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.02;
+  return [hemisphere, sun, sun.target];
 }
