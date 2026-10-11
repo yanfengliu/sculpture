@@ -17,7 +17,7 @@ test('from the three-quarter preset the front and right spans are hidden and the
   expect(threeQuarter.hiddenSpans).toEqual(['wall-right', 'scaffold-front', 'scaffold-right']);
 
   await page.getByTestId('view-menu').selectOption('back');
-  expect((await facts(page)).hiddenSpans).toEqual(['wall-back']);
+  expect((await facts(page)).hiddenSpans).toEqual(['wall-back', 'scaffold-back']);
   await page.getByTestId('view-menu').selectOption('front');
   expect((await facts(page)).hiddenSpans).toEqual(['scaffold-front']);
 });

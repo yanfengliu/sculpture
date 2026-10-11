@@ -15,6 +15,7 @@ const SPANS: readonly SpanGeometry[] = [
   { id: 'scaffold-front', centre: [0, 2.4, 1.67], normal: [0, 0, 1], cameraHides: true },
   { id: 'scaffold-left', centre: [-2.0, 2.4, -0.1], normal: [-1, 0, 0], cameraHides: true },
   { id: 'scaffold-right', centre: [2.0, 2.4, -0.1], normal: [1, 0, 0], cameraHides: true },
+  { id: 'scaffold-back', centre: [0, 2.4, -1.1], normal: [0, 0, -1], cameraHides: true },
   { id: 'bench', centre: [-2.0, 0.4, 1.3], normal: outwardNormal([-2.0, 0.4, 1.3]), cameraHides: false },
 ];
 
@@ -40,9 +41,9 @@ describe('hiddenSpans', () => {
     expect(hiddenSpans(SPANS, presetPosition('three-quarter'), true)).toEqual(['wall-right', 'scaffold-front', 'scaffold-right']);
   });
 
-  it('hides only the front scaffold from the front preset and only the back wall from the back preset', () => {
+  it('hides only the front scaffold from the front preset, and the back wall and back bridges from the back preset', () => {
     expect(hiddenSpans(SPANS, presetPosition('front'), true)).toEqual(['scaffold-front']);
-    expect(hiddenSpans(SPANS, presetPosition('back'), true)).toEqual(['wall-back']);
+    expect(hiddenSpans(SPANS, presetPosition('back'), true)).toEqual(['wall-back', 'scaffold-back']);
   });
 
   it('never hides the bench for the camera', () => {

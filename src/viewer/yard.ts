@@ -13,22 +13,14 @@ import { BLOCK_M } from '../david/frame';
 import { BENCH, LEATHER_PAD_REST } from '../tools/bench';
 import { quatFromBasis } from '../tools/math';
 import { propModel } from '../tools/props';
+import type { Platform } from '../tools/scaffold';
+import { BRIDGES, DECK_EXTENTS, DECK_LEVELS, SCAFFOLD_TIMBER } from '../tools/scaffold';
 import type { SpanGeometry, YardSpanId } from './yard-spans';
 import { hiddenSpans, outwardNormal } from './yard-spans';
 
-/** Deck heights above the floor, metres (technique.md, stage 0). */
-export const DECK_LEVELS = [1.5, 3.2] as const;
-/** Clearance between the scaffold's inner edge and the block's faces. */
-const CLEARANCE = 0.5;
-const DECK_WIDTH = 0.8;
-const PLANK_W = 0.25;
-const PLANK_T = 0.04;
-const PLANK_GAP = 0.02;
-const POST = 0.12;
-const BEAM = 0.1;
-const POST_HEIGHT = 6.0;
-/** Above the block's top, so the beam crosses no preset's view of the head. */
-const TOP_BEAM_Y = 5.85;
+/** The scaffold's timbers, deck extents and bridges are the tools' model (src/tools/scaffold.ts), the one the reach check uses, so the decks drawn are the decks the blows are planned from. */
+const { deckWidth: DECK_WIDTH, plankWidth: PLANK_W, plankThickness: PLANK_T, plankGap: PLANK_GAP, post: POST, beam: BEAM, postHeight: POST_HEIGHT, topBeamY: TOP_BEAM_Y } = SCAFFOLD_TIMBER;
+const { innerX: INNER_X, outerX: OUTER_X, sideZMin: SIDE_BACK_Z, sideZMax: SIDE_FRONT_Z, frontZMin: FRONT_INNER_Z, frontZMax: FRONT_OUTER_Z, frontHalfX: FRONT_HALF_X } = DECK_EXTENTS;
 /** The turata: side walls at ±x, back wall at −z, open at +z. */
 const WALL_X = 4.5;
 const WALL_BACK_Z = -3.5;
@@ -40,20 +32,12 @@ const FLOOR_SIZE = 60;
 /** The bench top's plank thickness; its extent is `BENCH` from src/tools/bench.ts, where the tools' rest slots are laid out. */
 const BENCH_THICKNESS = 0.05;
 /** The plumb line (a prop of src/tools/props.ts, 1.58 m from bob tip to reel) hangs from the top deck's inner front ledger just right of the block's front face. */
-export const PLUMB_LINE = { x: 0.95, z: BLOCK_M.depth / 2 + CLEARANCE, reel: 3.2 - PLANK_T - BEAM, height: 1.58 } as const;
+export const PLUMB_LINE = { x: 0.95, z: FRONT_INNER_Z, reel: DECK_LEVELS[1] - PLANK_T - BEAM, height: 1.58 } as const;
 /** Where the small wax model's stand (a post and a board) stands, beside the bench. */
 const WAX_STAND = { x: -3.3, z: 0.3, boardTop: 1.03 } as const;
-
-/** Scaffold extents around the block, shared by the side and front spans. */
-const HALF_W = BLOCK_M.width / 2;
-const HALF_D = BLOCK_M.depth / 2;
-const INNER_X = HALF_W + CLEARANCE;
-const OUTER_X = INNER_X + DECK_WIDTH;
-const SIDE_BACK_Z = -HALF_D - 0.4;
-const SIDE_FRONT_Z = HALF_D + 0.2;
-const FRONT_INNER_Z = HALF_D + CLEARANCE;
-const FRONT_OUTER_Z = FRONT_INNER_Z + DECK_WIDTH;
-const FRONT_HALF_X = HALF_W + 0.45;
+/** The bridges behind the block (src/tools/scaffold.ts) make the scaffold's back span; the head bridge across the front belongs to the front span. */
+const BACK_BRIDGES = BRIDGES.filter((bridge) => bridge.zMax <= 0);
+const FRONT_BRIDGES = BRIDGES.filter((bridge) => bridge.zMax > 0);
 
 interface Timber {
   readonly size: readonly [number, number, number];
@@ -243,6 +227,19 @@ function buildFrontScaffold(span: SpanBuilder): void {
   const line = propModel('plumb-line');
   line.position.set(PLUMB_LINE.x, PLUMB_LINE.reel - PLUMB_LINE.height, PLUMB_LINE.z);
   span.add(line);
+  for (const bridge of FRONT_BRIDGES) buildBridge(span, bridge);
+}
+
+/** A plank bridge of src/tools/scaffold.ts: planks along x, resting on the side decks' inner ledgers at the bridge's level, their tops flush with the decks. */
+function buildBridge(span: SpanBuilder, bridge: Platform): void {
+  for (let z = bridge.zMin + PLANK_W / 2; z <= bridge.zMax - PLANK_W / 2 + 1e-6; z += PLANK_W + PLANK_GAP) {
+    span.decks.add([bridge.xMax - bridge.xMin, PLANK_T, PLANK_W], [(bridge.xMin + bridge.xMax) / 2, bridge.level - PLANK_T / 2, z]);
+  }
+}
+
+/** The back of the scaffold: the bridges laid behind the block at both levels, which the decks do not ring. */
+function buildBackScaffold(span: SpanBuilder): void {
+  for (const bridge of BACK_BRIDGES) buildBridge(span, bridge);
 }
 
 /** The bench with the tools' rest slots on top and the props that lie on it: the leather pad with tripoli at its slot, the curved rasp beside the chisels. */
@@ -349,6 +346,7 @@ interface SpanPlan extends SpanGeometry {
 const SIDE_SCAFFOLD_CENTRE_X = (INNER_X + OUTER_X) / 2;
 const SIDE_SCAFFOLD_CENTRE_Z = (SIDE_BACK_Z + SIDE_FRONT_Z) / 2;
 const SCAFFOLD_CENTRE_Y = (DECK_LEVELS[0] + DECK_LEVELS[1]) / 2;
+const BACK_SCAFFOLD_Z = BACK_BRIDGES.length === 0 ? -BLOCK_M.depth / 2 : BACK_BRIDGES.reduce((sum, bridge) => sum + (bridge.zMin + bridge.zMax) / 2, 0) / BACK_BRIDGES.length;
 const WALL_CENTRE_Z = (WALL_BACK_Z + WALL_FRONT_Z) / 2;
 const BENCH_CENTRE: Vec3 = [(BENCH.xMin + BENCH.xMax) / 2, BENCH.top / 2, (BENCH.zMin + BENCH.zMax) / 2];
 const STAND_CENTRE: Vec3 = [WAX_STAND.x, WAX_STAND.boardTop / 2, WAX_STAND.z];
@@ -401,6 +399,7 @@ const SPAN_PLANS: readonly SpanPlan[] = [
       buildSideScaffold(span, 1);
     },
   },
+  { id: 'scaffold-back', centre: [0, SCAFFOLD_CENTRE_Y, BACK_SCAFFOLD_Z], normal: [0, 0, -1], cameraHides: true, build: buildBackScaffold },
   { id: 'bench', centre: BENCH_CENTRE, normal: outwardNormal(BENCH_CENTRE), cameraHides: false, build: buildBench },
   { id: 'model-stand', centre: STAND_CENTRE, normal: outwardNormal(STAND_CENTRE), cameraHides: true, build: buildWaxModel },
 ];
