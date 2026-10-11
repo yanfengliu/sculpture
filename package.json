@@ -17,6 +17,9 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "verify": "npm run test && npm run typecheck && npm run lint && npm run build && npm run test:e2e",
+    "model": "node scripts/fetch-model.mjs && node scripts/build-grid.mjs",
+    "model:fetch": "node scripts/fetch-model.mjs",
+    "model:grid": "node scripts/build-grid.mjs",
     "audit:runtime": "npm audit --omit=dev --audit-level=high",
     "audit:full": "npm audit --audit-level=high"
   },
