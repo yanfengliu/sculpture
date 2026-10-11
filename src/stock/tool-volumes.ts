@@ -38,6 +38,13 @@ export const TOOL_VOLUMES: Readonly<Record<ToolId, ToolVolumeSpec>> = {
 
 /** Crush sphere at the point's apex as a fraction of the cut depth: the whitened furrow bottom of tools.md, Subbia, The mark. */
 export const CRUSH_RATIO = 0.2;
+/** A point blow of this size or more is a bulk cut (the tools' BULK_CUT_SIZE_M in src/tools/catalog.ts, which the tests check this equals). */
+export const BULK_CUT_SIZE_M = 0.04;
+/**
+ * A bulk cut's crater: one shown bulk blow stands for about a thousand real ones (docs/research/decisions.md, Time and scale), so its removed volume is the union of a field of 90-degree pits, which tools.md (Subbia, The mark) describes as a pitted, crater-like crust: a flat-floored crater `BULK_RADIUS_RATIO × size` wide with a rim fillet of `BULK_FILLET_RATIO × size`, not one pit. A departure from a single blow's cone, stated in the handoff.
+ */
+export const BULK_RADIUS_RATIO = 1.2;
+export const BULK_FILLET_RATIO = 0.25;
 /** Corner radius of the rasp, file and pumice footprints as a fraction of the width. */
 const FOOTPRINT_ROUNDING = 0.3;
 /** Above and below the surface, the painting tools reach one blow size, so both sides of a crossing edge are painted. */
@@ -155,6 +162,11 @@ export function closedFormVolume(tool: ToolId, size: number): number {
   const spec = TOOL_VOLUMES[tool];
   switch (tool) {
     case 'point': {
+      if (size >= BULK_CUT_SIZE_M) {
+        const radius = BULK_RADIUS_RATIO * size;
+        const fillet = BULK_FILLET_RATIO * size;
+        return Math.PI * radius * radius * size - (1 - Math.PI / 4) * fillet * fillet * 2 * Math.PI * (radius - fillet);
+      }
       const radius = size * Math.tan(spec.angle);
       const crush = CRUSH_RATIO * size;
       return (Math.PI / 3) * radius * radius * size + ((1 + Math.cos(spec.angle)) / 2) * (4 / 3) * Math.PI * crush ** 3;
@@ -194,7 +206,7 @@ export function toolVolume(blow: Blow, figureAtPoint: number, figureBand: number
   const size = blow.size;
   switch (blow.tool) {
     case 'point':
-      return pointCone(f, size, spec);
+      return size >= BULK_CUT_SIZE_M ? bulkCrater(f, size) : pointCone(f, size, spec);
     case 'two-tooth':
     case 'claw':
     case 'fine-claw':
@@ -213,16 +225,54 @@ export function toolVolume(blow: Blow, figureAtPoint: number, figureBand: number
   }
 }
 
-/** Capped cone with its apex `size` deep along the tool axis and its base at the blow point, continued above the surface so the surface cells read as inside the cut, plus the crush sphere at the apex. */
+/** The bulk crater: a rounded, flat-floored cylinder along the tool axis, `size` deep from the blow point and open above the surface. */
+function bulkCrater(f: Frame, size: number): ToolVolume {
+  const radius = BULK_RADIUS_RATIO * size;
+  const fillet = BULK_FILLET_RATIO * size;
+  const halfHeight = (size + AIR_EXTENSION) / 2;
+  const centre = (size - AIR_EXTENSION) / 2;
+  const dx = f.d[0];
+  const dy = f.d[1];
+  const dz = f.d[2];
+  const reach = Math.max(radius, size, AIR_EXTENSION);
+  return {
+    removes: true,
+    min: [f.px - reach, f.py - reach, f.pz - reach],
+    max: [f.px + reach, f.py + reach, f.pz + reach],
+    distance(x, y, z) {
+      const qx = x - f.px;
+      const qy = y - f.py;
+      const qz = z - f.pz;
+      const h = qx * dx + qy * dy + qz * dz;
+      const rr = qx * qx + qy * qy + qz * qz - h * h;
+      const rho = rr > 0 ? Math.sqrt(rr) : 0;
+      const a = rho - radius + fillet;
+      const b = Math.abs(h - centre) - halfHeight + fillet;
+      const inside = a > b ? a : b;
+      const oa = a > 0 ? a : 0;
+      const ob = b > 0 ? b : 0;
+      return (inside < 0 ? inside : 0) + Math.sqrt(oa * oa + ob * ob) - fillet;
+    },
+  };
+}
+
+/**
+ * The sculptor's stroke: a cone with its apex `size` deep along the tool axis and its base at the blow point, open above the surface, plus the crush sphere at the apex.
+ * The distance is the larger of the distances to the lateral surface and to the base plane: exact inside and on the surface, a lower bound outside near the rim, which keeps the zero set right and the loop's skips safe.
+ */
 function pointCone(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
+  const angle = spec.angle;
   const top = size + AIR_EXTENSION;
-  const radius = top * Math.tan(spec.angle);
+  const tan = Math.tan(angle);
+  const cos = Math.cos(angle);
+  const radius = top * tan;
   const crush = CRUSH_RATIO * size;
   const ax = f.px + f.d[0] * size;
   const ay = f.py + f.d[1] * size;
   const az = f.pz + f.d[2] * size;
-  const xs = [-radius, 0, radius];
-  const ys = [top, 0, top];
+  const dx = f.d[0];
+  const dy = f.d[1];
+  const dz = f.d[2];
   const reach = Math.max(top, radius) + crush;
   return {
     removes: true,
@@ -232,9 +282,14 @@ function pointCone(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
       const qx = x - ax;
       const qy = y - ay;
       const qz = z - az;
-      const h = -(qx * f.d[0] + qy * f.d[1] + qz * f.d[2]);
-      const rho = Math.sqrt(Math.max(qx * qx + qy * qy + qz * qz - h * h, 0));
-      return Math.min(polygonDistance(xs, ys, rho, h), Math.hypot(qx, qy, qz) - crush);
+      const h = -(qx * dx + qy * dy + qz * dz);
+      const qq = qx * qx + qy * qy + qz * qz;
+      const rr = qq - h * h;
+      const rho = rr > 0 ? Math.sqrt(rr) : 0;
+      const lateral = (rho - h * tan) * cos;
+      const cone = lateral > h - top ? lateral : h - top;
+      const sphere = Math.sqrt(qq) - crush;
+      return cone < sphere ? cone : sphere;
     },
   };
 }

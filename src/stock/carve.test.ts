@@ -1,7 +1,7 @@
 /**
  * The carving rule and the tool volumes (src/stock/carve.ts, src/stock/tool-volumes.ts). What a green run proves, and its bounds:
  *   1. On 80 seeded random blows of every tool over a 4 cm synthetic grid the rule is monotone (no stock value falls), never passes the figure plus margin (`stock' <= max(stock, figure - margin)` in every cell), never turns a figure cell to air, and the stock bytes after the blows are the same for three random orders. The finish bytes are order-dependent by design (the last tool wins) and are not compared.
- *   2. Each removing tool struck straight into a flat face removes the volume its closed form says, within 15 percent, on a local grid fine enough for the tool (1 mm for the small tools, 4 mm for the point); the painting tools remove nothing and paint their finish on the face.
+ *   2. Each removing tool struck straight into a flat face removes the volume its closed form says, within 15 percent, on a local grid fine enough for the tool (1 mm for the small tools, 4 mm for the bulk crater, 2 mm for the sculptor's cone); the painting tools remove nothing and paint their finish on the face.
  *   3. Undoing the recorded boxes in reverse restores the stock and finish bytes exactly, and the undo and the result name the same dirty chunks.
  * Bounds: the closed forms are the ones in src/stock/tool-volumes.ts, so this checks the carved shape against the stated geometry, not against a real chisel mark; the 45-degree strokes of the plan are exercised only by the random blows.
  */
@@ -115,7 +115,9 @@ describe('carving rule on random blows', () => {
       const result = results[n];
       if (result === undefined) continue;
       expect(undoBlow(state, result.undo)).toEqual(result.dirty);
-      expect(result.undo.indices.length).toBe(result.changed);
+      let inRuns = 0;
+      for (let r = 1; r < result.undo.runs.length; r += 2) inRuns += result.undo.runs[r] ?? 0;
+      expect(result.undo.indices.length + inRuns).toBe(result.changed);
     }
     expect(state.stock.values).toEqual(stock0);
     expect(state.finish).toEqual(finish0);
@@ -136,6 +138,7 @@ function flatFace(cell: number, extent: number, top: number): { state: CarveStat
 describe('tool volumes on a flat face', () => {
   const cases: ReadonlyArray<{ tool: ToolId; size: number; cell: number; extent: number }> = [
     { tool: 'point', size: 0.06, cell: 0.004, extent: 0.32 },
+    { tool: 'point', size: 0.03, cell: 0.002, extent: 0.12 },
     { tool: 'two-tooth', size: 0.004, cell: 0.001, extent: 0.08 },
     { tool: 'claw', size: 0.003, cell: 0.001, extent: 0.08 },
     { tool: 'fine-claw', size: 0.002, cell: 0.001, extent: 0.08 },
@@ -148,7 +151,7 @@ describe('tool volumes on a flat face', () => {
   ];
 
   for (const { tool, size, cell, extent } of cases) {
-    it(`${tool} removes its closed-form volume`, () => {
+    it(`${tool} at ${String(size)} m removes its closed-form volume`, () => {
       const { state, figure } = flatFace(cell, extent, 0.01);
       const blow: Blow = { tool, point: [0, 0.01, 0], normal: [0, 1, 0], direction: [0, -1, 0], size, stroke: 0 };
       const result = applyBlow(state, figure, blow, 0);
