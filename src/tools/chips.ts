@@ -9,7 +9,7 @@ import type { ChipState } from '../contracts/making';
 export const CHIP_POOL_SIZE = 4096;
 const CHIP_COLOUR = 0xeeeae2;
 
-/** A flattened irregular tetrahedron about one unit long, lying on its widest face. */
+/** A flattened irregular tetrahedron about one unit long and a quarter as thick, lying on its widest face: a marble spall is a flake, so the catalog's chip size is its longest dimension. */
 export function chipGeometry(): BufferGeometry {
   const a = new Vector3(-0.5, 0, -0.28);
   const b = new Vector3(0.5, 0, -0.34);

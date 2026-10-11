@@ -31,6 +31,7 @@ export type DimensionKey =
   | 'bladeWidth'
   | 'toothCount'
   | 'toothPitch'
+  | 'notchWidth'
   | 'notchDepth'
   | 'headWidth'
   | 'headHeight'
@@ -109,7 +110,7 @@ export const TOOL_CATALOG: Readonly<Record<CatalogId, ToolSpec>> = {
     blowsPerShown: blowsPerShownAt(1.5),
     // A few chips of 20 to 60 mm; Vigenère's "three or four fingers" (60 to 80 mm) is the expert upper bound [S7].
     chips: { count: { min: 2, max: 5, inferred: true }, size: { min: 0.02, max: 0.06, inferred: true } },
-    source: 'tools.md, Subbia: the point. Shaft 20 to 30 cm by 1 to 2.5 cm stated [S4]; the heavy roughing point 25 to 30 cm on a 16 to 20 mm shank with a 30 to 40 mm pyramid tip inferred; angles stated [S4] [S6]',
+    source: 'tools.md, Subbia: the point. Shaft 20 to 30 cm by 1 to 2.5 cm stated [S4]; the heavy roughing point 25 to 30 cm on a 16 to 20 mm shank with a 30 to 40 mm pyramid tip inferred; angles stated [S4] [S6]; a bulk blow\u2019s chip reaches Vigenere\u2019s 6 to 8 cm [S7] in its longest dimension and is a quarter as thick, since a marble spall is a flake (src/tools/chips.ts)',
   },
   'two-tooth': {
     id: 'two-tooth',
@@ -117,11 +118,11 @@ export const TOOL_CATALOG: Readonly<Record<CatalogId, ToolSpec>> = {
     english: 'two-tooth chisel',
     material: 'wrought iron with a steeled edge',
     motion: 'struck',
-    dimensions: { shaftLength: inferred(0.2), shaftDiameter: inferred(0.013), bladeWidth: inferred(0.017), toothCount: stated(2), toothPitch: inferred(0.011), notchDepth: inferred(0.005) },
+    dimensions: { shaftLength: inferred(0.2), shaftDiameter: inferred(0.013), bladeWidth: inferred(0.017), toothCount: stated(2), toothPitch: inferred(0.011), notchWidth: inferred(0.005), notchDepth: inferred(0.005) },
     angle: TOOTHED_ANGLE,
     blowsPerShown: blowsPerShownAt(2),
     chips: { count: { min: 4, max: 8, inferred: true }, size: { min: 0.008, max: 0.02, inferred: true } },
-    source: 'tools.md, Calcagnuolo: the two-tooth chisel. Shaft 16 to 22 cm by 1 to 2 cm stated [S4]; the notch in the middle stated [S1]; shank 20 cm by 12 to 14 mm, edge 15 to 20 mm, teeth 5 to 7 mm with a 4 to 6 mm notch inferred; angle 35 to 60 stated [S4]',
+    source: 'tools.md, Calcagnuolo: the two-tooth chisel. Shaft 16 to 22 cm by 1 to 2 cm stated [S4]; the notch in the middle stated [S1]; shank 20 cm by 12 to 14 mm, edge 15 to 20 mm, teeth 5 to 7 mm with a 4 to 6 mm notch inferred (the model cuts a 5 mm notch between two 6 mm teeth); angle 35 to 60 stated [S4]',
   },
   claw: {
     id: 'claw',
@@ -129,7 +130,7 @@ export const TOOL_CATALOG: Readonly<Record<CatalogId, ToolSpec>> = {
     english: 'claw chisel',
     material: 'wrought iron with a steeled edge',
     motion: 'struck',
-    dimensions: { shaftLength: inferred(0.2), shaftDiameter: inferred(0.012), bladeWidth: inferred(0.017), toothCount: stated(3), toothPitch: inferred(0.0057), notchDepth: inferred(0.003) },
+    dimensions: { shaftLength: inferred(0.2), shaftDiameter: inferred(0.012), bladeWidth: inferred(0.017), toothCount: stated(3), toothPitch: inferred(0.0063), notchWidth: inferred(0.002), notchDepth: inferred(0.003) },
     angle: TOOTHED_ANGLE,
     blowsPerShown: blowsPerShownAt(2),
     chips: { count: { min: 6, max: 10, inferred: true }, size: { min: 0.004, max: 0.012, inferred: true } },
@@ -141,7 +142,7 @@ export const TOOL_CATALOG: Readonly<Record<CatalogId, ToolSpec>> = {
     english: 'fine claw chisel',
     material: 'wrought iron with a steeled edge',
     motion: 'struck',
-    dimensions: { shaftLength: inferred(0.18), shaftDiameter: inferred(0.01), bladeWidth: inferred(0.011), toothCount: inferred(5), toothPitch: inferred(0.0022), notchDepth: inferred(0.002) },
+    dimensions: { shaftLength: inferred(0.18), shaftDiameter: inferred(0.01), bladeWidth: inferred(0.011), toothCount: inferred(5), toothPitch: inferred(0.0024), notchWidth: inferred(0.0008), notchDepth: inferred(0.002) },
     angle: TOOTHED_ANGLE,
     blowsPerShown: blowsPerShownAt(2),
     chips: { count: { min: 6, max: 12, inferred: true }, size: { min: 0.003, max: 0.008, inferred: true } },

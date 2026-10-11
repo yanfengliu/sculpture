@@ -41,7 +41,7 @@ function bladedChisel(id: CatalogId, outline: Vector2[]): Group {
 function toothedChisel(id: 'two-tooth' | 'claw' | 'fine-claw'): Group {
   const width = dimension(id, 'bladeWidth');
   const teeth = dimension(id, 'toothCount');
-  const notchWidth = dimension(id, 'toothPitch') * 0.35;
+  const notchWidth = dimension(id, 'notchWidth');
   const notchDepth = dimension(id, 'notchDepth');
   return bladedChisel(id, toothedOutline(width, BLADE_LENGTH, dimension(id, 'shaftDiameter') * 0.85, teeth, notchWidth, notchDepth));
 }
