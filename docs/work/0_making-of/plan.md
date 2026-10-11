@@ -41,12 +41,13 @@ Milestones (R6): M1 fleet onboarding, research and contract; M2 scaffold, engine
 - [x] Contract: `docs/design/spec.md`, `src/contracts/`, `src/david/frame.ts`, `docs/research/decisions.md`, `src/choreography/stages.ts` (coordinator). The block's depth stays provisional until the pipeline measures the figure.
 - [x] Scaffold: toolchain, gates, query reader, placeholder yard (worker `scaffold`, `5777593`, merged).
 - [x] Model pipeline: fetch the recorded mesh, normalise, build the 8 mm grid (worker `model-pipeline`, `eb7ca0c`, merged `1530547`; the grid is rebuilt on main at band 16: 36.7 M cells, 17 MB gzipped, volume within 0.01 percent of the mesh).
-- [ ] Engine: grids, carving rule and tool volumes, chunked meshing in workers, undo log, Making, generators, dev page (worker `engine`, running from `8b72871`, merged main at `96e3afd`).
+- [x] Engine: grids, carving rule and tool volumes, chunked meshing in workers, undo log, Making, generators, dev page (worker `engine`, `a8b1d27`, merged `fd526d9`; 46 engine tests; captures looked at by the worker and the coordinator).
 - [x] Tools: catalog, procedural tool models at documented sizes, blow cycle, chips, gallery (worker `tools`, `e3d953a`, merged `c77bb65`; 111 unit tests; 42 captures looked at by the worker, three by the coordinator).
 - [x] Page: yard and shed, marble, player, timeline bar and menus, presets, capture, sweep and video scripts, e2e against a stub (worker `page`, `868ad4e`, merged `cfc1f77`; 198 unit and 23 e2e tests; captures looked at by the worker and the coordinator).
-- [ ] Integration of M2: wire the engine and tools into the page, run the pipeline's grid through the engine, gates, captures, merge (coordinator).
-- [ ] Choreography of the David by stage from `technique.md` and `tools.md` (coordinator writes the step list; stage workers own generators that the generic ones do not cover).
-- [ ] Visual audit against `references.md` (including the one visual pass over the uncategorised JBS/JBU detail series it flags), independent review, fixes (coordinator with reviewer).
+- [x] Integration of M2: the engine and tools wired into the page (`1261072`), e2e data-driven on the synthetic figure (worker `page`, `245423f`), the loader's double-inflate blocker fixed, the David grid carved and captured at the stage boundaries (coordinator, 2026-10-11).
+- [x] Choreography of the David: the 21 steps of `docs/design/choreography.md` in `src/choreography/david-steps.ts` over `regions.ts` (`24525de`; 18,848 blows at 8 mm; the region cap at the statue's height, which left a slab floating over the head, raised to the block's top).
+- [ ] M3, engine: a forward jump replays the whole plan in about 20 s against the 3 s budget (chunk-parallel apply in the workers, the research's next step); loose slivers left between blows; the finishing passes' sparse coverage leaves a faceted patchwork; the gilding paints flecks, not leaf; the chisel's visibility during bulk cuts in the follow view.
+- [ ] Visual audit against `references.md` (including the one visual pass over the uncategorised JBS/JBU detail series it flags), independent review of the integrated revision, fixes (coordinator with reviewer).
 - [ ] Docs, devlog, merge, push, worktree cleanup (coordinator).
 
 ## Outcome

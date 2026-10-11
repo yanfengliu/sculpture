@@ -3,11 +3,12 @@
  * The figure faces +z; its left is +x. Bands were read off the pipeline's silhouettes of the fetched mesh (output/model/front.png, left.png, back.png, 215 px per metre) and the reference photographs in docs/research/references.md, so every number here is an inference to check against captures.
  */
 import type { RegionDef, Vec3 } from '../contracts/making';
-import { STATUE_HEIGHT_M } from '../david/frame';
+import { BLOCK_M } from '../david/frame';
 
 const WIDE = 1.3;
 const DEEP = 1.0;
-const TOP = STATUE_HEIGHT_M;
+/** Regions reach above the block's top (5.25 m), not only the statue's (5.17 m): a region capped at the statue left the top 8 cm of the block as a slab floating over the head, seen in the captures of 2026-10-11. */
+const TOP = BLOCK_M.height + 0.05;
 
 function box(label: string, y0: number, y1: number, x0 = -WIDE, x1 = WIDE, z0 = -DEEP, z1 = DEEP, contains?: RegionDef['contains']): RegionDef {
   const region: RegionDef = { label, min: [x0, y0, z0], max: [x1, y1, z1] };
