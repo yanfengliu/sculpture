@@ -1,0 +1,117 @@
+# sculpture — design spec
+
+The contract every part of this repo builds against. Change it here first, in the same commit as the code that needs the change. Sections marked `research:` are filled from `docs/research/` and name the note they come from.
+
+## Product
+
+One page, `index.html`. It shows a block of Carrara marble in a Florentine workshop yard, and the period's real tools carve Michelangelo's David out of it, in the documented order, with no sculptor shown. The tools move as if held and struck; chips fly; the surface changes from quarry face to point-chisel furrows to claw marks to polished skin; the finished statue is only the last frame. The viewer plays the making forward or backward, one step at a time or continuously, scrubs it, jumps between stages, orbits and zooms freely at any point, and can follow the tool.
+
+Time is compressed and the page says so: the label carries the simulated calendar from the start on 13 September 1501 to the unveiling on 8 September 1504 (`research: david-history.md` fixes the dates and the milestones between them). Each shown blow stands for many real blows, so the tool's visible rhythm stays plausible while the stage completes in its allotted playback time. The compression factor per stage is data in the choreography and is shown in the label's detail.
+
+Authenticity rules are in `docs/policies/local-rules.md`. What the record settles is followed; what it leaves open is decided once, in `docs/research/decisions.md`, with the reason.
+
+## World frame
+
+- 1 unit = 1 metre. +Y is up. The figure faces +Z. Right-handed.
+- Origin: the centre of the block's footprint at the workshop floor. The block stands upright on its base as it stood in the Opera del Duomo yard.
+- Block size, figure placement inside the block and the statue's dimensions live in `src/david/frame.ts`, one constant per fact, each with a comment naming its source in `docs/research/`. Builders read them from there and never restate a number another builder depends on. `research: david-history.md` supplies them.
+
+## Stock and figure
+
+The stock is a signed-distance grid: `stock[i][j][k]` is the signed distance (negative inside stone) from the centre of cell `(i, j, k)` to the stone's surface, in cells, clamped to a narrow band. The grid covers the block plus a margin; the cell size `h` is a constant of the grid, not of the engine, so tests run coarse synthetic grids and the page runs the David grid. The target resolution for the David grid and the fallback resolutions are set by `research: engine-options.md`.
+
+The figure is a second grid on the same lattice: `figure[i][j][k]` is the signed distance to the statue's surface. It is built once by `scripts/build-grid.mjs` from the mesh that `scripts/fetch-model.mjs` fetched from the source recorded in `docs/research/mesh-sources.md`, into `public/model/` (ignored), and loaded by the page. A synthetic figure (a procedural mannequin of capsules and ellipsoids at David's height) is built in code for tests and for working without the download.
+
+A third grid, `finish[i][j][k]` (one byte), records the last tool that touched each surface cell: quarry face, point, claw, flat, drill, rasp, abrasive, polish. Meshing samples it into a vertex attribute, and the marble shader turns it into the mark each tool leaves, at a finer scale than the grid can carry.
+
+The carving rule, applied per blow: `stock' = max(stock, min(-tool, figure - margin))`, where `tool` is the signed distance to the volume this blow removes and `margin` is the stage's allowance above the final surface. The max removes stock inside the tool volume; the min stops the cut at the figure plus margin. The invariant `stock <= figure` holds after every blow, so no blow ever cuts into the statue, and a test asserts it on random blows. The removed volume's shape per tool is set in `research: tools.md` and `research: engine-options.md`: a cone for the point, a toothed wedge for the claw, a thin wedge for the flat chisel, a cylinder for the drill, and a thin surface-following slab for the rasp.
+
+Meshing: the grid is split into chunks; a blow marks the chunks it touched dirty; dirty chunks are remeshed in Web Workers with transferable buffers (no SharedArrayBuffer, so the page also works from static hosting) and swapped into the scene. Chunk size and worker count come from `research: engine-options.md`.
+
+## Blows, strokes and steps
+
+The making is a sequence of blows. A blow is `{ tool, point, normal, direction, size, strokeIndex }` in world units; it removes stock at an instant. A stroke is a run of blows along a short path with one tool set-up. A step is a named unit of work: one tool, one region of the figure, one margin, one stroke generator and its seed, a duration weight, a calendar span and a source citation. A stage groups steps by tool phase (roughing, claw work, flat work, drilling, rasping, abrading, polishing). Stages and steps are data in `src/choreography/`, never engine code.
+
+The stroke generator is deterministic: given the figure grid, the step's region and margin and the state the previous steps leave, it plans the step's blows in the sculptor's order (front face first, high points first, from the top down; `research: technique.md` fixes the order). The plan for the whole making is computed once at load and cached; its length and digest are exposed for tests.
+
+```ts
+interface StepDef {
+  id: string;              // unique, stable, kebab-case
+  stage: StageId;          // from src/choreography/stages.ts
+  title: string;           // at most 48 characters, shown in the timeline
+  detail: string;          // at most 200 characters, shown under the title, names the source
+  tool: ToolId;            // from src/tools/catalog.ts
+  region: RegionDef;       // which part of the figure, as a volume in world units
+  margin: number;          // metres left above the final surface at the end of this step
+  blowsPerShown: number;   // real blows one shown blow stands for; shown in the label
+  weight: number;          // playback duration multiplier; default 1
+  calendar: { from: string; to: string }; // ISO dates the step spans
+  focus?: CameraFocus;     // what the follow camera frames
+  plan(ctx: PlanContext): Blow[]; // deterministic, pure in ctx and the step's seed
+}
+```
+
+Timeline position `t` runs over `[0, N]` for N steps. Step `i` (0-based) has local progress `f = clamp(t - i, 0, 1)`; its blows apply at `floor(f * count)`. The material state at `t` is a pure function of `t`: it is obtained by replaying the plan from the untouched block, and a test asserts byte-identical grids after any history of plays, reversals, steps and scrubs. The tool's pose and the chips are continuous functions of `t` within a blow cycle, also pure in `t`. An integer `t = k` is a rest position: the first k steps are complete, the tool is down, nothing moves.
+
+Playback runs `t` continuously at `weight × BASE_SECONDS / speed` seconds per step and stops at 0 or N. Step forward animates to the next integer, step back to the previous one; a second press while moving retargets. Scrubbing sets `t` directly; a jump replays from the block and remeshes everything, progressively. Speed is 0.5×, 1×, 2× or 4×. The player is pure logic with no DOM and is unit-tested on its own.
+
+## Tools
+
+`src/tools/catalog.ts` lists every tool with its Italian and English names, its documented dimensions in metres and its source line in `docs/research/tools.md`. `src/tools/geometry/` builds each tool procedurally at those dimensions: origin at the working tip, the shaft along +Y, the striking face at +Y. The mallet is its own tool and strikes the chisel's head in the blow cycle.
+
+A blow cycle, pure in its phase `p ∈ [0, 1)`: approach (the chisel moves from its last pose to the new point and settles at the documented angle to the surface), raise (the mallet rises along its arc), strike (the mallet meets the chisel head, the blow applies, chips eject), recoil. Between steps the tools move to the next region at a plausible speed and are set down at rest positions when the step changes tool. A tool never intersects stock except at the working tip, never floats idle in frame while a step is running, and never reaches a point a sculptor on the documented scaffold could not. `research: technique.md` fixes the angles, the rhythm and the reach.
+
+Chips: an instanced pool of small marble fragments, launched from the tip at the blow, ballistic with a floor bounce, fading on the ground; the count and size per tool come from `research: technique.md`. Dust is a sprite puff at the tip for the point and the drill only.
+
+## Page
+
+- **Timeline bar** (bottom): buttons for start, step back, play backward, play/pause, step forward, end; a speed control; a scrubber over `[0, N]` with stage boundaries marked; a label `Day d · <date> · <stage> — <title>` with the step's detail beneath, including the tool's names and the blows each shown blow stands for. Every control has an accessible name and a `data-testid`.
+- **Stage menu**: the stages in order; choosing one moves to the start of its first step.
+- **View menu**: camera presets (front, back, left, right, three-quarter, head, hands, sling and stump, free orbit), a follow-tool toggle that frames the working tip during playback and switches off when the user drags, and a finish toggle that shows the finish grid as flat colours for checking.
+- **Keyboard**: Space play/pause, → step forward, ← step back, Shift+Space play backward, Home start, End end.
+- **First load**: the page starts at `t = 0` and plays forward, unless the query sets a position or `autoplay=0`.
+
+## Query contract
+
+`src/viewer/query.ts` is the only reader of the page URL.
+
+| Parameter | Effect |
+|---|---|
+| `shot=1` | Capture mode: no autoplay, no follow camera, no chip motion; `window.__shotReady = true` once at least 5 frames have rendered at the requested state with every dirty chunk meshed |
+| `t=<number>` | Timeline position in `[0, N]` |
+| `step=<id or 1-based index>` | Position at the end of that step; wins over `t` |
+| `view=<preset id>` | Camera preset |
+| `cam=px,py,pz,tx,ty,tz` | Explicit camera position and target, for sweeps |
+| `model=david|synthetic` | Which figure grid to load; the page defaults to `david`, tests to `synthetic` |
+| `finish=1` | Show the finish grid as flat colours |
+| `autoplay=0` | Do not start playing on load |
+| `noui=1` | Hide the page chrome |
+
+The renderer keeps `preserveDrawingBuffer: true`, or headless capture reads a blank canvas. `window.__sculpture` exposes read-only facts for tests (step ids, titles, stages, `N`, current `t`, plan length and digest, blows applied, dirty chunk count); tests drive the page through its real controls, never by writing state.
+
+## Modules and ownership
+
+| Path | Contents | Owner |
+|---|---|---|
+| `src/main.ts` | boot: query, viewer, plan, player, UI | page |
+| `src/stock/` | grids, formats, carving rule, chunking, meshing, workers | engine |
+| `src/choreography/` | stages, steps, regions, stroke generators, calendar | coordinator owns the lists; stage workers own their generators |
+| `src/tools/` | catalog, procedural tool geometry, blow cycle, chips | tools |
+| `src/david/frame.ts` | world-frame constants from research | coordinator |
+| `src/david/synthetic.ts` | the procedural test figure | engine |
+| `src/viewer/` | renderer, scene, yard, lights, camera and controls, presets, marble shader | page |
+| `src/timeline/` | timeline evaluation, player | engine |
+| `src/ui/` | timeline bar, stage and view menus | page |
+| `scripts/` | fetch-model, build-grid, capture and sweep tooling | model pipeline; capture by page |
+| `tests/e2e/` | Playwright control and capture tests | page |
+
+A worker edits only paths it owns. A change another owner's path needs is requested in the handoff, not made.
+
+## Budgets
+
+With the David grid at its target resolution: first frame under 5 seconds after load on this machine; playback at 1× holds 60 frames per second with meshing in workers; a scrub jump across the whole making remeshes in under 3 seconds; the page uses under 1.5 GB of memory. The plan for the whole making has at most 60,000 blows. A unit test computes the plan length and the grid memory without WebGL; the e2e suite measures the timings.
+
+## Verification
+
+- Automated: unit tests for the carving rule (the `stock <= figure` invariant on random blows), the grids and their formats, chunk dirtying and remeshing, the timeline (determinism after random histories, forward and backward symmetry, rest positions), the player, the plan (unique step ids, every step removes stock, blows inside the block, deterministic digest), the tool catalog (every tool has dimensions and a source line), and the budgets. Playwright tests drive every control and the keyboard and check the label, the scrubber and the canvas.
+- Visual: `npm run shots` captures the standard set (every preset at the finished state, the front and three-quarter presets at each stage boundary, the follow view at a blow mid-cycle for each tool) into `.shots/`; authors inspect each image at native resolution and compare it with the reference photographs named in `docs/research/references.md`. Sweeps add random camera angles for exploration. A video of the whole making is recorded with Playwright into `output/` for the owner to watch.
