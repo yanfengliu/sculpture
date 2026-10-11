@@ -1,8 +1,8 @@
 /**
- * Rasps and files (docs/research/tools.md, Raspe e lime): a straight iron rasp with raised teeth on a tanged bar and a wooden handle, a curved riffler with teeth along its bent ends, and a slender file with fine cuts.
+ * Rasps and files (docs/research/tools.md, Raspe e lime): a straight iron rasp with raised teeth on a tanged bar and a wooden handle, a curved riffler with teeth along its bent ends, and a slender half-round file (Cellini's lima mezza tonda) with fine cuts on its flat face.
  * Local frame: origin at the working tip (the far end of the bar), the bar along +Y, the handle at +Y, the toothed face at -Z.
  */
-import { ConeGeometry, Group, Vector3 } from 'three';
+import { ConeGeometry, ExtrudeGeometry, Group, Shape, Vector3 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { BufferGeometry } from 'three';
 
@@ -10,6 +10,8 @@ import { dimension } from '../catalog';
 import { bentStick, box, part, raisedTeeth, shank, struckHead } from './parts';
 
 const TANG_LENGTH = 0.03;
+/** Height of a raised tooth or cut as a share of its pitch; the blow cycle lays the toothed face on the stone by the same figures. */
+export const TOOTH_HEIGHT_RATIO = { rasp: 0.4, file: 0.35 } as const;
 const RASP_HANDLE = 0.05;
 const FILE_HANDLE = 0.06;
 
@@ -22,7 +24,7 @@ export function buildRasp(): Group {
   const group = new Group();
   group.add(
     part(box(width, bar, thickness, new Vector3(0, bar / 2, 0)), 'iron', 'bar'),
-    part(raisedTeeth(pitch, bar - pitch, width - pitch, pitch, pitch * 0.4, -thickness / 2), 'steel', 'teeth'),
+    part(raisedTeeth(pitch, bar - pitch, width - pitch, pitch, pitch * TOOTH_HEIGHT_RATIO.rasp, -thickness / 2), 'steel', 'teeth'),
     part(shank(bar, bar + TANG_LENGTH, 0.003, 0.005, 8), 'iron', 'tang'),
     part(struckHead(bar + TANG_LENGTH, length, width / 2 - 0.0005), 'wood', 'handle'),
   );
@@ -37,12 +39,25 @@ export function buildFile(): Group {
   const bar = length - FILE_HANDLE - TANG_LENGTH;
   const group = new Group();
   group.add(
-    part(box(width, bar, thickness, new Vector3(0, bar / 2, 0)), 'iron', 'bar'),
-    part(raisedTeeth(pitch, bar - pitch, width - pitch, pitch, pitch * 0.35, -thickness / 2), 'steel', 'cuts'),
+    part(halfRoundBar(width, bar, thickness), 'iron', 'bar'),
+    part(raisedTeeth(pitch, bar - pitch, width - pitch, pitch, pitch * TOOTH_HEIGHT_RATIO.file, -thickness / 2), 'steel', 'cuts'),
     part(shank(bar, bar + TANG_LENGTH, 0.0025, 0.004, 8), 'iron', 'tang'),
     part(struckHead(bar + TANG_LENGTH, length, width / 2 - 0.0005), 'wood', 'handle'),
   );
   return group;
+}
+
+/** A half-round bar along +Y from 0 to `length`: the flat face at z = -thickness / 2, where the cuts are, and the back an arc up to +thickness / 2. */
+function halfRoundBar(width: number, length: number, thickness: number): BufferGeometry {
+  const section = new Shape();
+  section.moveTo(-width / 2, -thickness / 2);
+  section.lineTo(width / 2, -thickness / 2);
+  section.quadraticCurveTo(0, 1.5 * thickness, -width / 2, -thickness / 2);
+  const geometry = new ExtrudeGeometry(section, { depth: length, bevelEnabled: false, steps: 1, curveSegments: 8 });
+  // The extrusion runs along +Z; a quarter turn about X lays it along -Y with the flat face at -Z, then it is raised to start at the origin.
+  geometry.rotateX(Math.PI / 2);
+  geometry.translate(0, length, 0);
+  return geometry;
 }
 
 /** The curved riffler: a straight grip between two bent toothed ends; the catalog has it under the rasp (src/tools/props.ts lists it). Overall length 0.24 m, inferred within the stated 12 to 40 cm. */
