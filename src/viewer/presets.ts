@@ -33,8 +33,8 @@ export const PRESETS: readonly Preset[] = [
   { id: 'right', label: 'Right', pose: { position: [WHOLE, 3.2, 0], target: CENTRE } },
   { id: 'three-quarter', label: 'Three-quarter', pose: { position: [7, 4.2, 8.2], target: [0, MID - 0.15, 0] } },
   { id: 'head', label: 'Head', pose: { position: [0.9, HEAD_Y + 0.15, 2.3], target: [0, HEAD_Y, 0.15] } },
-  // From just outside the front deck, between its posts, so no scaffold timber crosses the view.
-  { id: 'hands', label: 'Hands', pose: { position: [-1.0, 2.55, 2.8], target: [-0.45, 2.3, 0.4] } },
+  // Both hands of the David: the right hangs at the thigh (about x −0.74, y 2.36), the left holds the sling at the shoulder (about x 0.35, y 4.1), measured on the front capture of the built grid (2026-10-11); the target sits between them, a little low so the timeline bar covers neither, the camera 4.4 m off from the front right and a little above (a 3.6 m field at the 45° vertical view), outside the front deck, which the span rule hides.
+  { id: 'hands', label: 'Hands', pose: { position: [0.85, 3.75, 4.4], target: [-0.2, 3.1, 0.2] } },
   { id: 'sling-and-stump', label: 'Sling and stump', pose: { position: [-3.2, 2.0, -3.0], target: [-0.3, 1.6, -0.3] } },
   { id: 'free', label: 'Free orbit', pose: { position: [7, 4.2, 8.2], target: [0, MID - 0.15, 0] } },
 ];
