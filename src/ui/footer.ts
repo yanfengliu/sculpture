@@ -1,5 +1,5 @@
 /**
- * The footer (docs/design/spec.md, Page; Model pipeline): the figure's attribution from the grid header's `source` when the page has one, and the time-lapse statement.
+ * The footer (docs/design/spec.md, Page; Model pipeline): the figure's attribution from the grid header's `source` when the page has one, with its licence linked (CC BY-SA 4.0 asks for the licence to be named and linked wherever the work is shown), and the time-lapse statement.
  */
 import { TIME_LAPSE_STATEMENT } from './label';
 
@@ -7,6 +7,8 @@ export interface Attribution {
   /** The one-line credit, for example `Scan the World (Jonathan Beck) via Wikimedia Commons, CC BY-SA 4.0`. */
   readonly text: string;
   readonly url?: string;
+  /** The licence's name and its text's URL; shown as a link after the credit when both are given. */
+  readonly licence?: string;
   readonly licenceUrl?: string;
 }
 
@@ -27,6 +29,15 @@ export function createFooter(attribution: Attribution | null): HTMLElement {
     link.target = '_blank';
     link.textContent = attribution.text;
     credit.append('Figure: ', link);
+  }
+  if (attribution?.licence !== undefined && attribution.licenceUrl !== undefined) {
+    const licence = document.createElement('a');
+    licence.href = attribution.licenceUrl;
+    licence.rel = 'license noopener';
+    licence.target = '_blank';
+    licence.dataset['testid'] = 'licence';
+    licence.textContent = `${attribution.licence} licence`;
+    credit.append(' · ', licence);
   }
   const statement = document.createElement('span');
   statement.dataset['testid'] = 'time-lapse';

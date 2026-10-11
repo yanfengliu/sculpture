@@ -121,7 +121,7 @@ function initialCamera(query: ViewerQuery, making: Making, problems: string[]): 
 
 function attributionOf(bundle: MakingBundle): Attribution | null {
   const source = bundle.source;
-  return source === null ? null : { text: source.attribution, url: source.url, licenceUrl: source.licenceUrl };
+  return source === null ? null : { text: source.attribution, url: source.url, licence: source.licence, licenceUrl: source.licenceUrl };
 }
 
 const query = readViewerQuery();
