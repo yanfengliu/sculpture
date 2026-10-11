@@ -140,25 +140,51 @@ export function blockLattice(cell: number, band = DEFAULT_BAND_CELLS): GridSpec 
   const extents = [BLOCK_M.width, BLOCK_M.height, BLOCK_M.depth] as const;
   const centre = [0, BLOCK_M.height / 2, 0] as const;
   const size = extents.map((extent) => Math.ceil(extent / cell - 1e-9) + 2 * GRID_MARGIN_CELLS) as [number, number, number];
-  const origin = centre.map((c, axis) => c - ((size[axis] - 1) / 2) * cell) as [number, number, number];
+  const origin = centre.map((c, axis) => c - (((size[axis] ?? 1) - 1) / 2) * cell) as [number, number, number];
   return { cell, size, origin, band };
 }
 
-/** Signed distance to the block's box (negative inside), metres: x across ±width/2, y from 0 to height, z across ±depth/2. */
-export function blockDistance(x: number, y: number, z: number): number {
-  const qx = Math.abs(x) - BLOCK_M.width / 2;
-  const qy = Math.abs(y - BLOCK_M.height / 2) - BLOCK_M.height / 2;
-  const qz = Math.abs(z) - BLOCK_M.depth / 2;
+/** An axis-aligned box in world metres. */
+export interface WorldBox {
+  readonly min: Vec3;
+  readonly max: Vec3;
+}
+
+/** The block of src/david/frame.ts as a box: x across ±width/2, y from 0 to height, z across ±depth/2. */
+export function frameBlockBox(): WorldBox {
+  return { min: [-BLOCK_M.width / 2, 0, -BLOCK_M.depth / 2], max: [BLOCK_M.width / 2, BLOCK_M.height, BLOCK_M.depth / 2] };
+}
+
+/** The block a lattice was built around: the lattice's extent (cell boundaries) shrunk by GRID_MARGIN_CELLS on every side, which is how the pipeline's header implies the block for `model=david`. */
+export function latticeBlockBox(spec: GridSpec): WorldBox {
+  const { origin, size, cell } = spec;
+  const inset = (GRID_MARGIN_CELLS - 0.5) * cell;
+  return {
+    min: [origin[0] + inset, origin[1] + inset, origin[2] + inset],
+    max: [origin[0] + (size[0] - 1) * cell - inset, origin[1] + (size[1] - 1) * cell - inset, origin[2] + (size[2] - 1) * cell - inset],
+  };
+}
+
+/** Signed distance to a box (negative inside), metres. */
+export function boxDistance(box: WorldBox, x: number, y: number, z: number): number {
+  const qx = Math.abs(x - (box.min[0] + box.max[0]) / 2) - (box.max[0] - box.min[0]) / 2;
+  const qy = Math.abs(y - (box.min[1] + box.max[1]) / 2) - (box.max[1] - box.min[1]) / 2;
+  const qz = Math.abs(z - (box.min[2] + box.max[2]) / 2) - (box.max[2] - box.min[2]) / 2;
   const ox = qx > 0 ? qx : 0;
   const oy = qy > 0 ? qy : 0;
   const oz = qz > 0 ? qz : 0;
   return Math.hypot(ox, oy, oz) + Math.min(Math.max(qx, qy, qz), 0);
 }
 
-/** The stock at t = 0: the block's box on `spec`'s lattice, clamped to STOCK_BAND_CELLS. */
-export function blockGrid(spec: GridSpec): Grid {
+/** Signed distance to the block of src/david/frame.ts, metres. */
+export function blockDistance(x: number, y: number, z: number): number {
+  return boxDistance(frameBlockBox(), x, y, z);
+}
+
+/** The stock at t = 0: the block `box` on `spec`'s lattice, clamped to STOCK_BAND_CELLS. The synthetic figure passes `frameBlockBox()`; the David grid passes `latticeBlockBox(header)`. */
+export function blockGrid(spec: GridSpec, box: WorldBox): Grid {
   const grid = new Grid({ ...spec, band: STOCK_BAND_CELLS });
-  grid.fill(blockDistance);
+  grid.fill((x, y, z) => boxDistance(box, x, y, z));
   return grid;
 }
 
@@ -183,8 +209,7 @@ export async function loadFigureGrid(url: string, fetchImpl: typeof fetch = fetc
   if (!HEADER_SUFFIX.test(url)) throw new Error(`figure grid url ${url} must end in .json, the header file name of src/contracts/grid.ts`);
   const headerResponse = await fetchImpl(url);
   if (!headerResponse.ok) throw new Error(`figure grid header ${url} answered ${String(headerResponse.status)}`);
-  const header = (await headerResponse.json()) as GridHeader;
-  checkHeader(header, url);
+  const header = checkHeader((await headerResponse.json()) as unknown, url);
   const dataUrl = url.replace(HEADER_SUFFIX, '.bin.gz');
   const dataResponse = await fetchImpl(dataUrl);
   if (!dataResponse.ok || dataResponse.body === null) throw new Error(`figure grid data ${dataUrl} answered ${String(dataResponse.status)} with no body`);
@@ -208,17 +233,25 @@ function swapBytes(values: Int16Array): void {
   for (let i = 0; i < values.length; i += 1) values[i] = view.getInt16(i * 2, true);
 }
 
-function checkHeader(header: GridHeader, url: string): void {
+/** Validates a parsed header and returns it typed; every problem is named at once. */
+function checkHeader(parsed: unknown, url: string): GridHeader {
+  const h = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as Record<string, unknown>;
   const problems: string[] = [];
-  if (header.format !== 'sculpture-grid/1') problems.push(`format ${JSON.stringify(header.format)} (expected "sculpture-grid/1")`);
-  if (header.encoding !== 'int16x256') problems.push(`encoding ${JSON.stringify(header.encoding)} (expected "int16x256")`);
-  if (header.order !== 'x-fastest') problems.push(`order ${JSON.stringify(header.order)} (expected "x-fastest")`);
-  if (!(header.cell > 0)) problems.push('cell must be a positive number of metres');
-  if (!Array.isArray(header.size) || header.size.length !== 3 || !header.size.every((n) => Number.isInteger(n) && n > 1)) problems.push('size must be three whole numbers above 1');
-  if (!Array.isArray(header.origin) || header.origin.length !== 3 || !header.origin.every((n) => Number.isFinite(n))) problems.push('origin must be three finite numbers');
-  if (!(header.band > 0)) problems.push('band must be a positive number of cells');
-  if (typeof header.sha256 !== 'string' || !/^[0-9a-fA-F]{64}$/.test(header.sha256)) problems.push('sha256 must be 64 hex characters');
+  if (h['format'] !== 'sculpture-grid/1') problems.push(`format ${JSON.stringify(h['format'])} (expected "sculpture-grid/1")`);
+  if (h['encoding'] !== 'int16x256') problems.push(`encoding ${JSON.stringify(h['encoding'])} (expected "int16x256")`);
+  if (h['order'] !== 'x-fastest') problems.push(`order ${JSON.stringify(h['order'])} (expected "x-fastest")`);
+  const cell = h['cell'];
+  if (typeof cell !== 'number' || !(cell > 0)) problems.push('cell must be a positive number of metres');
+  const size = h['size'];
+  if (!Array.isArray(size) || size.length !== 3 || !size.every((n) => Number.isInteger(n) && (n as number) > 1)) problems.push('size must be three whole numbers above 1');
+  const origin = h['origin'];
+  if (!Array.isArray(origin) || origin.length !== 3 || !origin.every((n) => typeof n === 'number' && Number.isFinite(n))) problems.push('origin must be three finite numbers');
+  const band = h['band'];
+  if (typeof band !== 'number' || !(band > 0)) problems.push('band must be a positive number of cells');
+  const sha256 = h['sha256'];
+  if (typeof sha256 !== 'string' || !/^[0-9a-fA-F]{64}$/.test(sha256)) problems.push('sha256 must be 64 hex characters');
   if (problems.length > 0) throw new Error(`figure grid header ${url} is not a sculpture-grid/1 header: ${problems.join('; ')}`);
+  return h as unknown as GridHeader;
 }
 
 function hex(bytes: Uint8Array): string {

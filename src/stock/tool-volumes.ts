@@ -213,16 +213,17 @@ export function toolVolume(blow: Blow, figureAtPoint: number, figureBand: number
   }
 }
 
-/** Capped cone with its apex `size` deep along the tool axis and its base at the blow point, plus the crush sphere at the apex. */
+/** Capped cone with its apex `size` deep along the tool axis and its base at the blow point, continued above the surface so the surface cells read as inside the cut, plus the crush sphere at the apex. */
 function pointCone(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
-  const radius = size * Math.tan(spec.angle);
+  const top = size + AIR_EXTENSION;
+  const radius = top * Math.tan(spec.angle);
   const crush = CRUSH_RATIO * size;
   const ax = f.px + f.d[0] * size;
   const ay = f.py + f.d[1] * size;
   const az = f.pz + f.d[2] * size;
   const xs = [-radius, 0, radius];
-  const ys = [size, 0, size];
-  const reach = Math.max(size, radius) + crush;
+  const ys = [top, 0, top];
+  const reach = Math.max(top, radius) + crush;
   return {
     removes: true,
     min: [ax - reach, ay - reach, az - reach],
@@ -238,13 +239,15 @@ function pointCone(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
   };
 }
 
-/** The toothed and flat chisels: a wedge the blade wide, entering at the blow point, `size` deep and `push` long; the flat chisel runs level between its descent and its chip face. */
+/** The toothed and flat chisels: a wedge the blade wide, entering at the blow point, `size` deep and `push` long, its entry and chip faces continued above the surface; the flat chisel runs level between its descent and its chip face. */
 function bladeWedge(f: Frame, size: number, spec: ToolVolumeSpec, flat: boolean): ToolVolume {
   const descent = Math.min(size / Math.tan(spec.angle), spec.push / 2);
-  const xs = flat ? [0, descent, spec.push - size, spec.push] : [0, descent, spec.push];
-  const ys = flat ? [0, -size, -size, 0] : [0, -size, 0];
+  const ext = AIR_EXTENSION;
+  const entryTop = -ext * (descent / size);
+  const xs = flat ? [entryTop, descent, spec.push - size, spec.push + ext] : [entryTop, descent, spec.push + ext * ((spec.push - descent) / size)];
+  const ys = flat ? [ext, -size, -size, ext] : [ext, -size, ext];
   const half = spec.width / 2;
-  const bounds = frameBounds(f, 0, spec.push, -half, half, -size, 0, 0);
+  const bounds = frameBounds(f, Math.min(entryTop, 0), Math.max(...xs), -half, half, -size, ext, 0);
   return {
     removes: true,
     min: bounds.min,
