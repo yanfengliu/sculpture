@@ -14,6 +14,8 @@ An animated 3D making-of of a famous single-figure sculpture: the real tools, in
 
 ## Verify
 
-- `npm run verify`: unit tests, typecheck, lint, build and the Playwright smoke test, in that order; all green before any commit that touches code.
+- `npm run verify`: unit tests, typecheck, lint, build and the Playwright suite (`tests/e2e/`: the smoke test, every control and keyboard shortcut through real input, the query contract, and the check that a position reached through the controls gives the label and pixels of `?shot=1&t=`), in that order; all green before any commit that touches code.
 - `npm run audit:full` and `npm run audit:runtime`: both must report 0 vulnerabilities; rerun on every dependency change.
-- `node scripts/capture-shots.mjs` with `npm run dev` running writes `.shots/front.png`; look at it. `AGENTS.md` (Gates) says what each check proves.
+- `npm run shots` with `npm run dev` running writes the standard set into `.shots/`: every preset at the finished state, the front and three-quarter presets at each stage boundary, the follow view mid-blow for each tool, and the finish codes; `SHOT_LIST` captures explicit shots instead. Look at each PNG at native resolution. `AGENTS.md` (Gates) says what each check proves.
+- `npm run sweep -- --t <t> --count <n>` writes random camera angles around the block at `t` into `.shots/sweep/` for exploration.
+- `npm run video` dumps frames through `?shot=1&t=` at 30 fps over the whole making at 1920 × 1080 and encodes `output/making-of.webm` (VP8, Playwright's bundled ffmpeg); `--from`, `--to`, `--fps` bound it and `--quick` makes a few seconds for checking.
