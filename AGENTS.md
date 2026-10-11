@@ -70,7 +70,21 @@ Obtain independent, preferably read-only review for substantial or high-risk cha
 
 ## Gates
 
-Pending: the scaffold task in `docs/work/0_making-of/` lands the toolchain and replaces this line with the real commands.
+Node 24 (`.nvmrc`), npm, Vite 8, strict TypeScript 6, Vitest 5, ESLint 10 and Playwright 1.64 on the installed Chrome (no browser download; `scripts/harness.mjs` says why).
+
+`npm run verify` is the pre-commit gate: the five commands below, in this order, all green before any commit that touches code.
+
+- `npm test`: Vitest over `src/**/*.test.ts` and `scripts/**/*.test.ts`. `src/repo-conventions.test.ts` is the repo's rules as a gate; it fails on a file over 500 lines (inclusive bound) under `src/`, `scripts/` or `tests/`, on a page-URL read (`location`, `new URL(`, `URLSearchParams`) in any non-test file under `src/` other than `src/viewer/query.ts`, on a missing or URL-blind `query.ts`, and on an `import.meta.env` or `process.env` read anywhere under `src/`. Its header names its bounds. `src/viewer/query.test.ts` pins the query contract's parser.
+- `npm run typecheck`: `tsc --noEmit`, strict plus `noUncheckedIndexedAccess`, DOM and WebWorker libs, over `src/`, `scripts/`, `tests/` and the root configs.
+- `npm run lint`: ESLint with typescript-eslint strict type-checked rules, `--max-warnings 0`.
+- `npm run build`: `tsc --noEmit && vite build` into `dist/`.
+- `npm run test:e2e`: Playwright (`tests/e2e/`, Chromium only, headless, 1400×1000 at device scale 1) against a dev server it starts and never reuses. `smoke.spec.ts` loads `/?shot=1`, waits for `window.__shotReady`, checks the canvas is 1400×1000 CSS pixels and not one colour, that `window.__sculpture` holds the facts, and that nothing logged an error.
+
+Dependency audit gate, rerun on every dependency change: `npm run audit:full` (`npm audit --audit-level=high`) and `npm run audit:runtime` (`--omit=dev`) must both report `found 0 vulnerabilities`.
+
+Visual check, not in `verify`: with `npm run dev` running, `node scripts/capture-shots.mjs` writes `.shots/<view>.png` through the same `?shot=1` contract (`SHOT_LIST`, `SHOT_BASE`, `SHOT_OUT`, `SHOT_W`, `SHOT_H`); look at each PNG at native resolution before claiming a visual change works. A green test says nothing about the pixels.
+
+Port: the dev server, the e2e suite and the capture script use `SCULPTURE_PORT` (default 5181, strict: a taken port fails rather than moving), so this repo never collides with met (5310) or 3d-maker (5199); two sculpture worktrees testing at once each set their own.
 
 ## Invariants & boundaries
 

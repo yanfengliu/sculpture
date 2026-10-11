@@ -1,0 +1,37 @@
+{
+  "name": "sculpture",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An animated 3D making-of of a famous single-figure sculpture: the real tools, in the real order, on the real material, with no sculptor shown.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "verify": "npm run test && npm run typecheck && npm run lint && npm run build && npm run test:e2e",
+    "audit:runtime": "npm audit --omit=dev --audit-level=high",
+    "audit:full": "npm audit --audit-level=high"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^24.19.2",
+    "@types/three": "^0.186.0",
+    "eslint": "^10.12.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}
