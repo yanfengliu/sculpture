@@ -4,6 +4,7 @@
  */
 import { expect, test } from '@playwright/test';
 
+import { BLOCK_M } from '../../src/david/frame';
 import { VIEWPORT, canvasHash, facts, labelAndScrubber, openPage, waitFrames } from './helpers';
 
 test.use({ viewport: VIEWPORT });
@@ -31,14 +32,14 @@ test('t= sets the position; step= by index or id wins over it; a step the making
   await openPage(page, 'autoplay=0&t=3.5');
   expect((await facts(page)).t).toBe(3.5);
   expect(await labelAndScrubber(page)).toMatchObject({ scrubber: '3.5' });
-  await expect(page.getByTestId('label')).toHaveText(/Coarse claw — Combing the masses with the claw$/);
+  await expect(page.getByTestId('label')).toHaveText(/The two-tooth and the coarse claw — Combing the masses with the claw$/);
 
   await openPage(page, 'autoplay=0&step=3&t=1');
   expect((await facts(page)).t).toBe(3);
   await openPage(page, 'autoplay=0&step=drill-hair');
   expect((await facts(page)).t).toBe(6);
   // The end of the drilling step is the rest position before rasping, so the label names the step about to start.
-  await expect(page.getByTestId('label')).toHaveText(/Rasping — Rasps and files over the flesh$/);
+  await expect(page.getByTestId('label')).toHaveText(/Rasps and files — Rasps and files over the flesh$/);
 
   await openPage(page, 'autoplay=0&step=no-such-step&t=2');
   const missing = await facts(page);
@@ -62,8 +63,8 @@ test('view= picks a preset, cam= wins over it, and an unknown view is reported',
   const head = await canvasHash(page);
   expect(head).not.toBe(front);
 
-  // The front preset's pose as an explicit camera: cam wins, so the canvas matches the front view, not the head view.
-  await openPage(page, 'autoplay=0&view=head&cam=0,3.2,10.5,0,2.75,0');
+  // The front preset's pose (src/viewer/presets.ts) as an explicit camera: cam wins, so the canvas matches the front view, not the head view.
+  await openPage(page, `autoplay=0&view=head&cam=0,3.2,10.5,0,${String(BLOCK_M.height / 2)},0`);
   const explicit = await facts(page);
   expect(explicit.view).toBe('free');
   expect(explicit.queryProblems).toEqual([]);

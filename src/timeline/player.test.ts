@@ -196,6 +196,25 @@ describe('createPlayer', () => {
     expect(player.t).toBe(0.5);
   });
 
+  it('keeps playing through thousands of tiny updates, whatever the floating-point leftovers', () => {
+    // Defect of 2026-10-11: the leftover seconds of an update came out as a tiny negative number and read as "the run ended", so playback stopped on its own after a few frames.
+    // Frame times of a 60, 120 and 240 Hz loop, raw and scaled by a carry factor, on the stub's first step (weight 0.5).
+    for (const seconds of [0.016, 0.0083, 0.004166, 0.016 * 0.0253, 0.0083 * 0.0253, 0.004166 * 0.0253, 0.004149 * 0.02531]) {
+      // Enough updates to cover 5 s of wall time, inside the 6 s first step.
+      const updates = Math.min(20_000, Math.floor(5 / seconds));
+      const player = createPlayer([0.5, 0.5, 1.5]);
+      player.play('forward');
+      for (let frame = 0; frame < updates; frame += 1) player.update(seconds);
+      expect(player.playing, `playing after ${String(updates)} updates of ${String(seconds)} s`).toBe('forward');
+      expect(player.t).toBeCloseTo((updates * seconds) / (0.5 * BASE_SECONDS), 6);
+    }
+    const player = createPlayer(WEIGHTS);
+    player.seek(2.9);
+    player.stepForward();
+    for (let frame = 0; frame < 1_000; frame += 1) player.update(0.0005 * 0.0253);
+    expect(player.target).toBe(3);
+  });
+
   it('a zero-weight step is instant and an empty timeline never moves', () => {
     const instant = createPlayer([0, 1]);
     instant.play('forward');

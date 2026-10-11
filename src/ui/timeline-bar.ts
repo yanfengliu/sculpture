@@ -69,14 +69,18 @@ export function createTimelineBar(N: number, marks: readonly StageMark[], action
   const markRow = document.createElement('div');
   markRow.className = 'marks';
   markRow.dataset['testid'] = 'stage-marks';
-  for (const mark of marks) {
+  marks.forEach((mark, index) => {
     const tick = document.createElement('span');
     tick.className = 'mark';
     tick.dataset['testid'] = `stage-mark-${mark.id}`;
+    tick.title = mark.title;
+    const next = marks[index + 1]?.t ?? N;
     tick.style.left = `${String(N > 0 ? (100 * mark.t) / N : 0)}%`;
+    // Each title is clipped at the next stage's mark, so long titles do not run into each other.
+    tick.style.width = `${String(N > 0 ? (100 * (next - mark.t)) / N : 100)}%`;
     tick.textContent = mark.title;
     markRow.appendChild(tick);
-  }
+  });
   const scrubber = document.createElement('input');
   scrubber.type = 'range';
   scrubber.className = 'scrubber';

@@ -119,6 +119,8 @@
   height: 14px;
   font-size: 10px;
   opacity: 0.8;
+  /* The marks overhang the scrubber's track; a click there must reach the range input. */
+  pointer-events: none;
 }
 .mark {
   position: absolute;
@@ -127,7 +129,10 @@
   border-left: 1px solid rgba(255, 255, 255, 0.7);
   height: 26px;
   padding-left: 3px;
+  padding-right: 4px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 12px;
 }
 .scrubber {

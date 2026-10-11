@@ -34,7 +34,7 @@ test('→ steps forward to the next integer and ← steps back', async ({ page }
   await page.keyboard.press('ArrowRight');
   expect((await facts(page)).moving).toBe(true);
   expect((await waitUntilStill(page)).t).toBe(1);
-  await expect(page.getByTestId('label')).toHaveText(/Layout — Drawing the principal view on the front$/);
+  await expect(page.getByTestId('label')).toHaveText(/Laying the figure out — Drawing the principal view on the front$/);
   await page.keyboard.press('ArrowLeft');
   expect((await waitUntilStill(page)).t).toBe(0);
   expect((await labelAndScrubber(page)).scrubber).toBe('0');
@@ -45,10 +45,10 @@ test('End jumps to the end and Home back to the start', async ({ page }) => {
   await page.keyboard.press('End');
   expect((await facts(page)).t).toBe(N);
   expect(await labelAndScrubber(page)).toMatchObject({ scrubber: String(N) });
-  await expect(page.getByTestId('label')).toHaveText(/On site — Gilding the sling and the stump$/);
+  await expect(page.getByTestId('label')).toHaveText(/On site in the Piazza — Gilding the sling and the stump$/);
   await page.keyboard.press('Home');
   expect((await facts(page)).t).toBe(0);
-  await expect(page.getByTestId('label')).toHaveText(/^Day 1 · 13 September 1501 · Setup/);
+  await expect(page.getByTestId('label')).toHaveText(/^Day 1 · 13 September 1501 · The Giant in the yard/);
 });
 
 test('keys typed into the speed select are left to the select', async ({ page }) => {

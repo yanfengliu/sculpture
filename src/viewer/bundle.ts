@@ -5,7 +5,7 @@
 import type { Object3D } from 'three';
 
 import type { GridSource } from '../contracts/grid';
-import type { Making, ToolId } from '../contracts/making';
+import type { Blow, BlowCycle, Making, ToolId } from '../contracts/making';
 
 export type RenderedTool = ToolId | 'mallet';
 
@@ -17,6 +17,10 @@ export interface ToolNames {
 
 export interface MakingBundle {
   readonly making: Making;
+  /** The tools' cycle: the page rests every tool the making does not pose at `restPose`. */
+  readonly blowCycle: BlowCycle;
+  /** Seconds a hand needs to carry the tool from the bench to `blow` (src/tools/blow-cycle.ts, `approachSeconds`); the page stretches a step's first approach to it. */
+  readonly carrySeconds?: (blow: Blow) => number;
   /** One mesh per rendered tool, origin at the working tip, shaft along +Y; the page sets each one's position and quaternion from `Making.poses` every frame and hides the ones no pose names. */
   readonly toolMeshes: ReadonlyMap<RenderedTool, Object3D>;
   readonly toolNames: (tool: RenderedTool) => ToolNames;

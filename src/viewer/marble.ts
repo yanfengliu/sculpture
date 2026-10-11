@@ -130,7 +130,7 @@ vec3 marbleColour(vec3 p, float finish) {
   if (code == ${String(FINISH.drill)}) return mix(marble, vec3(0.90, 0.89, 0.86), 0.4);
   if (code == ${String(FINISH.rasp)} || code == ${String(FINISH.file)}) return mix(marble, vec3(0.93, 0.92, 0.89), 0.25);
   if (code == ${String(FINISH.pumice)}) return mix(marble, vec3(0.94, 0.93, 0.90), 0.15);
-  if (code == ${String(FINISH.gilt)}) return vec3(1.0, 0.78, 0.35);
+  if (code == ${String(FINISH.gilt)}) return vec3(1.0, 0.84, 0.42);
   return marble;
 }
 float marbleRoughness(float finish) {
@@ -147,11 +147,12 @@ float marbleRoughness(float finish) {
   if (code == ${String(FINISH.file)}) return 0.55;
   if (code == ${String(FINISH.pumice)}) return 0.60;
   if (code == ${String(FINISH.polish)}) return 0.28;
-  if (code == ${String(FINISH.gilt)}) return 0.35;
+  if (code == ${String(FINISH.gilt)}) return 0.3;
   return 0.6;
 }
 float marbleMetalness(float finish) {
-  return marbleCode(finish) == ${String(FINISH.gilt)} ? 1.0 : 0.0;
+  // Gold leaf over stone: mostly metal, with enough diffuse left that it reads gold under a dim sky.
+  return marbleCode(finish) == ${String(FINISH.gilt)} ? 0.75 : 0.0;
 }
 /** Parallel bands of pitch metres along u, tilting the normal along t. */
 vec3 marbleBands(float u, vec3 t, float pitch, float amplitude) {

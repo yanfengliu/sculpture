@@ -8,6 +8,9 @@
 import * as THREE from 'three';
 
 import { BLOCK_M } from '../david/frame';
+import { BENCH, LEATHER_PAD_REST } from '../tools/bench';
+import { quatFromBasis } from '../tools/math';
+import { propModel } from '../tools/props';
 
 /** Deck heights above the floor, metres (technique.md, stage 0). */
 export const DECK_LEVELS = [1.5, 3.2] as const;
@@ -30,10 +33,12 @@ const WALL_HEIGHT = 4.0;
 const WALL_PLANK_W = 0.26;
 const FLOOR_SIZE = 60;
 
-/** The bench the tools worker lays the rest poses on: top at y = 0.85, x from −2.4 to −1.6, z from 1.0 to 1.6 (assignment of 2026-10-11). */
-export const BENCH = { minX: -2.4, maxX: -1.6, minZ: 1.0, maxZ: 1.6, topY: 0.85, thickness: 0.05 } as const;
-/** The plumb line hangs just right of the block's front face. */
-export const PLUMB_LINE = { x: 0.95, z: BLOCK_M.depth / 2 + CLEARANCE, top: TOP_BEAM_Y - BEAM / 2, bottom: 0.3 } as const;
+/** The bench top's plank thickness; its extent is `BENCH` from src/tools/bench.ts, where the tools' rest slots are laid out. */
+const BENCH_THICKNESS = 0.05;
+/** The plumb line (a prop of src/tools/props.ts, 1.58 m from bob tip to reel) hangs from the top deck's inner front ledger just right of the block's front face. */
+export const PLUMB_LINE = { x: 0.95, z: BLOCK_M.depth / 2 + CLEARANCE, reel: 3.2 - PLANK_T - BEAM, height: 1.58 } as const;
+/** Where the small wax model's stand (a post and a board) stands, beside the bench. */
+const WAX_STAND = { x: -3.3, z: 0.3, boardTop: 1.03 } as const;
 
 interface Timber {
   readonly size: readonly [number, number, number];
@@ -187,28 +192,45 @@ function buildScaffold(timbers: Timbers, decks: Timbers): void {
   }
 }
 
-/** The plumb line: a thin dark cord from the top beam to a brass bob. */
+/** The plumb line prop: origin at the bob's tip, the cord up +Y to the reel; the reel sits under the ledger. */
 function buildPlumbLine(): THREE.Group {
+  const line = propModel('plumb-line');
+  line.position.set(PLUMB_LINE.x, PLUMB_LINE.reel - PLUMB_LINE.height, PLUMB_LINE.z);
+  line.traverse((object) => {
+    object.castShadow = true;
+  });
+  return line;
+}
+
+/** The props that rest in the yard: the leather pad with tripoli at its bench slot, the curved rasp beside the chisels, the carpenter's square leaning on the left wall. */
+function buildProps(): THREE.Group {
   const group = new THREE.Group();
-  group.name = 'plumb-line';
-  const length = PLUMB_LINE.top - PLUMB_LINE.bottom;
-  const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, length, 6), new THREE.MeshStandardMaterial({ color: 0x3a3025, roughness: 0.9 }));
-  cord.position.set(PLUMB_LINE.x, PLUMB_LINE.bottom + length / 2, PLUMB_LINE.z);
-  const bob = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.08, 12), new THREE.MeshStandardMaterial({ color: 0xb08d4a, roughness: 0.4, metalness: 0.8 }));
-  bob.rotation.x = Math.PI;
-  bob.position.set(PLUMB_LINE.x, PLUMB_LINE.bottom - 0.04, PLUMB_LINE.z);
-  bob.castShadow = true;
-  group.add(cord, bob);
+  group.name = 'props';
+  const pad = propModel('leather-pad');
+  pad.position.set(...LEATHER_PAD_REST.position);
+  pad.quaternion.set(...LEATHER_PAD_REST.quaternion);
+  const rasp = propModel('curved-rasp');
+  // Lying like the chisels: local +Y (the length) along world +X, tip toward the wall.
+  rasp.quaternion.copy(quatFromBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0)));
+  rasp.position.set(-2.37, BENCH.top + 0.006, 1.35);
+  const square = propModel('square');
+  // Standing on the floor, the foot along +z, leaning 12 degrees back against the left wall's planks.
+  square.quaternion.copy(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), 0.21).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2)));
+  square.position.set(-WALL_X + 0.15, 0, 1.9);
+  group.add(pad, rasp, square);
+  group.traverse((object) => {
+    object.castShadow = true;
+  });
   return group;
 }
 
 function buildBench(timbers: Timbers): void {
-  const width = BENCH.maxX - BENCH.minX;
-  const depth = BENCH.maxZ - BENCH.minZ;
-  const cx = (BENCH.minX + BENCH.maxX) / 2;
-  const cz = (BENCH.minZ + BENCH.maxZ) / 2;
-  timbers.add([width, BENCH.thickness, depth], [cx, BENCH.topY - BENCH.thickness / 2, cz]);
-  const legHeight = BENCH.topY - BENCH.thickness;
+  const width = BENCH.xMax - BENCH.xMin;
+  const depth = BENCH.zMax - BENCH.zMin;
+  const cx = (BENCH.xMin + BENCH.xMax) / 2;
+  const cz = (BENCH.zMin + BENCH.zMax) / 2;
+  timbers.add([width, BENCH_THICKNESS, depth], [cx, BENCH.top - BENCH_THICKNESS / 2, cz]);
+  const legHeight = BENCH.top - BENCH_THICKNESS;
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       timbers.add([0.06, legHeight, 0.06], [cx + sx * (width / 2 - 0.06), legHeight / 2, cz + sz * (depth / 2 - 0.06)]);
@@ -218,24 +240,17 @@ function buildBench(timbers: Timbers): void {
   timbers.add([width - 0.16, 0.04, 0.04], [cx, 0.25, cz + depth / 2 - 0.06]);
 }
 
-/** The small wax model (technique.md, stage 1: about 45 cm) on a post stand beside the bench. */
+/** The small wax model (technique.md, stage 1: about 45 cm; the prop of src/tools/props.ts) on a post-and-board stand beside the bench. */
 function buildWaxModel(timbers: Timbers): THREE.Group {
-  const x = -3.3;
-  const z = 0.3;
-  timbers.add([0.1, 1.0, 0.1], [x, 0.5, z]);
-  timbers.add([0.36, 0.03, 0.36], [x, 1.015, z]);
-  const group = new THREE.Group();
-  group.name = 'wax-model';
-  const wax = new THREE.MeshStandardMaterial({ color: 0x5a3a28, roughness: 0.45, metalness: 0 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.24, 4, 12), wax);
-  body.position.set(x, 1.03 + 0.18, z);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 10), wax);
-  head.position.set(x, 1.03 + 0.37, z);
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.03, 16), wax);
-  base.position.set(x, 1.03 + 0.015, z);
-  for (const part of [body, head, base]) part.castShadow = true;
-  group.add(body, head, base);
-  return group;
+  const { x, z, boardTop } = WAX_STAND;
+  timbers.add([0.1, boardTop - 0.03, 0.1], [x, (boardTop - 0.03) / 2, z]);
+  timbers.add([0.36, 0.03, 0.36], [x, boardTop - 0.015, z]);
+  const model = propModel('wax-model');
+  model.position.set(x, boardTop, z);
+  model.traverse((object) => {
+    object.castShadow = true;
+  });
+  return model;
 }
 
 /** The turata: vertical planks facing inward on three sides, nailed to posts and two rails. */
@@ -261,11 +276,13 @@ function buildTurata(posts: Timbers): THREE.InstancedMesh {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'turata';
-  for (const z of [WALL_BACK_Z, (WALL_BACK_Z + WALL_FRONT_Z) / 2, WALL_FRONT_Z]) {
+  // Side-wall posts off the block's centre line (z = 0), so the left and right presets look at the figure between them.
+  for (const z of [WALL_BACK_Z, -1.5, 2.5, WALL_FRONT_Z]) {
     posts.add([POST, WALL_HEIGHT + 0.3, POST], [WALL_X + POST / 2, (WALL_HEIGHT + 0.3) / 2, z]);
     posts.add([POST, WALL_HEIGHT + 0.3, POST], [-WALL_X - POST / 2, (WALL_HEIGHT + 0.3) / 2, z]);
   }
-  for (const x of [-WALL_X / 2, 0, WALL_X / 2]) posts.add([POST, WALL_HEIGHT + 0.3, POST], [x, (WALL_HEIGHT + 0.3) / 2, WALL_BACK_Z - POST / 2]);
+  // Back-wall posts off the centre line, so the back preset looks at the figure between them.
+  for (const x of [-WALL_X / 2, WALL_X / 2]) posts.add([POST, WALL_HEIGHT + 0.3, POST], [x, (WALL_HEIGHT + 0.3) / 2, WALL_BACK_Z - POST / 2]);
   for (const y of [1.0, 3.0]) {
     posts.add([POST / 2, BEAM, WALL_FRONT_Z - WALL_BACK_Z], [WALL_X + POST / 4, y, (WALL_BACK_Z + WALL_FRONT_Z) / 2]);
     posts.add([POST / 2, BEAM, WALL_FRONT_Z - WALL_BACK_Z], [-WALL_X - POST / 4, y, (WALL_BACK_Z + WALL_FRONT_Z) / 2]);
@@ -290,6 +307,6 @@ export function buildYard(): THREE.Group {
   timberMesh.name = 'timbers';
   const deckMesh = decks.build();
   deckMesh.name = 'decks';
-  yard.add(buildFloor(), timberMesh, deckMesh, turata, buildPlumbLine(), waxModel);
+  yard.add(buildFloor(), timberMesh, deckMesh, turata, buildPlumbLine(), waxModel, buildProps());
   return yard;
 }

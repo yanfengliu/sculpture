@@ -7,8 +7,8 @@ import { expect, test } from '@playwright/test';
 import { VIEWPORT, canvasHash, facts, labelAndScrubber, openPage, waitFrames, waitUntilStill } from './helpers';
 
 const N = 9;
-const FIRST_LABEL = /^Day 1 · 13 September 1501 · Setup — The block upright, the shed and the scaffold$/;
-const LAST_LABEL = /^Day 1092 · 8 September 1504 · On site — Gilding the sling and the stump$/;
+const FIRST_LABEL = /^Day 1 · 13 September 1501 · The Giant in the yard — The block upright, the shed and the scaffold$/;
+const LAST_LABEL = /^Day 1092 · 8 September 1504 · On site in the Piazza — Gilding the sling and the stump$/;
 
 test.use({ viewport: VIEWPORT });
 
@@ -64,7 +64,7 @@ test('step forward animates to the next integer, a second press retargets, step 
   await page.getByRole('button', { name: 'Step forward' }).click();
   expect((await facts(page)).moving).toBe(true);
   expect((await waitUntilStill(page)).t).toBe(1);
-  await expect(page.getByTestId('label')).toHaveText(/Layout — Drawing the principal view on the front$/);
+  await expect(page.getByTestId('label')).toHaveText(/Laying the figure out — Drawing the principal view on the front$/);
   await page.getByRole('button', { name: 'Step forward' }).click();
   await page.getByRole('button', { name: 'Step forward' }).click();
   expect((await waitUntilStill(page)).t).toBe(3);
@@ -83,7 +83,7 @@ test('the scrubber seeks by mouse and by keyboard and pauses playback', async ({
   expect(mid.playing).toBeNull();
   expect(mid.t).toBeGreaterThan(N / 2 - 0.2);
   expect(mid.t).toBeLessThan(N / 2 + 0.2);
-  await expect(page.getByTestId('label')).toHaveText(/Fine claw — The fine claw over the whole figure$/);
+  await expect(page.getByTestId('label')).toHaveText(/The fine claw and the roundel — The fine claw over the whole figure$/);
   await scrubber.focus();
   await page.keyboard.press('End');
   expect((await facts(page)).t).toBe(N);

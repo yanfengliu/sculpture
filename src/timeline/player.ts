@@ -42,25 +42,30 @@ export function createPlayer(weights: readonly number[], baseSeconds: number = B
     return { index, boundary: index };
   }
 
-  /** Moves `t` by up to `seconds` toward `stopAt` (a boundary of the run) and returns the seconds left over, or null when the run ended. */
-  function advance(seconds: number, direction: PlayDirection, stopAt: number): number {
+  /**
+   * Moves `t` by up to `seconds` toward `stopAt` (an end of the run) and returns true when the run ended there or at an end of the timeline.
+   * The seconds left after reaching a step boundary are clamped at zero: a leftover computed by subtraction can come out a hair negative, and that must not read as "ended" (the defect of 2026-10-11, pinned in player.test.ts).
+   */
+  function advance(seconds: number, direction: PlayDirection, stopAt: number): boolean {
     let remaining = seconds;
     while (remaining > 0) {
       const ahead = stepAhead(t, direction);
-      if (ahead === null) return -1;
+      if (ahead === null) return true;
       const weight = weights[ahead.index] ?? 1;
       const secondsPerStep = (weight * baseSeconds) / speed;
-      const stepsLeft = direction === 'forward' ? Math.min(ahead.boundary, stopAt) - t : t - Math.max(ahead.boundary, stopAt);
-      if (stepsLeft <= EPSILON) return -1;
-      const stepsNow = Math.min(stepsLeft, (remaining / secondsPerStep) || 0);
-      t = direction === 'forward' ? t + stepsNow : t - stepsNow;
-      remaining -= stepsNow * secondsPerStep;
-      if (stepsNow >= stepsLeft - EPSILON) {
-        t = direction === 'forward' ? Math.min(ahead.boundary, stopAt) : Math.max(ahead.boundary, stopAt);
-        if (t === stopAt) return -1;
+      const limit = direction === 'forward' ? Math.min(ahead.boundary, stopAt) : Math.max(ahead.boundary, stopAt);
+      const stepsLeft = Math.abs(limit - t);
+      const stepsNow = secondsPerStep > 0 ? remaining / secondsPerStep : Number.POSITIVE_INFINITY;
+      if (stepsNow < stepsLeft - EPSILON) {
+        // The whole update fits inside this step.
+        t = direction === 'forward' ? t + stepsNow : t - stepsNow;
+        return false;
       }
+      t = limit;
+      if (limit === stopAt) return true;
+      remaining = Math.max(0, remaining - stepsLeft * secondsPerStep);
     }
-    return remaining;
+    return false;
   }
 
   return {
@@ -111,12 +116,10 @@ export function createPlayer(weights: readonly number[], baseSeconds: number = B
       if (!(seconds > 0)) return false;
       const before = t;
       if (playing !== null) {
-        const left = advance(seconds, playing, playing === 'forward' ? N : 0);
-        if (left < 0) playing = null;
+        if (advance(seconds, playing, playing === 'forward' ? N : 0)) playing = null;
       } else if (target !== null) {
         const direction: PlayDirection = target > t ? 'forward' : 'backward';
-        const left = advance(seconds, direction, target);
-        if (left < 0 || Math.abs(t - target) <= EPSILON) {
+        if (advance(seconds, direction, target)) {
           t = target;
           target = null;
         }

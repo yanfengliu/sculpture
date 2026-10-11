@@ -33,7 +33,8 @@ export const PRESETS: readonly Preset[] = [
   { id: 'right', label: 'Right', pose: { position: [WHOLE, 3.2, 0], target: CENTRE } },
   { id: 'three-quarter', label: 'Three-quarter', pose: { position: [7, 4.2, 8.2], target: [0, MID - 0.15, 0] } },
   { id: 'head', label: 'Head', pose: { position: [0.9, HEAD_Y + 0.15, 2.3], target: [0, HEAD_Y, 0.15] } },
-  { id: 'hands', label: 'Hands', pose: { position: [-1.7, 2.6, 2.4], target: [-0.45, 2.3, 0.35] } },
+  // From just outside the front deck, between its posts, so no scaffold timber crosses the view.
+  { id: 'hands', label: 'Hands', pose: { position: [-1.0, 2.55, 2.8], target: [-0.45, 2.3, 0.4] } },
   { id: 'sling-and-stump', label: 'Sling and stump', pose: { position: [-3.2, 2.0, -3.0], target: [-0.3, 1.6, -0.3] } },
   { id: 'free', label: 'Free orbit', pose: { position: [7, 4.2, 8.2], target: [0, MID - 0.15, 0] } },
 ];

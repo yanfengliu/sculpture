@@ -1,30 +1,28 @@
 /**
- * Development stub of the engine's `Making` and the tools' `BlowCycle` (src/contracts/making.ts), so the page can be built and tested before they land.
- * Nine fake steps, one per stage id, with calendar spans in the proportions docs/research/technique.md gives. The stock is the block cut into a coarse lattice of cells; a blow removes cells outside a crude mannequin or re-finishes the cells it touches, so the surface changes and the `finish` attribute drives the marble shader. Everything observable is a pure function of `t`: the cell states at `t` are recomputed from the applied-blow count, never accumulated.
+ * Development stub of the engine's `Making` (src/contracts/making.ts), so the page can be built and tested before the engine lands. The tools are real: the blow cycle, the models and the names come from src/tools/.
+ * Nine fake steps, one per stage of src/choreography/stages.ts, with calendar spans in the proportions docs/research/technique.md gives. The stock is the block cut into a coarse lattice of cells; a blow removes cells outside a crude mannequin or re-finishes the cells it touches, so the surface changes and the `finish` attribute drives the marble shader. Everything observable is a pure function of `t`: the cell states at `t` are recomputed from the applied-blow count, never accumulated.
  * `dirtyChunks` is always 0 (meshing is synchronous), `planAll` is a no-op (the plan is built at construction) and `onMeshed` fires after every change.
  * Nothing here is authentic; it exists to exercise the page. `createStubBundle` is what src/main.ts swaps for the real parts.
  */
 import * as THREE from 'three';
 
+import { STAGES } from '../choreography/stages';
 import type { FinishCode } from '../contracts/grid';
 import { FINISH } from '../contracts/grid';
-import type { Blow, BlowCycle, ChipState, Making, StageDef, StepInfo, ToolId, ToolPose, Vec3 } from '../contracts/making';
+import type { Blow, BlowCycle, ChipState, Making, StepInfo, ToolId, ToolPose, Vec3 } from '../contracts/making';
 import { BASE_SECONDS } from '../contracts/making';
 import { BLOCK_M } from '../david/frame';
-import type { MakingBundle, RenderedTool, ToolNames } from './bundle';
+import { STRIKE, createBlowCycle } from '../tools/blow-cycle';
+import { CATALOG_IDS, TOOL_CATALOG } from '../tools/catalog';
+import { FADE_END } from '../tools/chip-burst';
+import { toolModel } from '../tools/geometry/index';
+import type { MakingBundle, RenderedTool } from './bundle';
 import { FINISH_ATTRIBUTE } from './marble';
-import { createPlaceholderTools } from './stub-tools';
-import { BENCH } from './yard';
 
 const LATTICE = { nx: 6, ny: 16, nz: 4 } as const;
 const CELL: Vec3 = [BLOCK_M.width / LATTICE.nx, BLOCK_M.height / LATTICE.ny, BLOCK_M.depth / LATTICE.nz];
 /** Shown blows per second at 1×, so a step of weight w gets about w × BASE_SECONDS × STRIKES_PER_SECOND blows. */
 const STRIKES_PER_SECOND = 4;
-/** Cycle phase at which the mallet lands and the blow applies. */
-export const STRIKE_PHASE = 0.5;
-const CHIP_LIFE_SECONDS = 1.5;
-const SHANK_LENGTH = 0.26;
-const MALLET_TOOLS: ReadonlySet<ToolId> = new Set(['point', 'two-tooth', 'claw', 'fine-claw', 'roundel', 'flat', 'drill']);
 
 type Op = { readonly cell: number; readonly state: 'removed' | FinishCode };
 
@@ -39,35 +37,6 @@ interface StepSpec {
   readonly blowsPerShown: number;
   readonly ops: (lattice: Lattice) => Op[];
 }
-
-export const STUB_STAGES: readonly StageDef[] = [
-  { id: 'setup', title: 'Setup', detail: 'The stock, its support and the shed (technique.md, stage 0).' },
-  { id: 'layout', title: 'Layout', detail: 'Laying the figure out on the stock (technique.md, stage 1).' },
-  { id: 'roughing', title: 'Roughing', detail: 'Roughing out with the point (technique.md, stage 2).' },
-  { id: 'coarse-claw', title: 'Coarse claw', detail: 'The two-tooth chisel and the coarse claw (technique.md, stage 3).' },
-  { id: 'fine-claw', title: 'Fine claw', detail: 'The fine claw and the roundel over the sides and back (technique.md, stage 4).' },
-  { id: 'drilling', title: 'Drilling', detail: 'The bow drill at the hair and the pupils (technique.md, stage 5).' },
-  { id: 'rasping', title: 'Rasping', detail: 'Rasps and files (technique.md, stage 6).' },
-  { id: 'polishing', title: 'Polishing', detail: 'Pumice, tripoli, straw and leather (technique.md, stage 7).' },
-  { id: 'on-site', title: 'On site', detail: 'The touches and gilding of the summer of 1504 (technique.md, stage 8).' },
-];
-
-export const STUB_TOOL_NAMES: Readonly<Record<RenderedTool, ToolNames>> = {
-  charcoal: { italian: 'carbone', english: 'charcoal' },
-  point: { italian: 'subbia', english: 'point' },
-  'two-tooth': { italian: 'calcagnuolo', english: 'two-tooth chisel' },
-  claw: { italian: 'gradina', english: 'claw chisel' },
-  'fine-claw': { italian: 'dente di cane', english: 'fine claw' },
-  roundel: { italian: 'unghietto', english: 'roundel' },
-  flat: { italian: 'scalpello', english: 'flat chisel' },
-  drill: { italian: 'trapano', english: 'bow drill' },
-  rasp: { italian: 'raspa', english: 'rasp' },
-  file: { italian: 'lima', english: 'file' },
-  pumice: { italian: 'pomice', english: 'pumice' },
-  polish: { italian: 'tripoli', english: 'tripoli and leather' },
-  gilding: { italian: 'doratura', english: 'gold leaf' },
-  mallet: { italian: 'mazzuolo', english: 'mallet' },
-};
 
 /** The cells of the block and the crude figure inside it. */
 class Lattice {
@@ -194,6 +163,7 @@ function faceOf(lattice: Lattice, cell: number): { point: Vec3; normal: Vec3 } {
   return { point, normal };
 }
 
+/** Tool axis from the handle to the tip: into the surface and downward, the sculptor's low stroke. */
 function direction(normal: Vec3): Vec3 {
   const v = new THREE.Vector3(-normal[0], -normal[1] - 0.7, -normal[2]).normalize();
   return [v.x, v.y, v.z];
@@ -213,7 +183,7 @@ function planSteps(lattice: Lattice): PlannedStep[] {
       const first = group[0];
       if (first !== undefined) lastPoint = faceOf(lattice, first.cell);
       blowOps.push(group);
-      blows.push({ tool: spec.tool, point: lastPoint.point, normal: lastPoint.normal, direction: direction(lastPoint.normal), size: CELL[2] / 2, stroke: Math.floor(blow / 4) });
+      blows.push({ tool: spec.tool, point: lastPoint.point, normal: lastPoint.normal, direction: direction(lastPoint.normal), size: 0.012, stroke: Math.floor(blow / 4) });
     }
     const { id, stage, title, detail, tool, blowsPerShown, weight, calendar } = spec;
     steps.push({ id, stage, title, detail, tool, blowsPerShown, weight, calendar, firstBlow, blowCount, blows, blowOps });
@@ -264,7 +234,7 @@ export function createStubMaking({ blowCycle, material }: StubMakingOptions): Ma
     return steps.reduce((sum, step, index) => sum + Math.floor(Math.min(1, Math.max(0, time - index)) * step.blowCount), 0);
   }
 
-  /** Cell states after `applied` blows, from the plan alone. */
+  /** Cell states after `applied` blows, from the plan alone, and the merged box faces that are open to the air. */
   function rebuild(applied: number): void {
     states = Array.from({ length: lattice.count }, () => FINISH.block);
     let seen = 0;
@@ -320,7 +290,7 @@ export function createStubMaking({ blowCycle, material }: StubMakingOptions): Ma
 
   const making: Making = {
     steps,
-    stages: STUB_STAGES,
+    stages: STAGES,
     N,
     planLength,
     planDigest,
@@ -343,26 +313,23 @@ export function createStubMaking({ blowCycle, material }: StubMakingOptions): Ma
       return Math.max(0, blowsApplied);
     },
     dirtyChunks: 0,
+    /** Only the tools in use; the page rests the others on the bench. */
     get poses(): readonly ToolPose[] {
       const at = locate(t);
-      if (at === null) {
-        const next = steps[Math.min(N - 1, Math.floor(t))];
-        const tool = next?.tool ?? 'point';
-        return [blowCycle.restPose(tool), blowCycle.restPose('mallet')];
-      }
-      const blow = at.step.blows[at.index];
-      if (blow === undefined) return [];
+      const blow = at?.step.blows[at.index];
+      if (at === null || blow === undefined) return [];
       return blowCycle.posesAt(blow, at.step.blows[at.index - 1] ?? null, at.phase);
     },
+    /** The chips of the blow in progress and of the blows before it that can still be in the air. */
     get chips(): readonly ChipState[] {
       const at = locate(t);
       if (at === null) return [];
       const cycleSeconds = (at.step.weight * BASE_SECONDS) / at.step.blowCount;
       const chips: ChipState[] = [];
-      for (let back = 0; back <= Math.ceil(CHIP_LIFE_SECONDS / cycleSeconds); back += 1) {
+      for (let back = 0; back <= Math.ceil(FADE_END / cycleSeconds); back += 1) {
         const blow = at.step.blows[at.index - back];
         if (blow === undefined) break;
-        chips.push(...blowCycle.chipsAt(blow, (back + at.phase - STRIKE_PHASE) * cycleSeconds));
+        chips.push(...blowCycle.chipsAt(blow, (back + at.phase - STRIKE) * cycleSeconds));
       }
       return chips;
     },
@@ -381,71 +348,17 @@ export function createStubMaking({ blowCycle, material }: StubMakingOptions): Ma
   return making;
 }
 
-const REST_ORDER: readonly RenderedTool[] = ['mallet', 'point', 'two-tooth', 'claw', 'fine-claw', 'roundel', 'flat', 'drill', 'rasp', 'file', 'pumice', 'polish', 'gilding', 'charcoal'];
-const UP = new THREE.Vector3(0, 1, 0);
-
-function hash(n: number): number {
-  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
-  return x - Math.floor(x);
-}
-
-function quaternionFromAxis(axis: Vec3): [number, number, number, number] {
-  const q = new THREE.Quaternion().setFromUnitVectors(UP, new THREE.Vector3(...axis).normalize());
-  return [q.x, q.y, q.z, q.w];
-}
-
-/** Chisel at the point along the blow's direction, the mallet on its axis behind the head, rising and landing by phase; hand tools slide along the surface instead. */
-export function createStubBlowCycle(): BlowCycle {
-  return {
-    posesAt(blow, previous, phase) {
-      const axis: Vec3 = [-blow.direction[0], -blow.direction[1], -blow.direction[2]];
-      const approach = Math.min(1, phase / 0.3);
-      const eased = approach * approach * (3 - 2 * approach);
-      const from = previous?.point ?? blow.point;
-      const tip: Vec3 = [from[0] + (blow.point[0] - from[0]) * eased, from[1] + (blow.point[1] - from[1]) * eased, from[2] + (blow.point[2] - from[2]) * eased];
-      const quaternion = quaternionFromAxis(axis);
-      if (!MALLET_TOOLS.has(blow.tool)) {
-        const slide = Math.sin(phase * Math.PI * 2) * 0.04;
-        return [{ tool: blow.tool, position: [tip[0] + slide * axis[2], tip[1] + slide * 0.2, tip[2] - slide * axis[0]], quaternion }];
-      }
-      const gap = phase < 0.3 ? 0.12 : phase < STRIKE_PHASE ? 0.12 + ((phase - 0.3) / 0.2) * 0.18 : phase < 0.6 ? 0.3 * (1 - (phase - STRIKE_PHASE) / 0.1) : ((phase - 0.6) / 0.4) * 0.12;
-      const offset = SHANK_LENGTH + gap;
-      return [
-        { tool: blow.tool, position: tip, quaternion },
-        { tool: 'mallet', position: [tip[0] + axis[0] * offset, tip[1] + axis[1] * offset, tip[2] + axis[2] * offset], quaternion },
-      ];
-    },
-    chipsAt(blow, secondsSince) {
-      if (!MALLET_TOOLS.has(blow.tool) || secondsSince < 0 || secondsSince > CHIP_LIFE_SECONDS) return [];
-      const seed = Math.round(blow.point[0] * 97 + blow.point[1] * 131 + blow.point[2] * 173);
-      const chips: ChipState[] = [];
-      for (let index = 0; index < 6; index += 1) {
-        const h = (k: number): number => hash(seed * 7 + index * 13 + k) - 0.5;
-        const velocity: Vec3 = [blow.normal[0] * (1.4 + h(1)) + h(2) * 1.6, 1.2 + h(3) + blow.normal[1], blow.normal[2] * (1.4 + h(4)) + h(5) * 1.6];
-        const tau = secondsSince;
-        const y = blow.point[1] + velocity[1] * tau - 4.905 * tau * tau;
-        chips.push({
-          position: [blow.point[0] + velocity[0] * tau, Math.max(0.012, y), blow.point[2] + velocity[2] * tau],
-          quaternion: quaternionFromAxis([h(6) + 0.01, h(7) + 0.5, h(8)]),
-          scale: 0.015 + 0.015 * hash(seed + index),
-          life: 1 - tau / CHIP_LIFE_SECONDS,
-        });
-      }
-      return chips;
-    },
-    restPose(tool) {
-      const slot = Math.max(0, REST_ORDER.indexOf(tool));
-      return { tool, position: [BENCH.minX + 0.06 + slot * 0.055, BENCH.topY + 0.015, BENCH.minZ + 0.1], quaternion: [Math.SQRT1_2, 0, 0, Math.SQRT1_2] };
-    },
-  };
-}
-
-/** The bundle src/main.ts boots from until the engine and the tools replace it. */
+/** The bundle src/main.ts boots from until the engine replaces the making: the stub making over the real tools. */
 export function createStubBundle(material: THREE.Material): MakingBundle {
+  const blowCycle = createBlowCycle();
+  const toolMeshes = new Map<RenderedTool, THREE.Object3D>();
+  for (const id of CATALOG_IDS) toolMeshes.set(id, toolModel(id));
   return {
-    making: createStubMaking({ blowCycle: createStubBlowCycle(), material }),
-    toolMeshes: createPlaceholderTools(),
-    toolNames: (tool) => STUB_TOOL_NAMES[tool],
+    making: createStubMaking({ blowCycle, material }),
+    blowCycle,
+    toolMeshes,
+    toolNames: (tool) => ({ italian: TOOL_CATALOG[tool].italian, english: TOOL_CATALOG[tool].english }),
+    carrySeconds: (blow) => blowCycle.approachSeconds(blow, null),
     source: null,
   };
 }

@@ -28,7 +28,9 @@ export async function openPage(page: Page, query: string): Promise<void> {
   await waitFrames(page, 2);
 }
 
+/** The facts after the next frame, so a read that follows an action sees the action's result. */
 export async function facts(page: Page): Promise<SculptureFacts> {
+  await waitFrames(page, 1);
   const published = await page.evaluate(() => window.__sculpture);
   if (published === undefined) throw new Error('window.__sculpture is not published');
   return published;

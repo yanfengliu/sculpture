@@ -7,8 +7,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
+import { BLOCK_M } from '../david/frame';
 import type { CameraPose } from './query';
 import { buildYard } from './yard';
+
+/** Kept for src/tools/dev/main.ts, which looks for a placeholder block of this height; the scene holds no block of its own any more (the stock comes from the making). */
+export const PLACEHOLDER_BLOCK = BLOCK_M;
+/** The three-quarter framing of src/viewer/presets.ts, for a caller that passes no pose. */
+const DEFAULT_POSE: CameraPose = { position: [7, 4.2, 8.2], target: [0, BLOCK_M.height / 2 - 0.15, 0] };
 
 /** Neutral sky: a pale grey-blue, not the page background (#202020), so a blank canvas is told from a drawn one. */
 const SKY_COLOUR = 0xd8dee5;
@@ -22,7 +28,9 @@ const MAX_FRAME_SECONDS = 0.1;
 export interface ViewerOptions {
   /** Capture mode: no damping, so the first frames show the requested pose exactly. */
   readonly shot: boolean;
-  readonly pose: CameraPose;
+  /** The initial camera; `cam` is the older name src/tools/dev/main.ts still passes (null for the default). */
+  readonly pose?: CameraPose;
+  readonly cam?: CameraPose | null;
 }
 
 export interface Viewer {
@@ -34,7 +42,7 @@ export interface Viewer {
   readonly frames: number;
   setPose(pose: CameraPose): void;
   /** Starts the render loop; `tick` runs before every render with the clamped seconds since the previous frame. */
-  start(tick: (seconds: number) => void): void;
+  start(tick?: (seconds: number) => void): void;
 }
 
 export function createViewer(container: HTMLElement, options: ViewerOptions): Viewer {
@@ -60,7 +68,8 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = !options.shot;
   controls.maxPolarAngle = Math.PI / 2 - 0.02;
-  controls.minDistance = 0.5;
+  // 20 cm tools must be framed from close by in the follow view.
+  controls.minDistance = 0.2;
   controls.maxDistance = 80;
 
   function setPose(pose: CameraPose): void {
@@ -68,7 +77,7 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
     controls.target.set(...pose.target);
     controls.update();
   }
-  setPose(options.pose);
+  setPose(options.pose ?? options.cam ?? DEFAULT_POSE);
 
   function resize(): void {
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -93,7 +102,7 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
       const frame = (now: number): void => {
         const seconds = last === null ? 0 : Math.min(MAX_FRAME_SECONDS, (now - last) / 1000);
         last = now;
-        tick(seconds);
+        tick?.(seconds);
         controls.update();
         renderer.render(scene, camera);
         frames += 1;
