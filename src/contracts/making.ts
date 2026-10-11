@@ -133,7 +133,12 @@ export interface StepInfo {
   /** Index of the step's first blow in the plan and its blow count. */
   readonly firstBlow: number;
   readonly blowCount: number;
+  /** The step's camera focus, carried from its StepDef so the follow camera can frame it. */
+  readonly focus?: CameraFocus;
 }
+
+/** Phase of a blow cycle at which the mallet meets the chisel: the engine applies the blow's material change at this phase, and the tools' cycle strikes at it, so what is seen and what is cut agree. */
+export const STRIKE_PHASE = 0.65;
 
 /** The making at a timeline position: the engine's view for the page. Everything observable is a pure function of `t`. */
 export interface Making {
@@ -152,7 +157,7 @@ export interface Making {
   setTime(t: number): void;
   readonly blowsApplied: number;
   readonly dirtyChunks: number;
-  /** Tool poses and chips to render at `t`. */
+  /** Poses of the tools in use at `t` (the chisel and, when struck, the mallet); the page rests every other tool at its restPose. */
   readonly poses: readonly ToolPose[];
   readonly chips: readonly ChipState[];
   /** The blow in progress at `t` and its cycle phase, or null at a rest position. */

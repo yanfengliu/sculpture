@@ -28,6 +28,12 @@ Each entry: the question, the choice, the reason and the evidence, with the date
 - **Chips land on the yard floor only** (2026-10-11): the chip contract has no stock surface, so a chip thrown onto an upward-facing surface of the block falls through it. Acceptable for a time-lapse; a stock-aware floor needs the stock sampler in the contract and is deferred.
 - **The drill may go straight in for single holes** (2026-10-11): the documented 35 to 45 degrees is the running drill; the pupils and single deep holes are drilled along the surface normal, an inference.
 
+## Page
+
+- **The plank enclosure is cut away from outside** (2026-10-11, from the page worker's handoff): the turata's planks face inward only, so the back, left and right presets see the block through the walls while their posts and rails stay visible. The record gives no wall height, and a closed shed would blind three presets.
+- **Video frames go to ffmpeg as JPEG** (2026-10-11): Playwright's bundled ffmpeg is built without a PNG decoder or the image2 demuxer, so `scripts/export-video.mjs` pipes JPEG frames (quality 95) through image2pipe; engine-options.md section 7's PNG command cannot run on that binary.
+- **The carry from the bench is a time stretch** (2026-10-11): rather than extra blows, the first blow of a step holds its approach window for the tools' `approachSeconds` during forward playback, so the tool crosses the yard at a hand's speed; nothing changes at integer `t`.
+
 ## Figure
 
 - **The figure is the Scan the World model from Wikimedia Commons, CC BY-SA 4.0** (2026-10-11). `mesh-sources.md` finds it the only full-figure David with a stated open licence, a stated size and checksum, and a direct URL; its provenance is a composite of photogrammetry of the marble and a structured-light scan of a plaster cast head, which the note records, and a cast's shape differs from the marble by less than the grid resolves. The mesh is fetched by the pipeline into an ignored folder and never committed; the attribution appears in the page footer and in the grid header.

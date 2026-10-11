@@ -51,7 +51,7 @@ The stroke generator is deterministic: given the figure grid, the step's region 
 
 The interfaces are code: `src/contracts/making.ts` holds `Blow`, `StepDef`, `PlanContext`, `RegionDef`, `BlowCycle`, `ToolPose`, `ChipState`, `Making` and `Player`, with the field meanings in their comments. In short, a `StepDef` has a stable kebab-case id, a stage, a title of at most 48 characters, a detail of at most 200 that names its source, a tool, a region, a margin in metres, the real blows one shown blow stands for, a duration weight, a calendar span, an optional camera focus, and a `plan(ctx)` that is deterministic in the context and the step's seed.
 
-Timeline position `t` runs over `[0, N]` for N steps. Step `i` (0-based) has local progress `f = clamp(t - i, 0, 1)`; its blows apply at `floor(f * count)`. The material state at `t` is a pure function of `t`: it is obtained by replaying the plan from the untouched block, and a test asserts byte-identical grids after any history of plays, reversals, steps and scrubs. The tool's pose and the chips are continuous functions of `t` within a blow cycle, also pure in `t`. An integer `t = k` is a rest position: the first k steps are complete, the tool is down, nothing moves.
+Timeline position `t` runs over `[0, N]` for N steps. Step `i` (0-based) has local progress `f = clamp(t - i, 0, 1)`; blow `k` of the step occupies the window `[k / count, (k + 1) / count)` of `f` and its material change applies at `STRIKE_PHASE` (0.65) of that window, where the tools' cycle strikes, so what is seen and what is cut agree; at an integer `t` every blow of the completed steps is applied. A step's first blow gets a carry from the bench: while that blow is in its approach window and playback runs forward, wall time advances slower so the window lasts the tools' `approachSeconds` (divided by the speed); captures at integer `t`, backward playback and shot mode get no carry. The material state at `t` is a pure function of `t`: it is obtained by replaying the plan from the untouched block, and a test asserts byte-identical grids after any history of plays, reversals, steps and scrubs. The tool's pose and the chips are continuous functions of `t` within a blow cycle, also pure in `t`. An integer `t = k` is a rest position: the first k steps are complete, the tool is down, nothing moves.
 
 Playback runs `t` continuously at `weight × BASE_SECONDS / speed` seconds per step and stops at 0 or N. Step forward animates to the next integer, step back to the previous one; a second press while moving retargets. Scrubbing sets `t` directly; a jump replays from the block and remeshes everything, progressively. Speed is 0.5×, 1×, 2× or 4×. The player is pure logic with no DOM and is unit-tested on its own.
 
@@ -80,14 +80,14 @@ Chips: an instanced pool of small marble fragments, launched from the tip at the
 | `shot=1` | Capture mode: no autoplay, no follow camera, no chip motion; `window.__shotReady = true` once at least 5 frames have rendered at the requested state with every dirty chunk meshed |
 | `t=<number>` | Timeline position in `[0, N]` |
 | `step=<id or 1-based index>` | Position at the end of that step; wins over `t` |
-| `view=<preset id>` | Camera preset |
+| `view=<preset id>` | Camera preset; `view=follow` (query only, not in the menu) frames the current blow from its normal, for the follow captures |
 | `cam=px,py,pz,tx,ty,tz` | Explicit camera position and target, for sweeps |
 | `model=david|synthetic` | Which figure grid to load; the page defaults to `david`, tests to `synthetic` |
 | `finish=1` | Show the finish grid as flat colours |
 | `autoplay=0` | Do not start playing on load |
 | `noui=1` | Hide the page chrome |
 
-The renderer keeps `preserveDrawingBuffer: true`, or headless capture reads a blank canvas. `window.__sculpture` exposes read-only facts for tests (`stepIds`, `stepTitles`, `stepStages`, `stages`, `N`, `t`, `planLength`, `planDigest`, `blowsApplied`, `dirtyChunks`, and `queryProblems`, the URL parameters the page ignored with why, so a capture harness can tell a wrong shot from the asked one); tests drive the page through its real controls, never by writing state.
+The renderer keeps `preserveDrawingBuffer: true`, or headless capture reads a blank canvas. `window.__sculpture` exposes read-only facts for tests (`stepIds`, `stepTitles`, `stepStages`, `stepTools`, `stepWeights`, `stepBlowCounts`, `stages`, `N`, `t`, `baseSeconds`, `playing`, `speed`, `moving`, `view`, `follow`, `finish`, `planLength`, `planDigest`, `blowsApplied`, `dirtyChunks`, and `queryProblems`, the URL parameters the page ignored with why, so a capture harness can tell a wrong shot from the asked one); tests drive the page through its real controls, never by writing state. Under `shot=1` the page also exposes `window.__shotSeek(t)`, which seeks through the player and re-arms `__shotReady`, so the video exporter can step frames without reloading the grid; `--reload` keeps the pure one-load-per-frame path. The label at an integer `t = k` names the step about to start, and the last step complete at `t = N`.
 
 ## Modules and ownership
 
