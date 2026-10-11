@@ -1,20 +1,21 @@
 /**
  * Remeshing of dirty chunks (docs/design/spec.md, Stock and figure): keeps the set of chunks a blow touched, sends each as a 33³ window to a `ChunkMesher` (the worker pool in the page, the synchronous mesher in tests and as a fallback) and swaps the chunk's `Mesh` under one `Group` when its geometry returns.
- * A chunk dirtied again while its job is out is meshed again when the stale result returns. `onMeshed` listeners fire whenever the pending count reaches zero after work.
+ * A chunk dirtied again while its job is out is meshed again when the stale result returns. A job the pool fails is logged and meshed on the main thread from a fresh window, so readiness never waits on a crashed worker. `onMeshed` listeners fire whenever the pending count reaches zero after work.
  */
 import * as THREE from 'three';
 
 import type { CarveState } from './carve';
 import { copyFinishWindow, copyWindow, windowOrigin } from './chunks';
-import type { MeshJob } from './mesh-messages';
 import { type ChunkMeshOutput, meshChunk, WINDOW_CELLS } from './mesher';
+import type { MeshJob } from './worker-messages';
 
 export type MeshDone = (id: number, out: ChunkMeshOutput) => void;
+export type MeshFail = (error: Error) => void;
 
 export interface ChunkMesher {
   /** True when the mesher takes the job's buffers away (a worker pool), so the caller must not reuse them. */
   readonly transfers: boolean;
-  submit(job: MeshJob, done: MeshDone): void;
+  submit(job: MeshJob, done: MeshDone, fail: MeshFail): void;
   dispose(): void;
 }
 
@@ -35,24 +36,24 @@ export function createSyncMesher(): ChunkMesher {
 export function createDeferredMesher(ready: Promise<ChunkMesher>): ChunkMesher {
   let mesher: ChunkMesher | null = null;
   let disposed = false;
-  const queue: { job: MeshJob; done: MeshDone }[] = [];
+  const queue: { job: MeshJob; done: MeshDone; fail: MeshFail }[] = [];
   const adopt = (found: ChunkMesher): void => {
     if (disposed) {
       found.dispose();
       return;
     }
     mesher = found;
-    for (const { job, done } of queue.splice(0)) found.submit(job, done);
+    for (const { job, done, fail } of queue.splice(0)) found.submit(job, done, fail);
   };
   ready.then(adopt).catch((error: unknown) => {
-    console.error(`mesher pool failed to start, meshing on the main thread instead: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`engine pool failed to start, meshing on the main thread instead: ${error instanceof Error ? error.message : String(error)}`);
     adopt(createSyncMesher());
   });
   return {
     transfers: true,
-    submit(job, done): void {
-      if (mesher !== null) mesher.submit(job, done);
-      else queue.push({ job, done });
+    submit(job, done, fail): void {
+      if (mesher !== null) mesher.submit(job, done, fail);
+      else queue.push({ job, done, fail });
     },
     dispose(): void {
       disposed = true;
@@ -73,6 +74,7 @@ export class Remesher {
   private readonly listeners = new Set<() => void>();
   private readonly scratchValues = new Int16Array(WINDOW_VOLUME);
   private readonly scratchFinish = new Uint8Array(WINDOW_VOLUME);
+  private readonly fallback = createSyncMesher();
   private worked = false;
   private disposed = false;
 
@@ -143,15 +145,24 @@ export class Remesher {
     this.mesher.dispose();
   }
 
-  private submit(id: number): void {
+  private submit(id: number, mesher: ChunkMesher = this.mesher): void {
     const { stock, finish, chunks } = this.state;
-    const reuse = !this.mesher.transfers;
+    const reuse = !mesher.transfers;
     const values = copyWindow(stock, chunks, id, reuse ? this.scratchValues : undefined);
     const codes = copyFinishWindow(finish, stock.spec, chunks, id, reuse ? this.scratchFinish : undefined);
     this.inFlight.set(id, false);
-    this.mesher.submit({ id, values, finish: codes, cell: stock.cell, origin: windowOrigin(stock, chunks, id) }, (done, out) => {
-      this.receive(done, out);
-    });
+    mesher.submit(
+      { id, values, finish: codes, cell: stock.cell, origin: windowOrigin(stock, chunks, id) },
+      (done, out) => {
+        this.receive(done, out);
+      },
+      (error) => {
+        if (this.disposed) return;
+        console.error(`chunk ${String(id)} is meshed on the main thread instead: ${error.message}`);
+        this.inFlight.delete(id);
+        this.submit(id, this.fallback);
+      },
+    );
   }
 
   private receive(id: number, out: ChunkMeshOutput): void {

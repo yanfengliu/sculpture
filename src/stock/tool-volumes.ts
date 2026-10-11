@@ -2,6 +2,7 @@
  * The volume each tool removes with one blow, as a closed-form signed distance in world metres (negative inside the removed volume), from docs/research/tools.md and docs/research/engine-options.md section 4.
  * A blow's frame: `n` the outward stock normal, `d` the tool axis from handle to tip, `u` the push direction (the part of `d` along the surface) and `w = n × u` across the blade. Local coordinates: `a` along the push, `b` across, `c` above the surface.
  * Every shape here is 1-Lipschitz (a true distance or a lower bound of one built from maxima of distances), which the carving loop relies on to skip blocks of cells far from the volume.
+ * Bounds are the tight axis-aligned box of each shape (a cylinder's box, not a cube of its reach), because the carving loop and the chunk jobs visit every cell of the box dilated by the band.
  */
 import type { Blow, ToolId, Vec3 } from '../contracts/making';
 
@@ -41,10 +42,10 @@ export const CRUSH_RATIO = 0.2;
 /** A point blow of this size or more is a bulk cut (the tools' BULK_CUT_SIZE_M in src/tools/catalog.ts, which the tests check this equals). */
 export const BULK_CUT_SIZE_M = 0.04;
 /**
- * A bulk cut's crater: one shown bulk blow stands for about a thousand real ones (docs/research/decisions.md, Time and scale), so its removed volume is the union of a field of 90-degree pits, which tools.md (Subbia, The mark) describes as a pitted, crater-like crust: a flat-floored crater `BULK_RADIUS_RATIO × size` wide with a rim fillet of `BULK_FILLET_RATIO × size`, not one pit. A departure from a single blow's cone, stated in the handoff.
+ * A bulk cut's crater: one shown bulk blow stands for about a thousand real ones (docs/research/decisions.md, Time and scale), so its removed volume is the union of a field of 90-degree pits, which tools.md (Subbia, The mark) describes as a pitted, crater-like crust: a flat-floored crater `BULK_RADIUS_RATIO × size` wide, not one pit. A departure from a single blow's cone, stated in the handoff.
+ * The floor meets the wall sharply: a rounded bottom edge left a ring of stock between neighbouring craters that the planner could not predict (src/choreography/generators/furrows.ts predicts the floors it has made) and that read as slivers.
  */
 export const BULK_RADIUS_RATIO = 1.2;
-export const BULK_FILLET_RATIO = 0.25;
 /** Corner radius of the rasp, file and pumice footprints as a fraction of the width. */
 const FOOTPRINT_ROUNDING = 0.3;
 /** Width of the feathered edge of a rasped patch as a fraction of the footprint's half width: the depth tapers to nothing there, as a rubbed patch does. */
@@ -57,10 +58,14 @@ const AIR_EXTENSION = 0.05;
 /** The signed distance of a blow's removed volume at a world point. `figure` is the figure's signed distance at the point, which the surface-following tools use as their depth axis. */
 export interface ToolVolume {
   distance(x: number, y: number, z: number, figure: number): number;
+  /** The distances of `count` cells along x at `originX + (first + i) × cell` (the same float the per-cell path forms, so the bytes do not depend on which path ran), written to `out`: the hot shapes (the bulk crater and the cone) give the carving loop a row at a time, with the row's constants hoisted and no call per cell. */
+  distances?(originX: number, first: number, cell: number, count: number, y: number, z: number, out: Float64Array): void;
   /** Axis-aligned bounds of the volume in world metres (min then max). */
   readonly min: Vec3;
   readonly max: Vec3;
   readonly removes: boolean;
+  /** How much faster than 1 per metre the distance may change: 1 for the true distances; more for the surface-following slab, whose depth axis is the sampled figure field and whose edge tapers (the carving loop widens its skip and clamp margins by it). */
+  readonly lipschitz: number;
 }
 
 interface Frame {
@@ -166,8 +171,7 @@ export function closedFormVolume(tool: ToolId, size: number): number {
     case 'point': {
       if (size >= BULK_CUT_SIZE_M) {
         const radius = BULK_RADIUS_RATIO * size;
-        const fillet = BULK_FILLET_RATIO * size;
-        return Math.PI * radius * radius * size - (1 - Math.PI / 4) * fillet * fillet * 2 * Math.PI * (radius - fillet);
+        return Math.PI * radius * radius * size;
       }
       const radius = size * Math.tan(spec.angle);
       const crush = CRUSH_RATIO * size;
@@ -194,7 +198,7 @@ export function closedFormVolume(tool: ToolId, size: number): number {
     case 'file':
     case 'pumice': {
       const rounding = FOOTPRINT_ROUNDING * spec.width;
-      const feather = FEATHER * (spec.width / 2);
+      const feather = Math.max(FEATHER * (spec.width / 2), size);
       const area = spec.push * spec.width - (4 - Math.PI) * rounding * rounding;
       const perimeter = 2 * (spec.push + spec.width) - 8 * rounding + 2 * Math.PI * rounding;
       return (area - 0.5 * perimeter * feather) * size;
@@ -230,33 +234,61 @@ export function toolVolume(blow: Blow, figureAtPoint: number, figureBand: number
   }
 }
 
-/** The bulk crater: a rounded, flat-floored cylinder along the tool axis, `size` deep from the blow point and open above the surface. */
+/** The tight box of a cylinder of `radius` and `halfHeight` about `centre` along the unit axis `d`. */
+function cylinderBounds(centre: Vec3, d: Vec3, radius: number, halfHeight: number): { min: Vec3; max: Vec3 } {
+  const extent = (axis: number): number => {
+    const along = d[axis] ?? 0;
+    return radius * Math.sqrt(Math.max(0, 1 - along * along)) + halfHeight * Math.abs(along);
+  };
+  const ex = extent(0);
+  const ey = extent(1);
+  const ez = extent(2);
+  return { min: [centre[0] - ex, centre[1] - ey, centre[2] - ez], max: [centre[0] + ex, centre[1] + ey, centre[2] + ez] };
+}
+
+/** The bulk crater: a flat-floored cylinder along the tool axis, `size` deep from the blow point and open above the surface, its floor meeting its wall sharply. */
 function bulkCrater(f: Frame, size: number): ToolVolume {
   const radius = BULK_RADIUS_RATIO * size;
-  const fillet = BULK_FILLET_RATIO * size;
   const halfHeight = (size + AIR_EXTENSION) / 2;
   const centre = (size - AIR_EXTENSION) / 2;
   const dx = f.d[0];
   const dy = f.d[1];
   const dz = f.d[2];
-  const reach = Math.max(radius, size, AIR_EXTENSION);
+  const bounds = cylinderBounds([f.px + dx * centre, f.py + dy * centre, f.pz + dz * centre], f.d, radius, halfHeight);
   return {
     removes: true,
-    min: [f.px - reach, f.py - reach, f.pz - reach],
-    max: [f.px + reach, f.py + reach, f.pz + reach],
+    lipschitz: 1,
+    min: bounds.min,
+    max: bounds.max,
     distance(x, y, z) {
       const qx = x - f.px;
       const qy = y - f.py;
       const qz = z - f.pz;
       const h = qx * dx + qy * dy + qz * dz;
       const rr = qx * qx + qy * qy + qz * qz - h * h;
-      const rho = rr > 0 ? Math.sqrt(rr) : 0;
-      const a = rho - radius + fillet;
-      const b = Math.abs(h - centre) - halfHeight + fillet;
+      const a = (rr > 0 ? Math.sqrt(rr) : 0) - radius;
+      const b = Math.abs(h - centre) - halfHeight;
       const inside = a > b ? a : b;
       const oa = a > 0 ? a : 0;
       const ob = b > 0 ? b : 0;
-      return (inside < 0 ? inside : 0) + Math.sqrt(oa * oa + ob * ob) - fillet;
+      return (inside < 0 ? inside : 0) + Math.sqrt(oa * oa + ob * ob);
+    },
+    distances(originX, first, cell, count, y, z, out) {
+      const qy = y - f.py;
+      const qz = z - f.pz;
+      const h0 = qy * dy + qz * dz;
+      const q0 = qy * qy + qz * qz;
+      for (let i = 0; i < count; i += 1) {
+        const qx = originX + (first + i) * cell - f.px;
+        const h = qx * dx + h0;
+        const rr = qx * qx + q0 - h * h;
+        const a = (rr > 0 ? Math.sqrt(rr) : 0) - radius;
+        const b = Math.abs(h - centre) - halfHeight;
+        const inside = a > b ? a : b;
+        const oa = a > 0 ? a : 0;
+        const ob = b > 0 ? b : 0;
+        out[i] = (inside < 0 ? inside : 0) + Math.sqrt(oa * oa + ob * ob);
+      }
     },
   };
 }
@@ -278,11 +310,13 @@ function pointCone(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
   const dx = f.d[0];
   const dy = f.d[1];
   const dz = f.d[2];
-  const reach = Math.max(top, radius) + crush;
+  // The cone lies between its apex and its base disc `top` back along the axis; the crush sphere sits at the apex.
+  const bounds = cylinderBounds([ax - dx * (top / 2), ay - dy * (top / 2), az - dz * (top / 2)], f.d, radius, top / 2);
   return {
     removes: true,
-    min: [ax - reach, ay - reach, az - reach],
-    max: [ax + reach, ay + reach, az + reach],
+    lipschitz: 1,
+    min: [Math.min(bounds.min[0], ax - crush), Math.min(bounds.min[1], ay - crush), Math.min(bounds.min[2], az - crush)],
+    max: [Math.max(bounds.max[0], ax + crush), Math.max(bounds.max[1], ay + crush), Math.max(bounds.max[2], az + crush)],
     distance(x, y, z) {
       const qx = x - ax;
       const qy = y - ay;
@@ -295,6 +329,23 @@ function pointCone(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
       const cone = lateral > h - top ? lateral : h - top;
       const sphere = Math.sqrt(qq) - crush;
       return cone < sphere ? cone : sphere;
+    },
+    distances(originX, first, cell, count, y, z, out) {
+      const qy = y - ay;
+      const qz = z - az;
+      const h0 = -(qy * dy + qz * dz);
+      const q0 = qy * qy + qz * qz;
+      for (let i = 0; i < count; i += 1) {
+        const qx = originX + (first + i) * cell - ax;
+        const h = h0 - qx * dx;
+        const qq = qx * qx + q0;
+        const rr = qq - h * h;
+        const rho = rr > 0 ? Math.sqrt(rr) : 0;
+        const lateral = (rho - h * tan) * cos;
+        const cone = lateral > h - top ? lateral : h - top;
+        const sphere = Math.sqrt(qq) - crush;
+        out[i] = cone < sphere ? cone : sphere;
+      }
     },
   };
 }
@@ -310,6 +361,7 @@ function bladeWedge(f: Frame, size: number, spec: ToolVolumeSpec, flat: boolean)
   const bounds = frameBounds(f, Math.min(entryTop, 0), Math.max(...xs), -half, half, -size, ext, 0);
   return {
     removes: true,
+    lipschitz: 1,
     min: bounds.min,
     max: bounds.max,
     distance(x, y, z) {
@@ -331,6 +383,7 @@ function roundelScoop(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume 
   const bounds = frameBounds(f, -radius, spec.push + radius, -radius, radius, -size, 0, 0);
   return {
     removes: true,
+    lipschitz: 1,
     min: bounds.min,
     max: bounds.max,
     distance(x, y, z) {
@@ -355,11 +408,12 @@ function drillHole(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
   const ax = f.px + f.d[0] * size;
   const ay = f.py + f.d[1] * size;
   const az = f.pz + f.d[2] * size;
-  const reach = Math.max(size, top) + r;
+  const bounds = cylinderBounds([ax - f.d[0] * (top / 2), ay - f.d[1] * (top / 2), az - f.d[2] * (top / 2)], f.d, r, top / 2);
   return {
     removes: true,
-    min: [ax - reach, ay - reach, az - reach],
-    max: [ax + reach, ay + reach, az + reach],
+    lipschitz: 1,
+    min: bounds.min,
+    max: bounds.max,
     distance(x, y, z) {
       const qx = x - ax;
       const qy = y - ay;
@@ -371,16 +425,22 @@ function drillHole(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
   };
 }
 
-/** Rasps, files and pumice: a patch `size` deep under the surface over a rounded footprint, its depth feathering out at the edge, following the figure's level sets where the figure is near and the tangent plane elsewhere. */
+/** How far above the blow point's level the slab reaches, metres: a cell, so the stock just above the point still updates, but a hollow's facing surface a hand away is never cut (the point's and the drill's AIR_EXTENSION would reach it). */
+const SLAB_TOP = 0.01;
+/** Slack for the sampled figure field, whose trilinear gradient can pass 1 near the statue's creases. */
+const FIGURE_SLACK = 0.25;
+
+/** Rasps, files and pumice: a patch `size` deep under the surface over a rounded footprint, its depth feathering out at the edge (over a width no narrower than the cut, which keeps the distance's slope bounded), following the figure's level sets where the figure is near and the tangent plane elsewhere; closed a cell above the point. */
 function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint: number, figureBand: number): ToolVolume {
   const hx = spec.push / 2;
   const hy = spec.width / 2;
   const rounding = FOOTPRINT_ROUNDING * spec.width;
-  const feather = FEATHER * hy;
+  const feather = Math.max(FEATHER * hy, size);
   const followFigure = figureAtPoint < 0.4 * figureBand;
-  const bounds = frameBounds(f, -hx, hx, -hy, hy, -size - (followFigure ? spec.push * 0.5 : 0), AIR_EXTENSION, 0);
+  const bounds = frameBounds(f, -hx, hx, -hy, hy, -size - (followFigure ? spec.push * 0.5 : 0), followFigure ? spec.push * 0.5 : SLAB_TOP, 0);
   return {
     removes: true,
+    lipschitz: (followFigure ? 1 + FIGURE_SLACK : 1) + size / feather,
     min: bounds.min,
     max: bounds.max,
     distance(x, y, z, figure) {
@@ -392,8 +452,9 @@ function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint
       const c = rx * f.n[0] + ry * f.n[1] + rz * f.n[2];
       const foot = roundedBox2(a, b, hx, hy, rounding);
       const local = foot >= 0 ? 0 : size * Math.min(1, -foot / feather);
-      const depth = followFigure ? figureAtPoint - local - figure : -local - c;
-      return extrude(foot, depth);
+      const below = followFigure ? figureAtPoint - local - figure : -local - c;
+      const above = followFigure ? figure - figureAtPoint - SLAB_TOP : c - SLAB_TOP;
+      return extrude(foot, below > above ? below : above);
     },
   };
 }
@@ -405,6 +466,7 @@ function paintFootprint(f: Frame, spec: ToolVolumeSpec): ToolVolume {
   const bounds = frameBounds(f, -hx, hx, -hy, hy, -PAINT_HALF_THICKNESS, PAINT_HALF_THICKNESS, 0);
   return {
     removes: false,
+    lipschitz: 1,
     min: bounds.min,
     max: bounds.max,
     distance(x, y, z) {

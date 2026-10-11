@@ -1,7 +1,8 @@
 /**
  * The Making (docs/design/spec.md, Blows, strokes and steps; src/contracts/making.ts): the plan, the replay and the evaluation at a timeline position `t`.
  * Planning is step by step: a step's generator runs once, when the making first needs it, from the stock as the earlier steps left it, and the result is cached, so the blows at any `t` are the same whatever the history. Forward moves apply blows in index order; backward moves restore the undo boxes; the state is never snapshotted.
- * Step `i` at local progress `f = clamp(t - i, 0, 1)` has blow `k` in its window `[k / count, (k + 1) / count)`; the blow's cut applies when the position passes STRIKE_PHASE of that window, so at an integer `t` every blow of the completed steps is applied, and its cycle phase is the fractional position inside the window. Chips of a struck blow count seconds from its strike.
+ * A forward move of fewer than JUMP_BLOWS blows applies on the calling thread at once. A longer one is a jump: its blows go chunk by chunk to the carve workers (src/timeline/jump.ts), the cursor stays until every chunk is back, `dirtyChunks` counts the chunks still out, and planning and the move toward `t` resume when the jump lands; with no pool (the tests) the jump runs in-process and `setTime` returns with the state applied.
+ * Step `i` at local progress `f = clamp(t - i, 0, 1)` plays in visible cycles (src/timeline/cycles.ts): cycle `c` has the window `[c / cycles, (c + 1) / cycles)`, its blows apply in order when the position passes STRIKE_PHASE of that window, so at an integer `t` every blow of the completed steps is applied; the blow in progress is the cycle's first blow at the position's phase inside the window. Chips of a struck cycle count seconds from its strike, and a young step still shows the chips of the previous step's last strikes; at an integer `t` nothing is in flight.
  * Everything observable is a pure function of `t`: the grids, the chunk meshes, the poses and the chips, which src/timeline/making.test.ts asserts after random histories.
  */
 import type { Material, Object3D } from 'three';
@@ -9,10 +10,13 @@ import type { Material, Object3D } from 'three';
 import type { GridHeader } from '../contracts/grid';
 import { BASE_SECONDS, type Blow, type BlowCycle, type ChipState, type Making, type PlanContext, type StageDef, type StepDef, type StepInfo, STRIKE_PHASE, type ToolPose } from '../contracts/making';
 import { applyBlow, type CarveState, type UndoBox, undoBlow, undoBytes } from '../stock/carve';
+import type { ChunkCarver } from '../stock/carve-jobs';
 import { chunkLayout } from '../stock/chunks';
 import { FNV_OFFSET, fnvBlow, fnvHex, seedOf } from '../stock/digest';
 import { blockGrid, createFinishGrid, frameBlockBox, type Grid, latticeBlockBox, type WorldBox } from '../stock/grid';
 import { type ChunkMesher, createDeferredMesher, createSyncMesher, Remesher } from '../stock/remesh';
+import { blowsStruck, type Cycles, cyclesOf } from './cycles';
+import { createDeferredCarver, createSyncCarver, figureChunkOf, type Jump, type JumpBlow, type JumpOutcome, startJump } from './jump';
 
 export interface MakingOptions {
   /** The figure's distance grid; the stock takes its lattice. */
@@ -24,12 +28,15 @@ export interface MakingOptions {
   readonly blowCycle: BlowCycle;
   /** The stock's material; the page passes its marble, the dev page a plain flat-shaded one. */
   readonly material: Material;
-  /** Mesher workers; 0 or absent meshes on the calling thread (tests and the fallback). */
+  /** Engine workers; 0 or absent meshes on the calling thread and jumps in-process (tests and the fallback). */
   readonly workers?: number;
   /** The block to carve; by default the lattice's block when a header is given, else the block of src/david/frame.ts. */
   readonly block?: WorldBox;
   /** A mesher to use instead of the pool, for tests and tools. */
   readonly mesher?: ChunkMesher;
+  /** A carver to use instead of the pool, or `in-process` for the one that runs the chunk jobs on the calling thread; the tests pass it with a low `jumpBlows` to exercise the jump path synchronously. */
+  readonly carver?: ChunkCarver | 'in-process';
+  readonly jumpBlows?: number;
 }
 
 /** The Making plus what the engine's own tests and dev page read. */
@@ -43,13 +50,19 @@ export interface EngineMaking extends Making {
   readonly undoBytes: number;
   /** Blows of a planned step, for tests and tools. */
   blowsOf(step: number): readonly Blow[];
+  /** The visible cycles of a planned step. */
+  cyclesOf(step: number): Cycles;
   dispose(): void;
 }
 
 const TITLE_LIMIT = 48;
 const DETAIL_LIMIT = 200;
-/** Blows looked back for chips after the one in progress. */
-const CHIP_LOOKBACK = 64;
+/** Seconds of playing time at 1× looked back for chips, into the previous step when the current one is young; the tools fade a chip well within it. */
+const CHIP_WINDOW_SECONDS = 4;
+/** Blows of a cycle that launch chips, spread over the cycle's run, so a long run does not flood the pool. */
+const CHIP_BLOWS_PER_CYCLE = 4;
+/** A forward move of this many blows or more goes to the carve workers. */
+export const JUMP_BLOWS = 48;
 
 export function createMaking(options: MakingOptions): EngineMaking {
   return new MakingImpl(options);
@@ -67,6 +80,16 @@ function checkSteps(steps: readonly StepDef[]): void {
   }
 }
 
+interface Progress {
+  readonly step: number;
+  /** The cycle in progress and the position in cycles into the step. */
+  readonly cycle: number;
+  readonly phase: number;
+  readonly position: number;
+  readonly cycles: Cycles;
+  readonly count: number;
+}
+
 class MakingImpl implements EngineMaking {
   readonly stages: readonly StageDef[];
   readonly N: number;
@@ -80,15 +103,20 @@ class MakingImpl implements EngineMaking {
   private readonly defs: readonly StepDef[];
   private readonly blowCycle: BlowCycle;
   private readonly state: CarveState;
+  private readonly carver: ChunkCarver | null;
+  private readonly jumpBlows: number;
   private readonly plans: (readonly Blow[] | null)[];
   /** First blow index of each step; for an unplanned step, the count planned before it. */
   private readonly starts: number[];
   private readonly undo: UndoBox[] = [];
+  private jump: Jump | null = null;
+  private wantAll = false;
   private cursor = 0;
   private time = 0;
   private digest = FNV_OFFSET;
   private planned = 0;
   private undoSize = 0;
+  private disposed = false;
 
   constructor(options: MakingOptions) {
     checkSteps(options.steps);
@@ -103,7 +131,18 @@ class MakingImpl implements EngineMaking {
     this.finish = createFinishGrid(options.figure.spec);
     this.state = { stock: this.stock, finish: this.finish, chunks: chunkLayout(options.figure.spec) };
     const workers = options.workers ?? 0;
-    const mesher = options.mesher ?? (workers > 0 ? createDeferredMesher(import('../stock/pool').then((pool) => pool.createMesherPool(workers))) : createSyncMesher());
+    let mesher = options.mesher ?? createSyncMesher();
+    let carver: ChunkCarver | null = options.carver === 'in-process' ? createSyncCarver(this.figure, this.state) : (options.carver ?? null);
+    if (options.mesher === undefined && workers > 0) {
+      const pool = import('../stock/pool').then((module) => module.createEnginePool(workers, figureChunkOf(this.figure, this.state), this.state.chunks.counts));
+      mesher = createDeferredMesher(pool.then((p) => p.mesher));
+      carver = createDeferredCarver(
+        pool.then((p) => p.carver),
+        createSyncCarver(this.figure, this.state),
+      );
+    }
+    this.carver = carver;
+    this.jumpBlows = options.jumpBlows ?? JUMP_BLOWS;
     this.remesher = new Remesher(this.state, options.material, mesher);
     this.stockObject = this.remesher.group;
     this.plans = options.steps.map(() => null);
@@ -111,8 +150,7 @@ class MakingImpl implements EngineMaking {
     this.steps = options.steps.map((step) => info(step, 0, 0));
     this.remesher.markAllDirty();
     // The first step is planned at once, so the page has its blows and the tool at rest from the first frame.
-    this.moveTo(this.targetFor(0));
-    this.remesher.flush();
+    this.advance();
   }
 
   get planLength(): number {
@@ -132,7 +170,7 @@ class MakingImpl implements EngineMaking {
   }
 
   get dirtyChunks(): number {
-    return this.remesher.pending;
+    return this.remesher.pending + (this.jump?.pending ?? 0);
   }
 
   get undoBytes(): number {
@@ -143,49 +181,51 @@ class MakingImpl implements EngineMaking {
     return this.plans[step] ?? [];
   }
 
+  cyclesOf(step: number): Cycles {
+    return cyclesOf(this.plans[step]?.length ?? 0, (this.defs[step]?.weight ?? 1) * BASE_SECONDS);
+  }
+
   onMeshed(listener: () => void): () => void {
     return this.remesher.onMeshed(listener);
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.jump?.cancel();
+    this.jump = null;
     this.remesher.dispose();
+    this.carver?.dispose();
   }
 
   planAll(): void {
-    this.ensurePlanned(this.N - 1);
-    this.moveTo(this.targetFor(this.time));
-    this.remesher.flush();
+    this.wantAll = true;
+    this.advance();
   }
 
   setTime(t: number): void {
     if (!Number.isFinite(t)) return;
     this.time = Math.min(Math.max(t, 0), this.N);
-    this.moveTo(this.targetFor(this.time));
-    this.remesher.flush();
+    this.advance();
   }
 
-  /** The blow in progress: step `i`, blow `index` within it, its phase and the step's position in blows; null at a rest position. */
-  private progress(): { step: number; index: number; phase: number; count: number; position: number } | null {
+  /** The cycle in progress; null at a rest position or in an unplanned step. */
+  private progress(): Progress | null {
     if (this.N === 0 || this.time >= this.N) return null;
     const step = Math.floor(this.time);
     const f = this.time - step;
     if (f <= 0) return null;
     const count = this.plans[step]?.length ?? 0;
     if (count === 0) return null;
-    const position = f * count;
-    const index = Math.min(Math.floor(position), count - 1);
-    return { step, index, phase: Math.min(Math.max(position - index, 0), 1 - Number.EPSILON), count, position };
-  }
-
-  /** Blows of a step struck by `position` (blows into the step): those whose strike phase the position has passed. */
-  private static struck(position: number, count: number): number {
-    return Math.min(count, Math.max(0, Math.floor(position - STRIKE_PHASE) + 1));
+    const cycles = this.cyclesOf(step);
+    const position = f * cycles.cycles;
+    const cycle = Math.min(Math.floor(position), cycles.cycles - 1);
+    return { step, cycle, phase: Math.min(Math.max(position - cycle, 0), 1 - Number.EPSILON), position, cycles, count };
   }
 
   get current(): { readonly blow: Blow; readonly phase: number } | null {
     const p = this.progress();
     if (p === null) return null;
-    const blow = this.plans[p.step]?.[p.index];
+    const blow = this.plans[p.step]?.[p.cycle * p.cycles.group];
     return blow === undefined ? null : { blow, phase: p.phase };
   }
 
@@ -194,55 +234,85 @@ class MakingImpl implements EngineMaking {
     const p = this.progress();
     if (p === null) return [];
     const plan = this.plans[p.step] ?? [];
-    const blow = plan[p.index];
+    const blow = plan[p.cycle * p.cycles.group];
     if (blow === undefined) return [];
-    return this.blowCycle.posesAt(blow, p.index > 0 ? (plan[p.index - 1] ?? null) : null, p.phase);
+    const previous = p.cycle > 0 ? (plan[(p.cycle - 1) * p.cycles.group] ?? null) : null;
+    return this.blowCycle.posesAt(blow, previous, p.phase);
   }
 
   get chips(): readonly ChipState[] {
     const p = this.progress();
     if (p === null) return [];
-    const def = this.defs[p.step];
-    const plan = this.plans[p.step] ?? [];
-    if (def === undefined) return [];
-    const secondsPerBlow = (def.weight * BASE_SECONDS) / p.count;
     const chips: ChipState[] = [];
+    const secondsPerCycle = ((this.defs[p.step]?.weight ?? 1) * BASE_SECONDS) / p.cycles.cycles;
+    const struckCycles = Math.min(p.cycles.cycles, Math.max(0, Math.floor(p.position - STRIKE_PHASE) + 1));
     let emptyRun = 0;
-    const struck = MakingImpl.struck(p.position, p.count);
-    for (let j = struck - 1; j >= 0 && j >= struck - CHIP_LOOKBACK; j -= 1) {
-      const blow = plan[j];
-      if (blow === undefined) break;
-      const secondsSince = (p.position - (j + STRIKE_PHASE)) * secondsPerBlow;
-      const some = this.blowCycle.chipsAt(blow, secondsSince);
-      if (some.length === 0) {
-        emptyRun += 1;
-        if (emptyRun >= 2) break;
-        continue;
+    const collect = (step: number, cycle: number, cycles: Cycles, secondsSince: number): boolean => {
+      const plan = this.plans[step] ?? [];
+      const first = cycle * cycles.group;
+      const size = Math.min(cycles.group, plan.length - first);
+      const stride = Math.max(1, Math.ceil(size / CHIP_BLOWS_PER_CYCLE));
+      let some = 0;
+      for (let j = first; j < first + size; j += stride) {
+        const blow = plan[j];
+        if (blow === undefined) break;
+        const launched = this.blowCycle.chipsAt(blow, secondsSince);
+        some += launched.length;
+        chips.push(...launched);
       }
-      emptyRun = 0;
-      chips.push(...some);
+      emptyRun = some === 0 ? emptyRun + 1 : 0;
+      return emptyRun < 2;
+    };
+    for (let c = struckCycles - 1; c >= 0; c -= 1) {
+      const secondsSince = (p.position - (c + STRIKE_PHASE)) * secondsPerCycle;
+      if (secondsSince > CHIP_WINDOW_SECONDS || !collect(p.step, c, p.cycles, secondsSince)) return chips;
+    }
+    // The previous step's last strikes are still in the air when this step is young.
+    const previous = p.step - 1;
+    if (previous < 0 || this.plans[previous] === null) return chips;
+    const before = this.cyclesOf(previous);
+    const elapsed = p.position * secondsPerCycle;
+    const secondsPerPrevious = ((this.defs[previous]?.weight ?? 1) * BASE_SECONDS) / Math.max(1, before.cycles);
+    for (let c = before.cycles - 1; c >= 0; c -= 1) {
+      const secondsSince = elapsed + (before.cycles - (c + STRIKE_PHASE)) * secondsPerPrevious;
+      if (secondsSince > CHIP_WINDOW_SECONDS || !collect(previous, c, before, secondsSince)) break;
     }
     return chips;
   }
 
-  /** The blow count a position asks for, planning the steps it needs on the way. */
+  /** The blow count a position asks for, once its step is planned. */
   private targetFor(t: number): number {
     if (this.N === 0) return 0;
     const step = Math.min(Math.floor(t), this.N - 1);
     const f = Math.min(Math.max(t - step, 0), 1);
-    this.ensurePlanned(step);
     const count = this.plans[step]?.length ?? 0;
-    return (this.starts[step] ?? 0) + MakingImpl.struck(f * count, count);
+    const cycles = this.cyclesOf(step);
+    return (this.starts[step] ?? 0) + blowsStruck(f * cycles.cycles, cycles, count);
   }
 
-  /** Plans every step up to `last` that is not planned yet, each from the state the steps before it leave. */
-  private ensurePlanned(last: number): void {
-    for (let s = 0; s <= last && s < this.N; s += 1) {
+  /** The next thing to do toward `time` and the plan: a step to plan (with the blow count its start needs applied), or the final target. */
+  private nextGoal(): { target: number; plan: number | null } | null {
+    if (this.N === 0) return null;
+    const last = this.wantAll ? this.N - 1 : Math.min(Math.floor(this.time), this.N - 1);
+    for (let s = 0; s <= last; s += 1) {
       if (this.plans[s] !== null) continue;
       const start = s === 0 ? 0 : (this.starts[s - 1] ?? 0) + (this.plans[s - 1]?.length ?? 0);
-      this.moveTo(start);
-      this.planStep(s, start);
+      return { target: start, plan: s };
     }
+    return { target: this.targetFor(this.time), plan: null };
+  }
+
+  /** Moves the state toward `time`, planning the steps on the way; returns early when a jump is in flight, and resumes when it lands. */
+  private advance(): void {
+    if (this.jump !== null || this.disposed) return;
+    for (;;) {
+      const goal = this.nextGoal();
+      if (goal === null) break;
+      if (!this.moveTo(goal.target)) return;
+      if (goal.plan === null) break;
+      this.planStep(goal.plan, goal.target);
+    }
+    this.remesher.flush();
   }
 
   private planStep(s: number, start: number): void {
@@ -263,8 +333,22 @@ class MakingImpl implements EngineMaking {
     return step;
   }
 
-  /** Applies or undoes blows until `target` are applied. */
-  private moveTo(target: number): void {
+  /** The planned blows from `from` to `to` with their steps' margins. */
+  private blowsBetween(from: number, to: number): JumpBlow[] {
+    const out: JumpBlow[] = [];
+    let step = this.stepOfBlow(from);
+    for (let n = from; n < to; n += 1) {
+      while (step + 1 < this.N && this.plans[step + 1] !== null && (this.starts[step + 1] ?? 0) <= n) step += 1;
+      const def = this.defs[step];
+      const blow = this.plans[step]?.[n - (this.starts[step] ?? 0)];
+      if (def === undefined || blow === undefined) throw new Error(`blow ${String(n)} is not planned; the plan holds ${String(this.planned)} blows`);
+      out.push({ blow, margin: def.margin });
+    }
+    return out;
+  }
+
+  /** Applies or undoes blows until `target` are applied; false when the move went to the workers as a jump and is still out. */
+  private moveTo(target: number): boolean {
     while (this.cursor > target) {
       const box = this.undo.pop();
       if (box === undefined) break;
@@ -272,18 +356,49 @@ class MakingImpl implements EngineMaking {
       this.remesher.markDirty(undoBlow(this.state, box));
       this.cursor -= 1;
     }
-    let step = this.cursor < target ? this.stepOfBlow(this.cursor) : 0;
-    while (this.cursor < target) {
-      while (step + 1 < this.N && this.plans[step + 1] !== null && (this.starts[step + 1] ?? 0) <= this.cursor) step += 1;
-      const def = this.defs[step];
-      const blow = this.plans[step]?.[this.cursor - (this.starts[step] ?? 0)];
-      if (def === undefined || blow === undefined) throw new Error(`blow ${String(this.cursor)} is not planned; the plan holds ${String(this.planned)} blows`);
-      const result = applyBlow(this.state, this.figure, blow, def.margin);
+    if (this.cursor >= target) return true;
+    if (this.carver !== null && target - this.cursor >= this.jumpBlows) return this.launchJump(target);
+    for (const { blow, margin } of this.blowsBetween(this.cursor, target)) {
+      const result = applyBlow(this.state, this.figure, blow, margin);
       this.undo.push(result.undo);
       this.undoSize += undoBytes(result.undo);
       this.remesher.markDirty(result.dirty);
       this.cursor += 1;
     }
+    return true;
+  }
+
+  /** Sends blows [cursor, target) to the carver; true when the carver finished at once (the in-process one). */
+  private launchJump(target: number): boolean {
+    if (this.carver === null) return true;
+    let synchronous = true;
+    const landed: { outcome: JumpOutcome | null } = { outcome: null };
+    const jump = startJump(this.state, this.figure, this.carver, this.blowsBetween(this.cursor, target), this.cursor, (outcome) => {
+      if (synchronous) {
+        landed.outcome = outcome;
+        return;
+      }
+      if (this.disposed) return;
+      this.jump = null;
+      this.land(outcome);
+      this.advance();
+    });
+    synchronous = false;
+    if (landed.outcome !== null) {
+      this.land(landed.outcome);
+      return true;
+    }
+    this.jump = jump;
+    return false;
+  }
+
+  private land(outcome: JumpOutcome): void {
+    for (const box of outcome.undo) {
+      this.undo.push(box);
+      this.undoSize += undoBytes(box);
+      this.cursor += 1;
+    }
+    this.remesher.markDirty(outcome.dirty);
   }
 }
 

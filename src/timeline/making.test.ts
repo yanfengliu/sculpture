@@ -4,7 +4,9 @@
  *   2. Rest positions: at every integer `t` the first `t` steps are complete, `current` is null, no tool is posed and nothing is in flight; at `t = N` then `t = 0` the stock and finish are the untouched block again and the undo log is empty.
  *   3. Planning: steps are planned in order from the state the earlier steps leave (a later step's blows land on the surface the earlier one cut), `planAll` fills the plan, `planLength` and `planDigest` agree between two Makings and `steps[i]` carries the blow ranges.
  *   4. Blow `k` of a step applies when the position passes STRIKE_PHASE of its window `[k / count, (k + 1) / count)`, the blow in progress is the window's blow at its phase, and chips come from struck blows only.
- * Bounds: the steps here are inline rasters, not the choreography; the mesher is synchronous; nothing is rendered.
+ *   5. Jumps: a Making whose forward moves of 4 blows or more go through the chunk carve jobs (the in-process carver) matches a serial Making byte for byte, in the grids, the meshes, the poses and the chips, over 24 scrubs and plays, keeps `dirtyChunks` at 0 once `setTime` returns, and undoes the jumped blows back to the untouched block.
+ *   6. Cycles: a step with more blows than its playing seconds allow visible strikes is cut into cycles of `group` consecutive blows; the cycle's first blow is the one in progress, the whole group applies at the cycle's strike, and the step's end applies every blow.
+ * Bounds: the steps here are inline rasters, not the choreography; the mesher is synchronous; the carver runs in-process, so the worker pool's transport is not exercised; nothing is rendered.
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
@@ -198,5 +200,52 @@ describe('making', () => {
     making.setTime(1);
     expect(making.blowsApplied).toBe(count);
     expect(making.poses).toEqual([]);
+  });
+
+  it('jumps through chunk jobs to the same bytes as the serial path, with exact undo', () => {
+    const serial = fresh();
+    const jumping = createMaking({ figure, steps: STEPS, stages: STAGES, blowCycle: cycle, material, carver: 'in-process', jumpBlows: 4 });
+    const N = serial.N;
+    const random = mulberry32(77);
+    let t = 0;
+    for (let n = 0; n < 24; n += 1) {
+      t = n % 3 === 0 ? random() * N : Math.min(Math.max(t + (random() - 0.5) * 1.5, 0), N);
+      serial.setTime(t);
+      jumping.setTime(t);
+      expect(jumping.dirtyChunks).toBe(0);
+      expect(jumping.blowsApplied).toBe(serial.blowsApplied);
+      expect(hashOf(jumping), `at t = ${String(t)}`).toBe(hashOf(serial));
+    }
+    expect(jumping.planLength).toBe(serial.planLength);
+    expect(jumping.planDigest).toBe(serial.planDigest);
+    jumping.setTime(N);
+    expect(jumping.blowsApplied).toBe(jumping.planLength);
+    jumping.setTime(0);
+    expect(jumping.stock.values).toEqual(blockGrid(figure.spec, frameBlockBox()).values);
+    expect(jumping.finish.every((code) => code === 0)).toBe(true);
+    expect(jumping.undoBytes).toBe(0);
+  });
+
+  it('groups a long step into visible cycles of consecutive blows that apply together at the strike', () => {
+    const long = step('long', 'point', 0.05, 0.02, 12, 20);
+    const making = createMaking({ figure, steps: [{ ...long, weight: 0.5 }], stages: STAGES, blowCycle: cycle, material });
+    const count = making.steps[0]?.blowCount ?? 0;
+    const { cycles, group } = making.cyclesOf(0);
+    expect(count).toBeGreaterThan(100);
+    expect(group).toBeGreaterThan(1);
+    expect(cycles).toBe(Math.ceil(count / group));
+    expect(cycles).toBeLessThanOrEqual(Math.round(0.5 * 12 * 4));
+    // Cycle 2 mid-approach: cycles 0 and 1 are applied in full, the cycle's first blow is in progress.
+    making.setTime((2 + 0.3) / cycles);
+    expect(making.blowsApplied).toBe(2 * group);
+    expect(making.current?.blow).toBe(making.blowsOf(0)[2 * group]);
+    expect(making.current?.phase).toBeCloseTo(0.3, 9);
+    expect(making.poses[0]?.position[0]).toBeCloseTo((making.blowsOf(0)[2 * group]?.point[0] ?? 0) + 0.3 * 0.1, 9);
+    // Just past the strike of cycle 2: its whole group is applied and its chips fly.
+    making.setTime((2 + STRIKE_PHASE + 0.01) / cycles);
+    expect(making.blowsApplied).toBe(3 * group);
+    expect(making.chips.length).toBeGreaterThan(0);
+    making.setTime(1);
+    expect(making.blowsApplied).toBe(count);
   });
 });

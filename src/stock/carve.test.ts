@@ -3,6 +3,7 @@
  *   1. On 80 seeded random blows of every tool over a 4 cm synthetic grid the rule is monotone (no stock value falls), never passes the figure plus margin (`stock' <= max(stock, figure - margin)` in every cell), never turns a figure cell to air, and the stock bytes after the blows are the same for three random orders. The finish bytes are order-dependent by design (the last tool wins) and are not compared.
  *   2. Each removing tool struck straight into a flat face removes the volume its closed form says, within 15 percent, on a local grid fine enough for the tool (1 mm for the small tools, 4 mm for the bulk crater, 2 mm for the sculptor's cone); the painting tools remove nothing and paint their finish on the face.
  *   3. Undoing the recorded boxes in reverse restores the stock and finish bytes exactly, and the undo and the result name the same dirty chunks.
+ *   4. The gilding leaf paints over tooth texture (claw, fine claw, roundel, drill) and never over polished, rasped or untouched stone (TOOL_PAINT_OVER); the other painting tools mark whatever they touch.
  * Bounds: the closed forms are the ones in src/stock/tool-volumes.ts, so this checks the carved shape against the stated geometry, not against a real chisel mark; the 45-degree strokes of the plan are exercised only by the random blows.
  */
 import { describe, expect, it } from 'vitest';
@@ -10,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { FINISH, FIXED_POINT } from '../contracts/grid';
 import type { Blow, ToolId } from '../contracts/making';
 import { syntheticFigure } from '../david/synthetic';
-import { applyBlow, type CarveState, TOOL_FINISH, undoBlow } from './carve';
+import { applyBlow, type CarveState, TOOL_FINISH, TOOL_PAINT_OVER, undoBlow } from './carve';
 import { chunkLayout } from './chunks';
 import { blockGrid, createFinishGrid, frameBlockBox, Grid } from './grid';
 import { closedFormVolume, TOOL_VOLUMES } from './tool-volumes';
@@ -115,9 +116,12 @@ describe('carving rule on random blows', () => {
       const result = results[n];
       if (result === undefined) continue;
       expect(undoBlow(state, result.undo)).toEqual(result.dirty);
-      let inRuns = 0;
-      for (let r = 1; r < result.undo.runs.length; r += 2) inRuns += result.undo.runs[r] ?? 0;
-      expect(result.undo.indices.length + inRuns).toBe(result.changed);
+      let recorded = 0;
+      for (const part of result.undo.parts) {
+        recorded += part.indices.length;
+        for (let r = 1; r < part.runs.length; r += 2) recorded += part.runs[r] ?? 0;
+      }
+      expect(recorded).toBe(result.changed);
     }
     expect(state.stock.values).toEqual(stock0);
     expect(state.finish).toEqual(finish0);
@@ -167,6 +171,8 @@ describe('tool volumes on a flat face', () => {
   for (const tool of ['charcoal', 'polish', 'gilding'] as const) {
     it(`${tool} removes nothing and paints its finish`, () => {
       const { state, figure } = flatFace(0.002, 0.08, 0.01);
+      // The leaf bonds to tooth texture, so the face carries the fine claw's finish before the brush.
+      if (tool === 'gilding') state.finish.fill(FINISH.fineClaw);
       const before = state.stock.values.slice();
       const result = applyBlow(state, figure, { tool, point: [0, 0.01, 0], normal: [0, 1, 0], direction: [0, -1, 0], size: 0, stroke: 0 }, 0);
       expect(result.removed).toBe(0);
@@ -176,4 +182,15 @@ describe('tool volumes on a flat face', () => {
       expect(TOOL_FINISH[tool]).not.toBe(FINISH.block);
     });
   }
+
+  it('gilding paints over tooth texture only, never over polished or rasped skin', () => {
+    const { state, figure } = flatFace(0.002, 0.08, 0.01);
+    state.finish.fill(FINISH.polish);
+    const polished = applyBlow(state, figure, { tool: 'gilding', point: [0, 0.01, 0], normal: [0, 1, 0], direction: [0, -1, 0], size: 0, stroke: 0 }, 0);
+    expect(polished.changed).toBe(0);
+    expect(state.finish.every((code) => code === FINISH.polish)).toBe(true);
+    expect(TOOL_PAINT_OVER.gilding & (1 << FINISH.rasp)).toBe(0);
+    expect(TOOL_PAINT_OVER.gilding & (1 << FINISH.block)).toBe(0);
+    for (const code of [FINISH.claw, FINISH.fineClaw, FINISH.roundel, FINISH.drill]) expect(TOOL_PAINT_OVER.gilding & (1 << code)).not.toBe(0);
+  });
 });
