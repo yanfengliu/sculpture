@@ -49,19 +49,22 @@ export function gridFiles(name: string): { readonly header: string; readonly dat
   return { header: `${name}.json`, data: `${name}.bin.gz` };
 }
 
-/** Finish codes, one byte per cell in the finish grid: the last tool that touched the surface there. 0 is the untouched block face. */
+/** Finish codes, one byte per cell in the finish grid: the last tool that touched the surface there, in the order of the tools in src/contracts/making.ts. 0 is the untouched block face, which keeps the quarry crust Condivi saw at the crown and the base. */
 export const FINISH = {
   block: 0,
-  point: 1,
-  twoTooth: 2,
-  claw: 3,
-  flat: 4,
-  roundel: 5,
-  drill: 6,
-  rasp: 7,
-  riffler: 8,
-  abrasive: 9,
-  polish: 10,
+  drawn: 1,
+  point: 2,
+  twoTooth: 3,
+  claw: 4,
+  fineClaw: 5,
+  roundel: 6,
+  flat: 7,
+  drill: 8,
+  rasp: 9,
+  file: 10,
+  pumice: 11,
+  polish: 12,
+  gilt: 13,
 } as const;
 
 export type FinishCode = (typeof FINISH)[keyof typeof FINISH];

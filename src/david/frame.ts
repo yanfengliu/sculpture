@@ -15,5 +15,8 @@ export const FIGURE_OFFSET_M = { x: 0, y: 0, z: 0 } as const;
 /** Cells of margin between the block and the grid's edge on every side, so the block's own faces mesh cleanly. */
 export const GRID_MARGIN_CELLS = 2;
 
-/** Default cell size of the David grid, metres. Set from docs/research/engine-options.md; the grid header carries the value actually built. */
-export const DEFAULT_CELL_M = 0.01;
+/** Default cell size of the David grid, metres. Decision in docs/research/decisions.md from the measurements in docs/research/engine-options.md; the grid header carries the value actually built. */
+export const DEFAULT_CELL_M = 0.008;
+
+/** Clamp band of the stock grid, cells: narrow, so a blow updates only its box dilated by this much (docs/research/decisions.md). */
+export const STOCK_BAND_CELLS = 3;

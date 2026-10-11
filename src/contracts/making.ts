@@ -4,8 +4,11 @@
  */
 import type { Object3D } from 'three';
 
-/** Carving tools the catalogue names (src/tools/catalog.ts gives each its Italian and English names, dimensions and source). The mallet is the striking tool and has no blows of its own. */
-export type ToolId = 'point' | 'two-tooth' | 'claw' | 'flat' | 'roundel' | 'drill' | 'rasp' | 'riffler' | 'abrasive' | 'polish';
+/**
+ * Tools that make blows, named after docs/research/tools.md: charcoal (the drawn layout on the block face, removes nothing), point (subbia), two-tooth (calcagnuolo), claw (gradina), fine-claw (dente di cane), roundel (unghietto), flat (scalpello, in the kit but not found on the David), drill (trapano, the bow drill), rasp (raspa), file (lima and rifflers), pumice (wet pumice, the first abrasive), polish (tripoli, straw and leather, removes nothing) and gilding (the brush and leaf of 1504, removes nothing).
+ * src/tools/catalog.ts gives each its Italian and English names, dimensions and source line. The mallet (mazzuolo) strikes the chisels and has no blows of its own.
+ */
+export type ToolId = 'charcoal' | 'point' | 'two-tooth' | 'claw' | 'fine-claw' | 'roundel' | 'flat' | 'drill' | 'rasp' | 'file' | 'pumice' | 'polish' | 'gilding';
 
 export type Vec3 = readonly [number, number, number];
 export type Quat = readonly [number, number, number, number];
@@ -52,7 +55,8 @@ export interface PlanContext {
   readonly cell: number;
 }
 
-export type StageId = 'setup' | 'roughing' | 'two-tooth' | 'claw-work' | 'flat-work' | 'drilling' | 'rasping' | 'abrading' | 'polishing';
+/** The stages of docs/research/technique.md in order: the stock, its support and the shed (the nodo blows of 9 September 1501); laying the figure out on the stock; roughing with the point; the two-tooth chisel and the coarse claw to the half-done report of 28 February 1502; the fine claw and the roundel over the sides and back; drilling; rasps and files; pumice, tripoli, straw and leather; the touches and gilding on site in the summer of 1504. */
+export type StageId = 'setup' | 'layout' | 'roughing' | 'coarse-claw' | 'fine-claw' | 'drilling' | 'rasping' | 'polishing' | 'on-site';
 
 export interface CameraFocus {
   /** What the follow camera frames: the working tip, or a fixed point in world metres. */
@@ -137,9 +141,12 @@ export interface Making {
   readonly stages: readonly StageDef[];
   /** Number of steps; `t` runs over [0, N]. */
   readonly N: number;
+  /** Blows planned so far; the whole plan once `planAll()` has run. */
   readonly planLength: number;
-  /** Deterministic digest of the whole plan, hex. */
+  /** Deterministic digest of the blows planned so far, hex; the whole plan's digest once `planAll()` has run. */
   readonly planDigest: string;
+  /** Plans every step that is not planned yet, in order, from the state the previous steps leave. */
+  planAll(): void;
   readonly t: number;
   /** Sets the position. The material state updates synchronously; meshing is asynchronous and `dirtyChunks` counts what is left. */
   setTime(t: number): void;

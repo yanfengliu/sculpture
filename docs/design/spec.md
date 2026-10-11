@@ -6,7 +6,7 @@ The contract every part of this repo builds against. Change it here first, in th
 
 One page, `index.html`. It shows a block of Carrara marble in a Florentine workshop yard, and the period's real tools carve Michelangelo's David out of it, in the documented order, with no sculptor shown. The tools move as if held and struck; chips fly; the surface changes from quarry face to point-chisel furrows to claw marks to polished skin; the finished statue is only the last frame. The viewer plays the making forward or backward, one step at a time or continuously, scrubs it, jumps between stages, orbits and zooms freely at any point, and can follow the tool.
 
-Time is compressed and the page says so: the label carries the simulated calendar from the start on 13 September 1501 to the unveiling on 8 September 1504 (`research: david-history.md` fixes the dates and the milestones between them). Each shown blow stands for many real blows, so the tool's visible rhythm stays plausible while the stage completes in its allotted playback time. The compression factor per stage is data in the choreography and is shown in the label's detail.
+Time is compressed and the page says so: the label carries the simulated calendar from the start on 13 September 1501 to the unveiling on 8 September 1504 (`research: david-history.md` fixes the dates and the milestones between them). Playback is a time-lapse: about 20,000 shown blows over about five minutes at 1×; the mallet strikes about four times a second and each visible strike applies a short run of planned blows along the stroke's path; each shown blow stands for the number of real blows its step records (`blowsPerShown`), shown in the label's detail (`docs/research/decisions.md`).
 
 Authenticity rules are in `docs/policies/local-rules.md`. What the record settles is followed; what it leaves open is decided once, in `docs/research/decisions.md`, with the reason.
 
@@ -18,7 +18,7 @@ Authenticity rules are in `docs/policies/local-rules.md`. What the record settle
 
 ## Stock and figure
 
-The stock is a signed-distance grid: `stock[i][j][k]` is the signed distance (negative inside stone) from the centre of cell `(i, j, k)` to the stone's surface, in cells, clamped to a narrow band. The grid covers the block plus a margin; the cell size `h` is a constant of the grid, not of the engine, so tests run coarse synthetic grids and the page runs the David grid. The target resolution for the David grid and the fallback resolutions are set by `research: engine-options.md`.
+The stock is a signed-distance grid: `stock[i][j][k]` is the signed distance (negative inside stone) from the centre of cell `(i, j, k)` to the stone's surface, in cells, clamped to a narrow band of 3 cells. The grid covers the block plus a margin; the cell size `h` is a constant of the grid, not of the engine, so tests run coarse synthetic grids and the page runs the David grid at 8 mm (`docs/research/decisions.md`; the measurements are in `docs/research/engine-options.md`).
 
 The figure is a second grid on the same lattice: `figure[i][j][k]` is the signed distance to the statue's surface. It is built once by `scripts/build-grid.mjs` from the mesh that `scripts/fetch-model.mjs` fetched from the source recorded in `docs/research/mesh-sources.md`, into `public/model/` (ignored), and loaded by the page. A synthetic figure (a procedural mannequin of capsules and ellipsoids at David's height) is built in code for tests and for working without the download.
 
@@ -26,7 +26,9 @@ A third grid, `finish[i][j][k]` (one byte), records the last tool that touched e
 
 The carving rule, applied per blow: `stock' = max(stock, min(-tool, figure - margin))`, where `tool` is the signed distance to the volume this blow removes and `margin` is the stage's allowance above the final surface. The max removes stock inside the tool volume; the min stops the cut at the figure plus margin. The invariant `stock <= figure` holds after every blow, so no blow ever cuts into the statue, and a test asserts it on random blows. The removed volume's shape per tool is set in `research: tools.md` and `research: engine-options.md`: a cone for the point, a toothed wedge for the claw, a thin wedge for the flat chisel, a cylinder for the drill, and a thin surface-following slab for the rasp.
 
-Meshing: the grid is split into chunks; a blow marks the chunks it touched dirty; dirty chunks are remeshed in Web Workers with transferable buffers (no SharedArrayBuffer, so the page also works from static hosting) and swapped into the scene. Chunk size and worker count come from `research: engine-options.md`.
+Meshing: the grid is split into chunks of 32³ cells, each meshed from a 33³ window by marching cubes; a blow marks the chunks its dilated box touches dirty; dirty chunks are remeshed in a pool of stateless Web Workers (`hardwareConcurrency - 2`, at most 8) fed by transferable buffers (no SharedArrayBuffer, so the page also works from static hosting), which return positions only; the material's `flatShading` derives the normals, and a per-vertex finish attribute is sampled from the finish grid. Each chunk is its own mesh under `Making.stockObject`, swapped when its geometry returns.
+
+Undo and replay: applying a blow records the old values of its dilated box (stock and finish); step back and play backward restore those bytes and dirty the chunks; a forward jump re-applies blows in index order; the state is never snapshotted. Planning is step by step: a step's generator runs once, when the making first needs it, from the stock as the earlier steps left it, and the result is cached, so the blows at any `t` are the same whatever the history; `planAll()` forces the whole plan.
 
 ### Grid file format
 
@@ -93,12 +95,14 @@ The renderer keeps `preserveDrawingBuffer: true`, or headless capture reads a bl
 |---|---|---|
 | `src/contracts/` | the shared interfaces and constants, types only | coordinator |
 | `src/main.ts` | boot: query, viewer, making, player, UI | page |
-| `src/stock/` | grid reader, carving rule, chunking, meshing, workers | engine |
-| `src/timeline/` | the Making (plan, replay, evaluation at `t`), player | engine |
+| `src/stock/` | grid reader, synthetic figure, carving rule and tool volumes, chunking, meshing, workers, undo log | engine |
+| `src/timeline/making.ts` | the Making: plan, replay, evaluation at `t` | engine |
+| `src/timeline/player.ts` | the player, pure playback logic | page |
 | `src/choreography/` | stages, steps, regions, calendar; `generators/` holds the stroke generators | coordinator owns the lists; engine lands the first generic generators; stage workers own theirs |
 | `src/tools/` | catalog, procedural tool geometry, blow cycle, chips | tools |
 | `src/david/frame.ts` | world-frame constants from research | coordinator |
 | `src/david/synthetic.ts` | the procedural test figure | engine |
+| `engine.html`, `src/stock/dev/` | the engine's own development page for looking at a carving before the page exists | engine |
 | `src/viewer/` | renderer, scene, yard, lights, camera and controls, presets, marble shader, query | page |
 | `src/ui/` | timeline bar, stage and view menus, footer with attribution | page |
 | `scripts/fetch-model.mjs`, `scripts/build-grid.mjs`, `scripts/lib/model/` | the model pipeline and its grid writer | model pipeline |
