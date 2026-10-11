@@ -79,8 +79,8 @@ async function createMakingForQuery(query: ViewerQuery, material: Material, prob
   };
 }
 
-/** `step=` (end of that step) wins over `t=`; a step the making does not have is reported and skipped. */
-function initialPosition(query: ViewerQuery, making: Making, problems: string[]): number {
+/** The position the query sets, or null when it sets none: `step=` (end of that step) wins over `t=`; a step the making does not have is reported and skipped. */
+function initialPosition(query: ViewerQuery, making: Making, problems: string[]): number | null {
   if (query.step !== null) {
     if (query.step.kind === 'index') {
       if (query.step.index >= 1 && query.step.index <= making.N) return query.step.index;
@@ -93,7 +93,7 @@ function initialPosition(query: ViewerQuery, making: Making, problems: string[])
     }
   }
   if (query.t !== null) return Math.min(making.N, Math.max(0, query.t));
-  return 0;
+  return null;
 }
 
 /** `cam=` wins over `view=`; `view=follow` frames the blow in progress at the initial position. */
@@ -124,7 +124,8 @@ const marble = createMarbleMaterial({ flat: query.finish });
 const bundle = await createMakingForQuery(query, marble.material, problems);
 const { making } = bundle;
 const player = createPlayer(making.steps.map((step) => step.weight));
-player.seek(initialPosition(query, making, problems));
+const position = initialPosition(query, making, problems);
+player.seek(position ?? 0);
 making.setTime(player.t);
 const camera = initialCamera(query, making, problems);
 for (const problem of problems) console.warn(problem);
@@ -228,7 +229,8 @@ const actions = {
 
 const ui = query.noui ? null : createUi(document.body, { making, presets: PRESETS, attribution: attributionOf(bundle), toolNames: bundle.toolNames, actions });
 installKeyboard(actions);
-if (query.autoplay) player.play('forward');
+// The page plays on load only when the query set no position (spec, Page, First load): a valid t= or step= is a place to look at, not a start.
+if (query.autoplay && position === null) player.play('forward');
 
 let readyFrames = 0;
 if (query.shot) {

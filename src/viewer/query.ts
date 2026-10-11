@@ -24,7 +24,7 @@ export interface ViewerQuery {
   readonly view: string | null;
   /** `cam=px,py,pz,tx,ty,tz`; wins over `view` when both are set. */
   readonly cam: CameraPose | null;
-  /** `autoplay=0` switches playing on load off; `shot=1` also switches it off. */
+  /** `autoplay=0` switches playing on load off; `shot=1` also switches it off, and so does a valid `t=` or `step=` (src/main.ts: a position set is a place to look at). */
   readonly autoplay: boolean;
   /** `noui=1`: hide the page chrome. */
   readonly noui: boolean;

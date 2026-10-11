@@ -28,6 +28,25 @@ test('the first load plays forward from t = 0; autoplay=0 keeps it still', async
   expect((await facts(page)).t).toBe(0);
 });
 
+test('a bare t= or step= starts still at that position; a step the making lacks sets none, so the page plays', async ({ page }) => {
+  await openPage(page, 't=1.5');
+  const atT = await facts(page);
+  expect(atT).toMatchObject({ playing: null, moving: false, t: 1.5, queryProblems: [] });
+  await waitFrames(page, 20);
+  expect((await facts(page)).t).toBe(1.5);
+
+  await openPage(page, 'step=2');
+  const atStep = await facts(page);
+  expect(atStep).toMatchObject({ playing: null, moving: false, t: 2 });
+  await waitFrames(page, 20);
+  expect((await facts(page)).t).toBe(2);
+
+  await openPage(page, 'step=no-such-step');
+  const unplaced = await facts(page);
+  expect(unplaced.playing).toBe('forward');
+  expect(unplaced.queryProblems).toEqual([expect.stringContaining('query parameter step="no-such-step" was ignored')]);
+});
+
 test('t= sets the position; step= by index or id wins over it; a step the making lacks is reported', async ({ page }) => {
   // Five loads, each booting the figure grid and replaying the steps before its position.
   test.slow();
