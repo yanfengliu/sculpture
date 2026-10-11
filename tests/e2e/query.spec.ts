@@ -98,6 +98,19 @@ test('view= picks a preset, cam= wins over it, and an unknown view is reported',
   expect(unknown.queryProblems).toEqual(['query parameter view="sideways" was ignored: it takes one of front, back, left, right, three-quarter, head, hands, sling-and-stump, free or follow.']);
 });
 
+test('a cam= pose outside the orbit limits is reported and the preset keeps the camera', async ({ page }) => {
+  await openPage(page, 'autoplay=0&view=front');
+  await waitFrames(page, 3);
+  const front = await canvasBlocks(page);
+  // A camera 2 m below its target: the orbit would lift it to its polar limit, so the page refuses it rather than render from somewhere else than the URL says.
+  await openPage(page, 'autoplay=0&view=front&cam=0,1,10,0,3,0');
+  const refused = await facts(page);
+  expect(refused.view).toBe('front');
+  expect(refused.queryProblems).toEqual([expect.stringMatching(/^query parameter cam="0,1,10,0,3,0" was ignored: the orbit keeps the camera 0\.2 to 80 m from its target and at most 88\.9° from straight above it .*; this pose is 10\.20 m away at 101\.3°\.$/)]);
+  await waitFrames(page, 3);
+  expectSameCanvas(await canvasBlocks(page), front);
+});
+
 test('finish=1 starts in the finish-code view with the toggle pressed', async ({ page }) => {
   await openPage(page, 'autoplay=0&finish=1');
   expect((await facts(page)).finish).toBe(true);

@@ -30,6 +30,7 @@ import type { MakingBundle, RenderedTool } from './viewer/bundle';
 import { buildFacts, factsSignature, publishFacts } from './viewer/facts';
 import { DEFAULT_FOLLOW_DISTANCE, createFollow, framingFor, viewDirectionFor } from './viewer/follow';
 import { createMarbleMaterial } from './viewer/marble';
+import { poseProblem } from './viewer/orbit-limits';
 import { DEFAULT_PRESET, FOLLOW_VIEW, PRESETS, findPreset, isPresetId } from './viewer/presets';
 import type { CameraPose, ViewerQuery } from './viewer/query';
 import { readViewerQuery } from './viewer/query';
@@ -97,10 +98,14 @@ function initialPosition(query: ViewerQuery, making: Making, problems: string[])
   return null;
 }
 
-/** `cam=` wins over `view=`; `view=follow` frames the blow in progress at the initial position. */
+/** `cam=` wins over `view=` when the orbit's limits keep it (src/viewer/orbit-limits.ts), else it is reported and `view=` stands; `view=follow` frames the blow in progress at the initial position. */
 function initialCamera(query: ViewerQuery, making: Making, problems: string[]): { pose: CameraPose; view: string } {
   const fallback = { pose: findPreset(DEFAULT_PRESET)?.pose ?? PRESETS[0]?.pose ?? { position: [7, 4, 8], target: [0, 2.5, 0] }, view: DEFAULT_PRESET };
-  if (query.cam !== null) return { pose: query.cam, view: 'free' };
+  if (query.cam !== null) {
+    const problem = poseProblem(query.cam);
+    if (problem === null) return { pose: query.cam, view: 'free' };
+    problems.push(`query parameter cam=${JSON.stringify([...query.cam.position, ...query.cam.target].join(','))} was ignored: ${problem}.`);
+  }
   if (query.view === null) return fallback;
   if (query.view === FOLLOW_VIEW) {
     const current = making.current;

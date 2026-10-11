@@ -82,7 +82,7 @@ Chips: an instanced pool of small marble fragments, launched from the tip at the
 | `t=<number>` | Timeline position in `[0, N]` |
 | `step=<id or 1-based index>` | Position at the end of that step; wins over `t` |
 | `view=<preset id>` | Camera preset; `view=follow` (query only, not in the menu) frames the current blow from its normal, for the follow captures |
-| `cam=px,py,pz,tx,ty,tz` | Explicit camera position and target, for sweeps |
+| `cam=px,py,pz,tx,ty,tz` | Explicit camera position and target, for sweeps; kept exactly when the orbit's limits allow it (`src/viewer/orbit-limits.ts`: 0.2 to 80 m from the target, above the target's horizon), else reported as a problem naming the limit and `view=` stands |
 | `model=david|synthetic` | Which figure grid to load; the page defaults to `david`, tests to `synthetic` |
 | `finish=1` | Show the finish grid as flat colours |
 | `yard=0` | Hide every yard span (the enclosure, the scaffold, the bench, the model stand); the floor stays |

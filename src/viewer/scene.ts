@@ -8,6 +8,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 import { BLOCK_M } from '../david/frame';
+import { MAX_DISTANCE, MAX_POLAR_ANGLE, MIN_DISTANCE } from './orbit-limits';
 import type { CameraPose } from './query';
 import type { Yard } from './yard';
 import { buildYard } from './yard';
@@ -71,10 +72,10 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
   const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 500);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = !options.shot;
-  controls.maxPolarAngle = Math.PI / 2 - 0.02;
-  // 20 cm tools must be framed from close by in the follow view.
-  controls.minDistance = 0.2;
-  controls.maxDistance = 80;
+  // The limits live in src/viewer/orbit-limits.ts, where the page checks an explicit cam= pose against them before keeping it.
+  controls.maxPolarAngle = MAX_POLAR_ANGLE;
+  controls.minDistance = MIN_DISTANCE;
+  controls.maxDistance = MAX_DISTANCE;
 
   function setPose(pose: CameraPose): void {
     camera.position.set(...pose.position);
