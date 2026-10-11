@@ -31,6 +31,37 @@ export function createSyncMesher(): ChunkMesher {
   };
 }
 
+/** Queues jobs until a mesher arrives (the worker pool loads asynchronously); falls back to the synchronous mesher if it never does. */
+export function createDeferredMesher(ready: Promise<ChunkMesher>): ChunkMesher {
+  let mesher: ChunkMesher | null = null;
+  let disposed = false;
+  const queue: { job: MeshJob; done: MeshDone }[] = [];
+  const adopt = (found: ChunkMesher): void => {
+    if (disposed) {
+      found.dispose();
+      return;
+    }
+    mesher = found;
+    for (const { job, done } of queue.splice(0)) found.submit(job, done);
+  };
+  ready.then(adopt).catch((error: unknown) => {
+    console.error(`mesher pool failed to start, meshing on the main thread instead: ${error instanceof Error ? error.message : String(error)}`);
+    adopt(createSyncMesher());
+  });
+  return {
+    transfers: true,
+    submit(job, done): void {
+      if (mesher !== null) mesher.submit(job, done);
+      else queue.push({ job, done });
+    },
+    dispose(): void {
+      disposed = true;
+      queue.length = 0;
+      mesher?.dispose();
+    },
+  };
+}
+
 const WINDOW_VOLUME = WINDOW_CELLS * WINDOW_CELLS * WINDOW_CELLS;
 
 export class Remesher {
