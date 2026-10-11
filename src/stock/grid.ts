@@ -213,7 +213,7 @@ export async function loadFigureGrid(url: string, fetchImpl: typeof fetch = fetc
   const dataUrl = url.replace(HEADER_SUFFIX, '.bin.gz');
   const dataResponse = await fetchImpl(dataUrl);
   if (!dataResponse.ok || dataResponse.body === null) throw new Error(`figure grid data ${dataUrl} answered ${String(dataResponse.status)} with no body`);
-  const bytes = new Uint8Array(await new Response(dataResponse.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  const bytes = await inflateIfGzip(new Uint8Array(await dataResponse.arrayBuffer()));
   const [nx, ny, nz] = header.size;
   const expected = nx * ny * nz * 2;
   if (bytes.byteLength !== expected) {
@@ -224,6 +224,16 @@ export async function loadFigureGrid(url: string, fetchImpl: typeof fetch = fetc
   const values = new Int16Array(bytes.buffer, bytes.byteOffset, nx * ny * nz);
   if (!LITTLE_ENDIAN) swapBytes(values);
   return { grid: new Grid({ cell: header.cell, size: header.size, origin: header.origin, band: header.band }, values), header };
+}
+
+/**
+ * Inflates gzip bytes, recognised by their 1f 8b magic, and returns other bytes untouched: a static server that marks `.gz` files `Content-Encoding: gzip` (Vite's dev and preview servers do) hands the browser the inflated bytes already, and inflating them again fails as a bare "Failed to fetch" (found 2026-10-11).
+ */
+async function inflateIfGzip(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
+  if (bytes.length < 2 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes;
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const stream: ReadableStream<Uint8Array<ArrayBuffer>> = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;

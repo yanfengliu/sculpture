@@ -3,7 +3,7 @@
  *   1. `blockLattice` covers the block plus GRID_MARGIN_CELLS on every side and `latticeBlockBox` recovers the block from it to within a cell.
  *   2. Trilinear `sample` reproduces an analytic sphere field between cell centres to within a cell's curvature, `gradient` of a plane is its unit normal, and both are continuous across the lattice's edge.
  *   3. `blockGrid` is negative inside the block, positive outside and clamped to STOCK_BAND_CELLS.
- *   4. `loadFigureGrid` reads a fixture written here per the format of src/contracts/grid.ts (header JSON, gzip of little-endian Int16, SHA-256) and rejects a wrong digest, a wrong size and a bad header with a message naming the problem.
+ *   4. `loadFigureGrid` reads a fixture written here per the format of src/contracts/grid.ts (header JSON, gzip of little-endian Int16, SHA-256), reads the same bytes when the server has already inflated them, and rejects a wrong digest, a wrong size and a bad header with a message naming the problem.
  * Bounds: the fixture is this test's own writing of the format; the pipeline's real file is checked at integration. No network: `fetch` is a fake serving the fixture.
  */
 import { createHash } from 'node:crypto';
@@ -131,6 +131,11 @@ describe('figure grid loader', () => {
     expect(loaded.grid.spec.cell).toBe(0.008);
     expect(loaded.grid.values).toEqual(values);
     expect(loaded.grid.sample(-1.1, -0.06, -0.8)).toBeCloseTo(fromFixed(values[0] ?? 0, 0.008), 9);
+  });
+
+  it('accepts a body the server already inflated (Vite serves .gz with Content-Encoding: gzip) as well as the gzip bytes', async () => {
+    const loaded = await loadFigureGrid('model/raw.json', serve({ 'model/raw.json': header, 'model/raw.bin.gz': raw }));
+    expect(loaded.grid.values).toEqual(values);
   });
 
   it('rejects a wrong digest, a wrong size and a bad header, naming the problem', async () => {

@@ -5,7 +5,8 @@
 import { Group } from 'three';
 import type { Material, Object3D } from 'three';
 
-import { DEV_STAGES, DEV_STEPS } from './choreography/dev-steps';
+import { DAVID_STEPS } from './choreography/david-steps';
+import { STAGES } from './choreography/stages';
 import type { GridHeader } from './contracts/grid';
 import type { Making } from './contracts/making';
 import { BASE_SECONDS } from './contracts/making';
@@ -59,15 +60,14 @@ async function loadFigure(query: ViewerQuery, problems: string[]): Promise<Figur
 }
 
 /**
- * INTEGRATION POINT. The engine and the tools plug in here and nowhere else: the figure grid `query.model` names, the engine's Making (src/timeline/making.ts) over the step list of src/choreography/ with `material` for its chunk meshes, the tools' cycle and meshes (src/tools/), the catalogue's names and the grid header's `source` for the footer.
- * The step list is the provisional dev sequence until the David steps of docs/design/choreography.md land in src/choreography/.
+ * INTEGRATION POINT. The engine and the tools plug in here and nowhere else: the figure grid `query.model` names, the engine's Making (src/timeline/making.ts) over the David steps of src/choreography/ (docs/design/choreography.md) with `material` for its chunk meshes, the tools' cycle and meshes (src/tools/), the catalogue's names and the grid header's `source` for the footer.
  */
 async function createMakingForQuery(query: ViewerQuery, material: Material, problems: string[]): Promise<MakingBundle> {
   const blowCycle = createBlowCycle();
   const toolMeshes = new Map<RenderedTool, Object3D>();
   for (const id of Object.keys(TOOL_CATALOG) as CatalogId[]) toolMeshes.set(id, toolModel(id));
   const figure = await loadFigure(query, problems);
-  const options = { figure: figure.grid, steps: DEV_STEPS, stages: DEV_STAGES, blowCycle, material, workers: defaultWorkerCount() };
+  const options = { figure: figure.grid, steps: DAVID_STEPS, stages: STAGES, blowCycle, material, workers: defaultWorkerCount() };
   const making = createMaking(figure.header === undefined ? options : { ...options, header: figure.header });
   return {
     making,

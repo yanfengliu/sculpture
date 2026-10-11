@@ -1,12 +1,13 @@
 /**
- * The engine's development page (engine.html; docs/design/spec.md, Modules and ownership): the synthetic figure, or the David grid when `model=david` and public/model/david.json exists, carved by the provisional steps of src/choreography/dev-steps.ts under a plain flat-shaded material and a stub blow cycle.
+ * The engine's development page (engine.html; docs/design/spec.md, Modules and ownership): the synthetic figure, or the David grid when `model=david` and public/model/david.json exists, carved by the David steps of src/choreography/david-steps.ts under a plain flat-shaded material and a stub blow cycle.
  * Query: `t=`, `step=`, `shot=1`, `cam=`, `autoplay=0`, `model=`, `noui=1` and `finish=1` (flat colours per finish code) through src/viewer/query.ts. Keys: Space plays and pauses, the arrow keys step to the next or previous integer `t`, Home and End jump. The corner shows `t`, `blowsApplied / planLength` and `dirtyChunks`.
  * Capture: under `shot=1` the page sets `window.__shotReady` once the requested `t` is applied, every dirty chunk is meshed and five more frames have rendered, and publishes `window.__sculpture`.
  * The scaffold's viewer draws a placeholder block; this page removes it and adds the Making's stock in its place.
  */
 import * as THREE from 'three';
 
-import { DEV_STAGES, DEV_STEPS } from '../../choreography/dev-steps';
+import { DAVID_STEPS } from '../../choreography/david-steps';
+import { STAGES } from '../../choreography/stages';
 import { BASE_SECONDS } from '../../contracts/making';
 import { DEFAULT_CELL_M } from '../../david/frame';
 import { syntheticFigure } from '../../david/synthetic';
@@ -108,8 +109,8 @@ async function main(): Promise<void> {
   const making = createMaking({
     figure: figure.grid,
     ...(figure.header === null ? {} : { header: figure.header }),
-    steps: DEV_STEPS,
-    stages: DEV_STAGES,
+    steps: DAVID_STEPS,
+    stages: STAGES,
     blowCycle: devBlowCycle,
     material,
     workers: defaultWorkerCount(),
