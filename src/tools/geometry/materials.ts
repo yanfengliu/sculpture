@@ -21,7 +21,7 @@ const SPECS: Readonly<Record<MaterialId, MaterialSpec>> = {
   leather: { color: 0x6b4a2e, roughness: 0.9, metalness: 0 },
   pumice: { color: 0x8f8d88, roughness: 1, metalness: 0 },
   charcoal: { color: 0x1a1816, roughness: 1, metalness: 0 },
-  gold: { color: 0xd9b140, roughness: 0.35, metalness: 1, doubleSide: true },
+  gold: { color: 0xe3b94a, roughness: 0.3, metalness: 0.35, doubleSide: true }, // not fully metallic: with no environment map a metal reflects nothing and renders black
   cord: { color: 0xb8a98a, roughness: 1, metalness: 0 },
   hair: { color: 0x7a5a3a, roughness: 1, metalness: 0 },
   wax: { color: 0xb9865c, roughness: 0.6, metalness: 0 },

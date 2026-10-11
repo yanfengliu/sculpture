@@ -233,7 +233,7 @@ export const TOOL_CATALOG: Readonly<Record<CatalogId, ToolSpec>> = {
   },
   gilding: {
     id: 'gilding',
-    italian: 'pennello da doratura con foglia d’oro',
+    italian: 'pennello da doratura',
     english: 'gilding brush with gold leaf',
     material: 'card handle, squirrel hair, beaten gold leaf',
     motion: 'trail',

@@ -122,7 +122,7 @@ export const PROPS: Readonly<Record<PropId, PropSpec>> = {
   },
   'leather-pad': {
     id: 'leather-pad',
-    italian: 'cuoio con terra di Tripoli',
+    italian: 'cuoio e tripoli',
     english: 'leather pad with tripoli',
     material: 'leather dusted with tripoli earth',
     dimensions: { length: inferred(LEATHER_PAD.length), width: inferred(LEATHER_PAD.width), thickness: inferred(LEATHER_PAD.thickness) },

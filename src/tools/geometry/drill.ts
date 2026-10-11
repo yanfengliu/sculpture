@@ -14,7 +14,7 @@ const CAP_HEIGHT = 0.02;
 export const PULLEY_Y = 0.12;
 export const PULLEY_RADIUS = 0.015;
 const BOW_RADIUS = 0.006;
-const CORD_RADIUS = 0.0012;
+const CORD_RADIUS = 0.002;
 
 export function buildDrill(): Group {
   const height = dimension('drill', 'height');
