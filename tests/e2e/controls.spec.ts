@@ -4,7 +4,7 @@
  */
 import { expect, test } from '@playwright/test';
 
-import { VIEWPORT, canvasHash, facts, labelAndScrubber, openPage, waitFrames, waitUntilStill } from './helpers';
+import { VIEWPORT, canvasBlocks, expectDifferentCanvas, facts, labelAndScrubber, openPage, waitFrames, waitUntilStill } from './helpers';
 
 const N = 9;
 const FIRST_LABEL = /^Day 1 · 13 September 1501 · The Giant in the yard — The block upright, the shed and the scaffold$/;
@@ -121,16 +121,16 @@ test('the stage menu moves to the start of the chosen stage', async ({ page }) =
 test('the view menu applies presets and the canvas changes with each', async ({ page }) => {
   const viewMenu = page.getByTestId('view-menu');
   await expect(viewMenu).toHaveValue('three-quarter');
-  const threeQuarter = await canvasHash(page);
+  const threeQuarter = await canvasBlocks(page);
   await viewMenu.selectOption('front');
   await waitFrames(page, 2);
   expect((await facts(page)).view).toBe('front');
-  const front = await canvasHash(page);
-  expect(front).not.toBe(threeQuarter);
+  const front = await canvasBlocks(page);
+  expectDifferentCanvas(front, threeQuarter);
   await viewMenu.selectOption('head');
   await waitFrames(page, 2);
   expect((await facts(page)).view).toBe('head');
-  expect(await canvasHash(page)).not.toBe(front);
+  expectDifferentCanvas(await canvasBlocks(page), front);
   await viewMenu.selectOption('free');
   expect((await facts(page)).view).toBe('free');
 });
@@ -155,14 +155,14 @@ test('the finish toggle shows the finish codes with the legend and changes the c
   const finish = page.getByTestId('finish-toggle');
   const legend = page.getByTestId('finish-legend');
   await expect(legend).toBeHidden();
-  const marble = await canvasHash(page);
+  const marble = await canvasBlocks(page);
   await finish.click();
   await expect(finish).toHaveAttribute('aria-pressed', 'true');
   await expect(legend).toBeVisible();
   await expect(legend.getByTestId('finish-polish')).toHaveText('12 polish');
   await waitFrames(page, 2);
   expect((await facts(page)).finish).toBe(true);
-  expect(await canvasHash(page)).not.toBe(marble);
+  expectDifferentCanvas(await canvasBlocks(page), marble, 10);
   await finish.click();
   await expect(finish).toHaveAttribute('aria-pressed', 'false');
   await expect(legend).toBeHidden();

@@ -60,9 +60,15 @@ export async function waitUntilStill(page: Page, timeout = 15_000): Promise<Scul
   return facts(page);
 }
 
-/** SHA-256 of the WebGL canvas pixels, copied through a 2D canvas (preserveDrawingBuffer keeps the frame readable). */
-export async function canvasHash(page: Page): Promise<string> {
-  return page.evaluate(async () => {
+/** Side of the blocks `canvasBlocks` averages over, CSS pixels. */
+const BLOCK = 10;
+
+/**
+ * The canvas as block means: for every BLOCK x BLOCK tile, the mean red, green and blue, 0 to 255 (preserveDrawingBuffer keeps the frame readable through a 2D copy).
+ * Two loads of one pose are not byte-identical in headless Chrome (sub-pixel rasterisation noise, measured 2026-10-11: differing SHA-256, block means equal to the byte), so pixel checks compare these means with `compareBlocks`, never raw hashes.
+ */
+export async function canvasBlocks(page: Page): Promise<number[]> {
+  return page.evaluate((block) => {
     const source = document.querySelector('canvas');
     if (!(source instanceof HTMLCanvasElement)) throw new Error('no canvas on the page');
     const copy = document.createElement('canvas');
@@ -72,9 +78,52 @@ export async function canvasHash(page: Page): Promise<string> {
     if (context === null) throw new Error('no 2d context for the pixel copy');
     context.drawImage(source, 0, 0);
     const pixels = context.getImageData(0, 0, copy.width, copy.height).data;
-    const digest = await crypto.subtle.digest('SHA-256', pixels);
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-  });
+    const columns = Math.floor(copy.width / block);
+    const rows = Math.floor(copy.height / block);
+    const means: number[] = [];
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        for (let y = 0; y < block; y += 1) {
+          for (let x = 0; x < block; x += 1) {
+            const index = ((row * block + y) * copy.width + column * block + x) * 4;
+            r += pixels[index] ?? 0;
+            g += pixels[index + 1] ?? 0;
+            b += pixels[index + 2] ?? 0;
+          }
+        }
+        means.push(r / (block * block), g / (block * block), b / (block * block));
+      }
+    }
+    return means;
+  }, BLOCK);
+}
+
+/** How two block-mean canvases differ: the largest channel difference and the number of blocks whose largest channel difference is over 8 levels. */
+export function compareBlocks(a: readonly number[], b: readonly number[]): { maxDiff: number; changedBlocks: number } {
+  if (a.length !== b.length) throw new Error(`block arrays differ in length (${String(a.length)} and ${String(b.length)}), so the canvases differ in size`);
+  let maxDiff = 0;
+  let changedBlocks = 0;
+  for (let index = 0; index < a.length; index += 3) {
+    const diff = Math.max(Math.abs((a[index] ?? 0) - (b[index] ?? 0)), Math.abs((a[index + 1] ?? 0) - (b[index + 1] ?? 0)), Math.abs((a[index + 2] ?? 0) - (b[index + 2] ?? 0)));
+    if (diff > maxDiff) maxDiff = diff;
+    if (diff > 8) changedBlocks += 1;
+  }
+  return { maxDiff, changedBlocks };
+}
+
+/** Asserts two canvases show the same picture: no block mean moves by more than 2 levels. */
+export function expectSameCanvas(a: readonly number[], b: readonly number[]): void {
+  const { maxDiff, changedBlocks } = compareBlocks(a, b);
+  if (maxDiff > 2) throw new Error(`the canvases differ: the largest block-mean difference is ${String(maxDiff)} levels and ${String(changedBlocks)} blocks moved by more than 8`);
+}
+
+/** Asserts two canvases show different pictures: at least `blocks` block means move by more than 8 levels. */
+export function expectDifferentCanvas(a: readonly number[], b: readonly number[], blocks = 40): void {
+  const { changedBlocks } = compareBlocks(a, b);
+  if (changedBlocks < blocks) throw new Error(`the canvases look the same: only ${String(changedBlocks)} blocks moved by more than 8 levels, fewer than the ${String(blocks)} expected`);
 }
 
 /** The RGBA of the canvas at fractions of its size, as `r,g,b,a` strings. */

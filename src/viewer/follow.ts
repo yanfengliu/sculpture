@@ -27,6 +27,13 @@ export interface FollowCamera {
   dispose(): void;
 }
 
+/** The side to look from at a blow on a face of outward `normal`: out along the normal, a little above and a little to one side, so the stock never stands between the camera and the tool. */
+export function viewDirectionFor(normal: Vec3): Vec3 {
+  const [nx, ny, nz] = normal;
+  const sideways = Math.hypot(nz, nx) < 0.2 ? [0.5, 0, 0.8] : [nz * 0.35, 0, -nx * 0.35];
+  return [nx + (sideways[0] ?? 0), ny + 0.35, nz + (sideways[2] ?? 0)];
+}
+
 /** A fixed pose that frames `tip` from `distance` along `viewDirection`. */
 export function framingFor(tip: Vec3, distance: number, viewDirection: Vec3 = DEFAULT_VIEW_DIRECTION): CameraPose {
   const direction = new Vec(...viewDirection).normalize();

@@ -16,7 +16,7 @@ import type { Attribution } from './ui';
 import { installKeyboard } from './ui/keyboard';
 import type { MakingBundle } from './viewer/bundle';
 import { buildFacts, factsSignature, publishFacts } from './viewer/facts';
-import { DEFAULT_FOLLOW_DISTANCE, createFollow, framingFor } from './viewer/follow';
+import { DEFAULT_FOLLOW_DISTANCE, createFollow, framingFor, viewDirectionFor } from './viewer/follow';
 import { createMarbleMaterial } from './viewer/marble';
 import { DEFAULT_PRESET, FOLLOW_VIEW, PRESETS, findPreset, isPresetId } from './viewer/presets';
 import type { CameraPose, ViewerQuery } from './viewer/query';
@@ -60,7 +60,7 @@ function initialCamera(query: ViewerQuery, making: Making, problems: string[]): 
   if (query.view === null) return fallback;
   if (query.view === FOLLOW_VIEW) {
     const current = making.current;
-    if (current !== null) return { pose: framingFor(current.blow.point, DEFAULT_FOLLOW_DISTANCE), view: FOLLOW_VIEW };
+    if (current !== null) return { pose: framingFor(current.blow.point, DEFAULT_FOLLOW_DISTANCE, viewDirectionFor(current.blow.normal)), view: FOLLOW_VIEW };
     problems.push(`query parameter view="follow" was ignored: no blow is in progress at t=${String(making.t)}; it takes a t inside a step.`);
     return fallback;
   }
@@ -193,7 +193,7 @@ if (query.shot) {
     making.setTime(player.t);
     // A follow shot re-frames the blow in progress at the new position, as a fresh load with view=follow would.
     const current = making.current;
-    if (view === FOLLOW_VIEW && current !== null) viewer.setPose(framingFor(current.blow.point, DEFAULT_FOLLOW_DISTANCE));
+    if (view === FOLLOW_VIEW && current !== null) viewer.setPose(framingFor(current.blow.point, DEFAULT_FOLLOW_DISTANCE, viewDirectionFor(current.blow.normal)));
   };
 }
 

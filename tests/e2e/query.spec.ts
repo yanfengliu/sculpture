@@ -5,7 +5,7 @@
 import { expect, test } from '@playwright/test';
 
 import { BLOCK_M } from '../../src/david/frame';
-import { VIEWPORT, canvasHash, facts, labelAndScrubber, openPage, waitFrames } from './helpers';
+import { VIEWPORT, canvasBlocks, expectDifferentCanvas, expectSameCanvas, facts, labelAndScrubber, openPage, waitFrames } from './helpers';
 
 test.use({ viewport: VIEWPORT });
 
@@ -56,12 +56,11 @@ test('view= picks a preset, cam= wins over it, and an unknown view is reported',
   expect((await facts(page)).view).toBe('front');
   await expect(page.getByTestId('view-menu')).toHaveValue('front');
   await waitFrames(page, 3);
-  const front = await canvasHash(page);
+  const front = await canvasBlocks(page);
 
   await openPage(page, 'autoplay=0&view=head');
   await waitFrames(page, 3);
-  const head = await canvasHash(page);
-  expect(head).not.toBe(front);
+  expectDifferentCanvas(await canvasBlocks(page), front);
 
   // The front preset's pose (src/viewer/presets.ts) as an explicit camera: cam wins, so the canvas matches the front view, not the head view.
   await openPage(page, `autoplay=0&view=head&cam=0,3.2,10.5,0,${String(BLOCK_M.height / 2)},0`);
@@ -69,7 +68,7 @@ test('view= picks a preset, cam= wins over it, and an unknown view is reported',
   expect(explicit.view).toBe('free');
   expect(explicit.queryProblems).toEqual([]);
   await waitFrames(page, 3);
-  expect(await canvasHash(page)).toBe(front);
+  expectSameCanvas(await canvasBlocks(page), front);
 
   await openPage(page, 'autoplay=0&view=sideways');
   const unknown = await facts(page);
