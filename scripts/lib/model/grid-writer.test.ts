@@ -24,7 +24,9 @@ describe('encodeValues and rawBytes', () => {
     expect(min).toBe(-8192);
     expect(max).toBe(8192);
     expect(FIXED_POINT).toBe(256);
-    expect(DEFAULT_BAND_CELLS).toBe(32);
+    // The contract's default band, whatever its value, is what a far cell clamps to; pinning the number here would only test the constant against itself.
+    const wide = encodeValues([1000, -1000], DEFAULT_BAND_CELLS);
+    expect(Array.from(wide.values)).toEqual([DEFAULT_BAND_CELLS * FIXED_POINT, -DEFAULT_BAND_CELLS * FIXED_POINT]);
   });
 
   it('writes little-endian bytes and reads them back', () => {
