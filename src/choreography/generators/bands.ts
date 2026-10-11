@@ -57,7 +57,7 @@ function alongOf(q: Vec3, orientation: BandOrientation): number {
 /** Plans the blows of one pass; `strokeBase` offsets the stroke indices so passes of one step stay distinct. */
 export function bandBlows(ctx: PlanContext, options: BandOptions, strokeBase = 0): Blow[] {
   const candidates: Candidate[] = [];
-  for (const q of figureSurfacePoints(ctx, options.stride)) {
+  for (const q of figureSurfacePoints(ctx, Math.min(options.stride, options.pitch))) {
     const normal = ctx.figure.gradient(q[0], q[1], q[2]);
     let point: Vec3;
     if (options.floor === 'stock') {
@@ -87,6 +87,8 @@ export function bandBlows(ctx: PlanContext, options: BandOptions, strokeBase = 0
     const tangent: Vec3 = neighbour === null ? [1, 0, 0] : normalize([neighbour.point[0] - c.point[0], neighbour.point[1] - c.point[1], neighbour.point[2] - c.point[2]]);
     const forward: Vec3 = neighbour === previous && neighbour !== null ? [-tangent[0], -tangent[1], -tangent[2]] : tangent;
     const apart = previous === null || previous.band !== c.band ? Number.POSITIVE_INFINITY : Math.hypot(c.point[0] - previous.point[0], c.point[1] - previous.point[1], c.point[2] - previous.point[2]);
+    // Along a band the blows keep the stride apart.
+    if (apart < 0.8 * options.stride) continue;
     const run = strokeStart === null ? 0 : Math.hypot(c.point[0] - strokeStart[0], c.point[1] - strokeStart[1], c.point[2] - strokeStart[2]);
     if (apart > 2.5 * options.stride || run > options.strokeLength) {
       stroke += 1;

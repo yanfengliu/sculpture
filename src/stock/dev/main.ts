@@ -11,7 +11,7 @@ import { BASE_SECONDS } from '../../contracts/making';
 import { DEFAULT_CELL_M } from '../../david/frame';
 import { syntheticFigure } from '../../david/synthetic';
 import { createMaking, type EngineMaking } from '../../timeline/making';
-import { publishFacts } from '../../viewer/facts';
+import { EMPTY_FACTS, publishFacts } from '../../viewer/facts';
 import { readViewerQuery, type ViewerQuery } from '../../viewer/query';
 import { createViewer } from '../../viewer/scene';
 import { type Grid, loadFigureGrid } from '../grid';
@@ -69,11 +69,15 @@ function requestedTime(query: ViewerQuery, making: EngineMaking): number {
   return Math.min(query.t ?? 0, making.N);
 }
 
-function publish(query: ViewerQuery, making: EngineMaking): void {
+function publish(query: ViewerQuery, making: EngineMaking, playing: boolean): void {
   publishFacts({
+    ...EMPTY_FACTS,
     stepIds: making.steps.map((s) => s.id),
     stepTitles: making.steps.map((s) => s.title),
     stepStages: making.steps.map((s) => s.stage),
+    stepTools: making.steps.map((s) => s.tool),
+    stepWeights: making.steps.map((s) => s.weight),
+    stepBlowCounts: making.steps.map((s) => s.blowCount),
     stages: making.stages.map((s) => s.id),
     N: making.N,
     t: making.t,
@@ -81,6 +85,9 @@ function publish(query: ViewerQuery, making: EngineMaking): void {
     planDigest: making.planDigest,
     blowsApplied: making.blowsApplied,
     dirtyChunks: making.dirtyChunks,
+    playing: playing ? 'forward' : null,
+    moving: playing,
+    finish: query.finish,
     queryProblems: query.problems,
   });
 }
@@ -125,7 +132,7 @@ async function main(): Promise<void> {
   let readyFrames = 0;
   let lastFrame = performance.now();
   making.setTime(t);
-  publish(query, making);
+  publish(query, making, playing);
 
   window.addEventListener('keydown', (event) => {
     if (event.code === 'Space') {
@@ -167,7 +174,7 @@ async function main(): Promise<void> {
         'Space play/pause, arrows step, Home/End',
       ].join('\n');
     }
-    publish(query, making);
+    publish(query, making, playing);
     if (query.shot && window.__shotReady !== true) {
       readyFrames = making.dirtyChunks === 0 ? readyFrames + 1 : 0;
       if (readyFrames >= READY_FRAMES) window.__shotReady = true;

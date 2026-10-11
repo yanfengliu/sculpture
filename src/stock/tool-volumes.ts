@@ -29,10 +29,10 @@ export const TOOL_VOLUMES: Readonly<Record<ToolId, ToolVolumeSpec>> = {
   roundel: { width: 0.009, push: 0.02, angle: 45 * DEG, removes: true, source: 'tools.md, Unghietto, The mark: scooped channels of round section 6 to 12 mm wide, each stroke 10 to 30 mm long; a 9 mm size is sold today' },
   flat: { width: 0.03, push: 0.03, angle: 45 * DEG, removes: true, source: 'tools.md, Scalpello: edge 0.5 to 10 cm, held at 35 to 60 degrees, almost smooth sets of parallel straight lines' },
   drill: { width: 0.005, push: 0, angle: 45 * DEG, removes: true, source: 'tools.md, Trapano, The mark: cylindrical holes 4 to 6 mm across and 8 to 20 mm deep; the bit is a chisel-shaped spade point' },
-  rasp: { width: 0.03, push: 0.1, angle: 0, removes: true, source: 'tools.md, Raspe e lime, The mark: strokes 5 to 15 cm long crossing at random angles, scratch fields under 0.5 mm deep' },
+  rasp: { width: 0.05, push: 0.12, angle: 0, removes: true, source: 'tools.md, Raspe e lime, The mark: strokes 5 to 15 cm long crossing at random angles, scratch fields under 0.5 mm deep; the shown stroke is a little wider than the 3 cm rasp since it stands for many' },
   file: { width: 0.015, push: 0.06, angle: 0, removes: true, source: 'tools.md, Raspe e lime: slender files and rifflers 12 to 40 cm refine after the rasps' },
-  pumice: { width: 0.05, push: 0.08, angle: 0, removes: true, source: 'tools.md, Abrasives and polish: a grey hand-sized lump worked wet, removes the rasp scratches and leaves a matt skin' },
-  polish: { width: 0.06, push: 0.08, angle: 0, removes: false, source: 'tools.md, Abrasives and polish: tripoli on a leather pad, straw bunches and leather burnish to a satin finish' },
+  pumice: { width: 0.08, push: 0.12, angle: 0, removes: true, source: 'tools.md, Abrasives and polish: a grey hand-sized lump worked wet, removes the rasp scratches and leaves a matt skin' },
+  polish: { width: 0.1, push: 0.15, angle: 0, removes: false, source: 'tools.md, Abrasives and polish: tripoli on a leather pad, straw bunches and leather burnish to a satin finish' },
   gilding: { width: 0.02, push: 0.03, angle: 0, removes: false, source: 'technique.md, Stage 8: the sling and stump were gilded that summer; the gilding arrives through a brush and leaf' },
 };
 
@@ -47,6 +47,8 @@ export const BULK_RADIUS_RATIO = 1.2;
 export const BULK_FILLET_RATIO = 0.25;
 /** Corner radius of the rasp, file and pumice footprints as a fraction of the width. */
 const FOOTPRINT_ROUNDING = 0.3;
+/** Width of the feathered edge of a rasped patch as a fraction of the footprint's half width: the depth tapers to nothing there, as a rubbed patch does. */
+const FEATHER = 0.5;
 /** Above and below the surface, the painting tools reach one blow size, so both sides of a crossing edge are painted. */
 const PAINT_HALF_THICKNESS = 0.012;
 /** The shank of the drill and the base of the cone extend this far above the surface, so the volume is open toward the air. */
@@ -192,7 +194,10 @@ export function closedFormVolume(tool: ToolId, size: number): number {
     case 'file':
     case 'pumice': {
       const rounding = FOOTPRINT_ROUNDING * spec.width;
-      return (spec.push * spec.width - (4 - Math.PI) * rounding * rounding) * size;
+      const feather = FEATHER * (spec.width / 2);
+      const area = spec.push * spec.width - (4 - Math.PI) * rounding * rounding;
+      const perimeter = 2 * (spec.push + spec.width) - 8 * rounding + 2 * Math.PI * rounding;
+      return (area - 0.5 * perimeter * feather) * size;
     }
     default:
       return 0;
@@ -366,13 +371,13 @@ function drillHole(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
   };
 }
 
-/** Rasps, files and pumice: a slab `size` thick under the surface over a rounded footprint, following the figure's level sets where the figure is near and the tangent plane elsewhere. */
+/** Rasps, files and pumice: a patch `size` deep under the surface over a rounded footprint, its depth feathering out at the edge, following the figure's level sets where the figure is near and the tangent plane elsewhere. */
 function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint: number, figureBand: number): ToolVolume {
   const hx = spec.push / 2;
   const hy = spec.width / 2;
   const rounding = FOOTPRINT_ROUNDING * spec.width;
+  const feather = FEATHER * hy;
   const followFigure = figureAtPoint < 0.4 * figureBand;
-  const level = figureAtPoint - size;
   const bounds = frameBounds(f, -hx, hx, -hy, hy, -size - (followFigure ? spec.push * 0.5 : 0), AIR_EXTENSION, 0);
   return {
     removes: true,
@@ -385,8 +390,10 @@ function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint
       const a = rx * f.u[0] + ry * f.u[1] + rz * f.u[2];
       const b = rx * f.w[0] + ry * f.w[1] + rz * f.w[2];
       const c = rx * f.n[0] + ry * f.n[1] + rz * f.n[2];
-      const depth = followFigure ? level - figure : -size - c;
-      return extrude(roundedBox2(a, b, hx, hy, rounding), depth);
+      const foot = roundedBox2(a, b, hx, hy, rounding);
+      const local = foot >= 0 ? 0 : size * Math.min(1, -foot / feather);
+      const depth = followFigure ? figureAtPoint - local - figure : -local - c;
+      return extrude(foot, depth);
     },
   };
 }

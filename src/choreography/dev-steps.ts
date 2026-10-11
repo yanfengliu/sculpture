@@ -40,8 +40,8 @@ export const DEV_STAGES: readonly StageDef[] = [
   { id: 'on-site', title: 'On site', detail: 'The sling and the stump gilded in the summer of 1504 (technique.md, Stage 8).' },
 ];
 
-/** The bulk cuts: one shown blow stands for about 1,100 real ones, so its crater is the flat-floored union of a field of pits (src/stock/tool-volumes.ts, BULK_RADIUS_RATIO); the pitch keeps neighbouring craters overlapping at every depth (under 2 × radius / √2 = 0.2 m). */
-const BULK = { pitch: 0.17, size: 0.12, angle: 85 } as const;
+/** The bulk cuts: one shown blow stands for about 1,100 real ones, so its crater is the flat-floored union of a field of pits (src/stock/tool-volumes.ts, BULK_RADIUS_RATIO); the pitch keeps neighbouring craters overlapping at every depth (under 2 × radius / √2 = 0.25 m). */
+const BULK = { pitch: 0.2, size: 0.15, angle: 85 } as const;
 
 export const DEV_STEPS: readonly StepDef[] = [
   {
@@ -228,7 +228,7 @@ export const DEV_STEPS: readonly StepDef[] = [
     blowsPerShown: 1500,
     weight: 1.8,
     calendar: { from: '1503-03-24', to: '1503-06-01' },
-    plan: (ctx) => rasping(ctx, { tool: 'rasp', pitch: 0.2, stride: 0.1, size: 0.003, angle: 10, passes: ['horizontal', 'diagonal'] }),
+    plan: (ctx) => rasping(ctx, { tool: 'rasp', pitch: 0.06, stride: 0.12, size: 0.003, angle: 10, passes: ['diagonal'] }),
   },
   {
     id: 'filing-figure',
@@ -254,7 +254,7 @@ export const DEV_STEPS: readonly StepDef[] = [
     blowsPerShown: 2000,
     weight: 2,
     calendar: { from: '1503-07-06', to: '1503-09-20' },
-    plan: (ctx) => abrading(ctx, { tool: 'pumice', pitch: 0.2, stride: 0.1, size: 0.0005, angle: 5, passes: ['horizontal'] }),
+    plan: (ctx) => abrading(ctx, { tool: 'pumice', pitch: 0.1, stride: 0.12, size: 0.0005, angle: 5, passes: ['horizontal'] }),
   },
   {
     id: 'polish-figure',
@@ -267,7 +267,7 @@ export const DEV_STEPS: readonly StepDef[] = [
     blowsPerShown: 2000,
     weight: 1.75,
     calendar: { from: '1503-09-20', to: '1504-01-25' },
-    plan: (ctx) => abrading(ctx, { tool: 'polish', pitch: 0.2, stride: 0.1, size: 0, angle: 8, passes: ['diagonal'] }),
+    plan: (ctx) => abrading(ctx, { tool: 'polish', pitch: 0.12, stride: 0.15, size: 0, angle: 8, passes: ['diagonal'] }),
   },
   {
     id: 'gilding-sling',

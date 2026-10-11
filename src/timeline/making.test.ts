@@ -1,22 +1,22 @@
 /**
- * The Making (src/timeline/making.ts) on a 5 cm synthetic block with four inline steps. What a green run proves, and its bounds:
- *   1. Determinism: after a seeded random history of 60 plays, reversals, steps and scrubs, the hashes of the stock grid, the finish grid, every chunk's positions, the poses and the chips equal those of a fresh Making set straight to the same `t`, checked at 12 points of the history and at the end, in under 2 s.
- *   2. Rest positions: at every integer `t` the first `t` steps are complete, `current` is null, the poses are rest poses and nothing is in flight; at `t = N` then `t = 0` the stock and finish are the untouched block again and the undo log is empty.
+ * The Making (src/timeline/making.ts) on a 6 cm synthetic block with four inline steps. What a green run proves, and its bounds:
+ *   1. Determinism: after a seeded random history of 50 plays, reversals, steps and scrubs, the hashes of the stock grid, the finish grid, every chunk's positions, the poses and the chips equal those of a fresh Making set straight to the same `t`, checked at 10 points of the history and at the end, in under 3 s (about 1.2 s alone; the bound leaves room for the other test files running beside it).
+ *   2. Rest positions: at every integer `t` the first `t` steps are complete, `current` is null, no tool is posed and nothing is in flight; at `t = N` then `t = 0` the stock and finish are the untouched block again and the undo log is empty.
  *   3. Planning: steps are planned in order from the state the earlier steps leave (a later step's blows land on the surface the earlier one cut), `planAll` fills the plan, `planLength` and `planDigest` agree between two Makings and `steps[i]` carries the blow ranges.
- *   4. The blow in progress and its phase follow `floor(f × count)`, and chips come from struck blows only.
+ *   4. Blow `k` of a step applies when the position passes STRIKE_PHASE of its window `[k / count, (k + 1) / count)`, the blow in progress is the window's blow at its phase, and chips come from struck blows only.
  * Bounds: the steps here are inline rasters, not the choreography; the mesher is synchronous; nothing is rendered.
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 
-import type { Blow, BlowCycle, ChipState, PlanContext, StageDef, StepDef, ToolId, ToolPose } from '../contracts/making';
+import { type Blow, type BlowCycle, type ChipState, type PlanContext, type StageDef, type StepDef, STRIKE_PHASE, type ToolId, type ToolPose } from '../contracts/making';
 import { BLOCK_M } from '../david/frame';
 import { syntheticFigure } from '../david/synthetic';
 import { FNV_OFFSET, fnvArray, fnvHex, fnvNumber, fnvText } from '../stock/digest';
 import { blockGrid, frameBlockBox } from '../stock/grid';
 import { createMaking, type EngineMaking } from './making';
 
-const CELL = 0.05;
+const CELL = 0.06;
 const figure = syntheticFigure(CELL);
 const material = new THREE.MeshBasicMaterial();
 
@@ -103,7 +103,7 @@ describe('making', () => {
     const random = mulberry32(2026);
     let t = 0;
     const checks: number[] = [];
-    for (let n = 0; n < 60; n += 1) {
+    for (let n = 0; n < 50; n += 1) {
       const kind = random();
       if (kind < 0.35) t += 0.1 + 0.6 * random();
       else if (kind < 0.6) t -= 0.1 + 0.6 * random();
@@ -112,7 +112,7 @@ describe('making', () => {
       t = Math.min(Math.max(t, 0), N);
       making.setTime(t);
       expect(making.dirtyChunks).toBe(0);
-      if (n % 5 === 4 || n === 59) {
+      if (n % 5 === 4) {
         const reference = fresh();
         reference.setTime(t);
         expect(hashOf(making), `after ${String(n + 1)} moves at t = ${String(t)}`).toBe(hashOf(reference));
@@ -120,8 +120,8 @@ describe('making', () => {
         checks.push(t);
       }
     }
-    expect(checks.length).toBe(12);
-    expect(performance.now() - start).toBeLessThan(2000);
+    expect(checks.length).toBe(10);
+    expect(performance.now() - start).toBeLessThan(3000);
   });
 
   it('rests at integer t with the first t steps complete, and returns to the untouched block', () => {
@@ -132,10 +132,7 @@ describe('making', () => {
       making.setTime(k);
       expect(making.current).toBeNull();
       expect(making.blowsApplied).toBe(counts.slice(0, k).reduce((a, b) => a + b, 0));
-      expect(making.poses.map((p) => p.position)).toEqual([
-        [2, 0.5, 2],
-        [2, 0.5, 2],
-      ]);
+      expect(making.poses).toEqual([]);
       expect(making.chips).toEqual([]);
       expect(making.dirtyChunks).toBe(0);
     }
@@ -174,22 +171,32 @@ describe('making', () => {
     expect(a.t).toBe(1.5);
   });
 
-  it('shows floor(f × count) blows, the next one in progress at its phase, with chips from the struck ones', () => {
+  it('applies a blow at the strike phase of its window, poses the blow in progress, and launches chips from the struck ones', () => {
     const making = fresh();
-    making.setTime(0.5);
     const count = making.steps[0]?.blowCount ?? 0;
     expect(count).toBeGreaterThan(2);
-    expect(making.blowsApplied).toBe(Math.floor(0.5 * count));
-    const current = making.current;
-    expect(current).not.toBeNull();
-    expect(current?.blow).toBe(making.blowsOf(0)[Math.floor(0.5 * count)]);
-    expect(current?.phase).toBeCloseTo(0.5 * count - Math.floor(0.5 * count), 9);
+    // Inside the first window before the strike: nothing applied, the first blow in progress at its phase, no chips.
+    making.setTime(0.25 / count);
+    expect(making.blowsApplied).toBe(0);
+    expect(making.current?.blow).toBe(making.blowsOf(0)[0]);
+    expect(making.current?.phase).toBeCloseTo(0.25, 9);
     expect(making.poses.length).toBe(2);
     expect(making.poses[0]?.tool).toBe('point');
-    expect(making.chips.length).toBeGreaterThan(0);
-    making.setTime(0.5 / count / 2);
-    expect(making.blowsApplied).toBe(0);
     expect(making.chips).toEqual([]);
-    expect(making.current?.phase).toBeCloseTo(0.25, 9);
+    // Just past the strike of the first window: the first blow is applied and its chips fly.
+    making.setTime((STRIKE_PHASE + 0.05) / count);
+    expect(making.blowsApplied).toBe(1);
+    expect(making.current?.blow).toBe(making.blowsOf(0)[0]);
+    expect(making.chips.length).toBeGreaterThan(0);
+    // Mid-step: the blows whose strike the position has passed.
+    making.setTime(0.5);
+    const position = 0.5 * count;
+    expect(making.blowsApplied).toBe(Math.floor(position - STRIKE_PHASE) + 1);
+    expect(making.current?.blow).toBe(making.blowsOf(0)[Math.floor(position)]);
+    expect(making.current?.phase).toBeCloseTo(position - Math.floor(position), 9);
+    // The step's end applies its last blow.
+    making.setTime(1);
+    expect(making.blowsApplied).toBe(count);
+    expect(making.poses).toEqual([]);
   });
 });

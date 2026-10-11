@@ -134,48 +134,6 @@ export function applyBlow(state: CarveState, figure: Grid, blow: Blow, margin: n
   const deepWithin = -(HALF_DIAGONAL + STOCK_BAND_CELLS + 0.5) * cell;
   const deepFixed = -(limit + 1);
 
-  /** The rule and the bookkeeping for one cell; `tFixed` is the tool distance in fixed point, or `deepFixed` for a cell well inside the volume. */
-  const visit = (index: number, i: number, j: number, k: number, tFixed: number, inReach: boolean): void => {
-    const s = values[index] ?? limit;
-    const figureFixed = figureValues[index] ?? 0;
-    let next = s;
-    if (removes) {
-      const candidate = Math.min(-tFixed, figureFixed - marginFixed);
-      if (candidate > s) next = candidate > limit ? limit : candidate;
-    }
-    const was = finish[index] ?? 0;
-    let nextFinish = was;
-    if (inReach && next > -limit && next < limit) nextFinish = code;
-    if (next === s && nextFinish === was) return;
-    if (s === -limit && was === 0) {
-      if (runStart >= 0 && runStart + runLength === index) runLength += 1;
-      else {
-        if (runStart >= 0) {
-          runs.push(runStart);
-          runs.push(runLength);
-        }
-        runStart = index;
-        runLength = 1;
-      }
-    } else {
-      indices.push(index);
-      oldStock.push(s);
-      oldFinish.push(was);
-    }
-    changed += 1;
-    if (next !== s) {
-      removed += (occupancy(s) - occupancy(next)) * cellVolume;
-      values[index] = next;
-    }
-    if (nextFinish !== was) finish[index] = nextFinish;
-    if (i < bi0) bi0 = i;
-    if (i > bi1) bi1 = i;
-    if (j < bj0) bj0 = j;
-    if (j > bj1) bj1 = j;
-    if (k < bk0) bk0 = k;
-    if (k > bk1) bk1 = k;
-  };
-
   for (let kb = k0; kb <= k1; kb += BLOCK) {
     const kEnd = Math.min(k1, kb + BLOCK - 1);
     for (let jb = j0; jb <= j1; jb += BLOCK) {
@@ -194,14 +152,59 @@ export function applyBlow(state: CarveState, figure: Grid, blow: Blow, margin: n
           for (let j = jb; j <= jEnd; j += 1) {
             const y = origin[1] + j * cell;
             let index = ib + nx * (j + ny * k);
+            let rowFirst = -1;
+            let rowLast = -1;
             for (let i = ib; i <= iEnd; i += 1, index += 1) {
-              if ((values[index] ?? limit) >= limit) continue;
-              if (deep) {
-                visit(index, i, j, k, deepFixed, true);
-                continue;
+              const s = values[index] ?? limit;
+              if (s >= limit) continue;
+              const figureFixed = figureValues[index] ?? 0;
+              let tFixed = deepFixed;
+              let inReach = true;
+              if (!deep) {
+                const t = volume.distance(origin[0] + i * cell, y, z, figureFixed * figureScale);
+                tFixed = Math.round(t * metresToFixed);
+                inReach = t < paintReach;
               }
-              const t = volume.distance(origin[0] + i * cell, y, z, (figureValues[index] ?? 0) * figureScale);
-              visit(index, i, j, k, Math.round(t * metresToFixed), t < paintReach);
+              let next = s;
+              if (removes) {
+                const candidate = Math.min(-tFixed, figureFixed - marginFixed);
+                if (candidate > s) next = candidate > limit ? limit : candidate;
+              }
+              const was = finish[index] ?? 0;
+              let nextFinish = was;
+              if (inReach && next > -limit && next < limit) nextFinish = code;
+              if (next === s && nextFinish === was) continue;
+              if (s === -limit && was === 0) {
+                if (runStart >= 0 && runStart + runLength === index) runLength += 1;
+                else {
+                  if (runStart >= 0) {
+                    runs.push(runStart);
+                    runs.push(runLength);
+                  }
+                  runStart = index;
+                  runLength = 1;
+                }
+              } else {
+                indices.push(index);
+                oldStock.push(s);
+                oldFinish.push(was);
+              }
+              changed += 1;
+              if (next !== s) {
+                removed += (occupancy(s) - occupancy(next)) * cellVolume;
+                values[index] = next;
+              }
+              if (nextFinish !== was) finish[index] = nextFinish;
+              if (rowFirst < 0) rowFirst = i;
+              rowLast = i;
+            }
+            if (rowFirst >= 0) {
+              if (rowFirst < bi0) bi0 = rowFirst;
+              if (rowLast > bi1) bi1 = rowLast;
+              if (j < bj0) bj0 = j;
+              if (j > bj1) bj1 = j;
+              if (k < bk0) bk0 = k;
+              if (k > bk1) bk1 = k;
             }
           }
         }

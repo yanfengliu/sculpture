@@ -185,7 +185,7 @@ export class Remesher {
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(out.positions, 3));
-    geometry.setAttribute('finish', new THREE.BufferAttribute(out.finish, 1));
+    geometry.setAttribute('finish', new THREE.Uint8BufferAttribute(out.finish, 1, false));
     geometry.computeBoundingSphere();
     if (existing !== undefined) {
       existing.geometry.dispose();

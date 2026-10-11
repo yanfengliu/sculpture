@@ -1,13 +1,13 @@
 /**
  * The Making (docs/design/spec.md, Blows, strokes and steps; src/contracts/making.ts): the plan, the replay and the evaluation at a timeline position `t`.
  * Planning is step by step: a step's generator runs once, when the making first needs it, from the stock as the earlier steps left it, and the result is cached, so the blows at any `t` are the same whatever the history. Forward moves apply blows in index order; backward moves restore the undo boxes; the state is never snapshotted.
- * Step `i` at local progress `f = clamp(t - i, 0, 1)` shows `floor(f × count)` blows; the blow in progress is the next one, and its cycle phase is the fractional position inside its window, so its cut appears at the window's end. Chips of a struck blow count seconds from the end of that blow's window.
+ * Step `i` at local progress `f = clamp(t - i, 0, 1)` has blow `k` in its window `[k / count, (k + 1) / count)`; the blow's cut applies when the position passes STRIKE_PHASE of that window, so at an integer `t` every blow of the completed steps is applied, and its cycle phase is the fractional position inside the window. Chips of a struck blow count seconds from its strike.
  * Everything observable is a pure function of `t`: the grids, the chunk meshes, the poses and the chips, which src/timeline/making.test.ts asserts after random histories.
  */
 import type { Material, Object3D } from 'three';
 
 import type { GridHeader } from '../contracts/grid';
-import { BASE_SECONDS, type Blow, type BlowCycle, type ChipState, type Making, type PlanContext, type StageDef, type StepDef, type StepInfo, type ToolPose } from '../contracts/making';
+import { BASE_SECONDS, type Blow, type BlowCycle, type ChipState, type Making, type PlanContext, type StageDef, type StepDef, type StepInfo, STRIKE_PHASE, type ToolPose } from '../contracts/making';
 import { applyBlow, type CarveState, type UndoBox, undoBlow, undoBytes } from '../stock/carve';
 import { chunkLayout } from '../stock/chunks';
 import { FNV_OFFSET, fnvBlow, fnvHex, seedOf } from '../stock/digest';
@@ -164,8 +164,8 @@ class MakingImpl implements EngineMaking {
     this.remesher.flush();
   }
 
-  /** The blow in progress: step `i`, blow `index` within it, its phase; null at a rest position. */
-  private progress(): { step: number; index: number; phase: number; count: number; f: number } | null {
+  /** The blow in progress: step `i`, blow `index` within it, its phase and the step's position in blows; null at a rest position. */
+  private progress(): { step: number; index: number; phase: number; count: number; position: number } | null {
     if (this.N === 0 || this.time >= this.N) return null;
     const step = Math.floor(this.time);
     const f = this.time - step;
@@ -174,7 +174,12 @@ class MakingImpl implements EngineMaking {
     if (count === 0) return null;
     const position = f * count;
     const index = Math.min(Math.floor(position), count - 1);
-    return { step, index, phase: Math.min(Math.max(position - index, 0), 1 - Number.EPSILON), count, f };
+    return { step, index, phase: Math.min(Math.max(position - index, 0), 1 - Number.EPSILON), count, position };
+  }
+
+  /** Blows of a step struck by `position` (blows into the step): those whose strike phase the position has passed. */
+  private static struck(position: number, count: number): number {
+    return Math.min(count, Math.max(0, Math.floor(position - STRIKE_PHASE) + 1));
   }
 
   get current(): { readonly blow: Blow; readonly phase: number } | null {
@@ -184,13 +189,10 @@ class MakingImpl implements EngineMaking {
     return blow === undefined ? null : { blow, phase: p.phase };
   }
 
+  /** The tools in use; at a rest position none, and the page rests every tool not posed. */
   get poses(): readonly ToolPose[] {
     const p = this.progress();
-    if (p === null) {
-      const step = this.defs[Math.min(Math.max(Math.round(this.time), 0), this.N - 1)];
-      const tool = step?.tool ?? 'point';
-      return [this.blowCycle.restPose(tool), this.blowCycle.restPose('mallet')];
-    }
+    if (p === null) return [];
     const plan = this.plans[p.step] ?? [];
     const blow = plan[p.index];
     if (blow === undefined) return [];
@@ -206,10 +208,11 @@ class MakingImpl implements EngineMaking {
     const secondsPerBlow = (def.weight * BASE_SECONDS) / p.count;
     const chips: ChipState[] = [];
     let emptyRun = 0;
-    for (let j = p.index - 1; j >= 0 && j >= p.index - CHIP_LOOKBACK; j -= 1) {
+    const struck = MakingImpl.struck(p.position, p.count);
+    for (let j = struck - 1; j >= 0 && j >= struck - CHIP_LOOKBACK; j -= 1) {
       const blow = plan[j];
       if (blow === undefined) break;
-      const secondsSince = (p.f * p.count - (j + 1)) * secondsPerBlow;
+      const secondsSince = (p.position - (j + STRIKE_PHASE)) * secondsPerBlow;
       const some = this.blowCycle.chipsAt(blow, secondsSince);
       if (some.length === 0) {
         emptyRun += 1;
@@ -229,7 +232,7 @@ class MakingImpl implements EngineMaking {
     const f = Math.min(Math.max(t - step, 0), 1);
     this.ensurePlanned(step);
     const count = this.plans[step]?.length ?? 0;
-    return (this.starts[step] ?? 0) + Math.min(count, Math.floor(f * count));
+    return (this.starts[step] ?? 0) + MakingImpl.struck(f * count, count);
   }
 
   /** Plans every step up to `last` that is not planned yet, each from the state the steps before it leave. */
@@ -285,5 +288,17 @@ class MakingImpl implements EngineMaking {
 }
 
 function info(step: StepDef, firstBlow: number, blowCount: number): StepInfo {
-  return { id: step.id, stage: step.stage, title: step.title, detail: step.detail, tool: step.tool, blowsPerShown: step.blowsPerShown, weight: step.weight, calendar: step.calendar, firstBlow, blowCount };
+  return {
+    id: step.id,
+    stage: step.stage,
+    title: step.title,
+    detail: step.detail,
+    tool: step.tool,
+    blowsPerShown: step.blowsPerShown,
+    weight: step.weight,
+    calendar: step.calendar,
+    ...(step.focus === undefined ? {} : { focus: step.focus }),
+    firstBlow,
+    blowCount,
+  };
 }
