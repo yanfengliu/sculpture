@@ -20,10 +20,11 @@ export function collectProblems(page: Page): string[] {
   return problems;
 }
 
-/** Loads `/?<query>` and waits for the first published facts and two rendered frames. */
+/** Loads `/?<query>` on the synthetic figure (docs/design/spec.md, Query contract: tests pass `model=synthetic`; a spec that wants the David grid names `model=` itself) and waits for the first published facts and two rendered frames. */
 export async function openPage(page: Page, query: string): Promise<void> {
-  const response = await page.goto(`/?${query}`);
-  if (response === null || response.status() !== 200) throw new Error(`GET /?${query} answered ${String(response?.status())}, not 200`);
+  const full = /(^|&)model=/.test(query) ? query : `model=synthetic${query === '' ? '' : `&${query}`}`;
+  const response = await page.goto(`/?${full}`);
+  if (response === null || response.status() !== 200) throw new Error(`GET /?${full} answered ${String(response?.status())}, not 200`);
   await page.waitForFunction(() => window.__sculpture !== undefined);
   await waitFrames(page, 2);
 }

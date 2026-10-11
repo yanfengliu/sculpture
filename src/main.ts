@@ -5,16 +5,26 @@
 import { Group } from 'three';
 import type { Material, Object3D } from 'three';
 
+import { DEV_STAGES, DEV_STEPS } from './choreography/dev-steps';
+import type { GridHeader } from './contracts/grid';
 import type { Making } from './contracts/making';
 import { BASE_SECONDS } from './contracts/making';
+import { DEFAULT_CELL_M } from './david/frame';
+import { syntheticFigure } from './david/synthetic';
+import { loadFigureGrid } from './stock/grid';
+import type { Grid } from './stock/grid';
+import { defaultWorkerCount } from './stock/pool';
+import { createMaking } from './timeline/making';
 import { createPlayer } from './timeline/player';
-import { APPROACH_END } from './tools/blow-cycle';
+import { APPROACH_END, createBlowCycle } from './tools/blow-cycle';
+import { TOOL_CATALOG } from './tools/catalog';
+import type { CatalogId } from './tools/catalog';
 import { ChipPool } from './tools/chips';
-import { animateToolParts } from './tools/geometry/index';
+import { animateToolParts, toolModel } from './tools/geometry/index';
 import { createUi } from './ui';
 import type { Attribution } from './ui';
 import { installKeyboard } from './ui/keyboard';
-import type { MakingBundle } from './viewer/bundle';
+import type { MakingBundle, RenderedTool } from './viewer/bundle';
 import { buildFacts, factsSignature, publishFacts } from './viewer/facts';
 import { DEFAULT_FOLLOW_DISTANCE, createFollow, framingFor, viewDirectionFor } from './viewer/follow';
 import { createMarbleMaterial } from './viewer/marble';
@@ -23,17 +33,50 @@ import type { CameraPose, ViewerQuery } from './viewer/query';
 import { readViewerQuery } from './viewer/query';
 import { createToolRig } from './viewer/rig';
 import { createViewer } from './viewer/scene';
-import { createStubBundle } from './viewer/stub-making';
 
 /** Frames rendered at the requested state before `window.__shotReady` (spec, Query contract). */
 const READY_FRAMES = 5;
 
+/** The pipeline's figure grid (docs/design/spec.md, Grid file format), served from `public/model/`, which `npm run model` writes. */
+const DAVID_HEADER = 'model/david.json';
+
+interface Figure {
+  readonly grid: Grid;
+  readonly header: GridHeader | undefined;
+}
+
+/** The figure `query.model` names: the David grid, or the synthetic figure built in code when the grid is asked for but cannot be loaded (reported, so a capture cannot pass as the David by mistake). */
+async function loadFigure(query: ViewerQuery, problems: string[]): Promise<Figure> {
+  if (query.model === 'david') {
+    try {
+      const loaded = await loadFigureGrid(DAVID_HEADER);
+      return { grid: loaded.grid, header: loaded.header };
+    } catch (error: unknown) {
+      problems.push(`model=david could not load ${DAVID_HEADER} (${error instanceof Error ? error.message : String(error)}): run npm run model; showing the synthetic figure instead.`);
+    }
+  }
+  return { grid: syntheticFigure(DEFAULT_CELL_M), header: undefined };
+}
+
 /**
- * INTEGRATION POINT. Swap the development stub for the engine and the tools here, and nowhere else:
- * return the engine's Making (src/timeline/making.ts, built from the grid `query.model` names, the tools' BlowCycle and `material` for its chunk meshes), the tools' meshes (src/tools/geometry/), the catalogue's names (src/tools/catalog.ts) and the grid header's `source`.
+ * INTEGRATION POINT. The engine and the tools plug in here and nowhere else: the figure grid `query.model` names, the engine's Making (src/timeline/making.ts) over the step list of src/choreography/ with `material` for its chunk meshes, the tools' cycle and meshes (src/tools/), the catalogue's names and the grid header's `source` for the footer.
+ * The step list is the provisional dev sequence until the David steps of docs/design/choreography.md land in src/choreography/.
  */
-function createMakingForQuery(query: ViewerQuery, material: Material): MakingBundle {
-  return createStubBundle(material); // ← the one line to change at integration; the stub ignores `query.model`
+async function createMakingForQuery(query: ViewerQuery, material: Material, problems: string[]): Promise<MakingBundle> {
+  const blowCycle = createBlowCycle();
+  const toolMeshes = new Map<RenderedTool, Object3D>();
+  for (const id of Object.keys(TOOL_CATALOG) as CatalogId[]) toolMeshes.set(id, toolModel(id));
+  const figure = await loadFigure(query, problems);
+  const options = { figure: figure.grid, steps: DEV_STEPS, stages: DEV_STAGES, blowCycle, material, workers: defaultWorkerCount() };
+  const making = createMaking(figure.header === undefined ? options : { ...options, header: figure.header });
+  return {
+    making,
+    blowCycle,
+    toolMeshes,
+    toolNames: (tool) => ({ italian: TOOL_CATALOG[tool].italian, english: TOOL_CATALOG[tool].english }),
+    carrySeconds: (blow) => blowCycle.approachSeconds(blow, null),
+    source: figure.header?.source ?? null,
+  };
 }
 
 /** `step=` (end of that step) wins over `t=`; a step the making does not have is reported and skipped. */
@@ -78,7 +121,7 @@ function attributionOf(bundle: MakingBundle): Attribution | null {
 const query = readViewerQuery();
 const problems = [...query.problems];
 const marble = createMarbleMaterial({ flat: query.finish });
-const bundle = createMakingForQuery(query, marble.material);
+const bundle = await createMakingForQuery(query, marble.material, problems);
 const { making } = bundle;
 const player = createPlayer(making.steps.map((step) => step.weight));
 player.seek(initialPosition(query, making, problems));
