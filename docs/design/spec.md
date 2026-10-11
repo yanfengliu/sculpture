@@ -28,28 +28,26 @@ The carving rule, applied per blow: `stock' = max(stock, min(-tool, figure - mar
 
 Meshing: the grid is split into chunks; a blow marks the chunks it touched dirty; dirty chunks are remeshed in Web Workers with transferable buffers (no SharedArrayBuffer, so the page also works from static hosting) and swapped into the scene. Chunk size and worker count come from `research: engine-options.md`.
 
+### Grid file format
+
+`src/contracts/grid.ts` is the one description; the pipeline's writer under `scripts/lib/` and the engine's reader under `src/stock/` each implement it and are tested against a fixture the other produced.
+
+- Values: signed distance in cells × 256, little-endian Int16, negative inside, clamped to ±band × 256 (band 32 cells by default, so the far field is constant and compresses well). Index of cell `(i, j, k)` is `i + nx * (j + ny * k)`.
+- Lattice: `origin` is the world position of the centre of cell `(0, 0, 0)`; the lattice covers the block plus `GRID_MARGIN_CELLS` on every side, so the block's own faces mesh cleanly. The block and the figure's placement come from `src/david/frame.ts`.
+- Files for a figure grid named `david`: `public/model/david.json` (the `GridHeader`: format, encoding, order, cell, size, origin, band, SHA-256 of the raw bytes, and the source attribution) and `public/model/david.bin.gz` (gzip of the raw bytes). The page decodes with `DecompressionStream` and checks the digest.
+- The stock grid is never stored: it is the block's box distance at `t = 0` and the replay of the plan after that. The finish grid is one byte per cell with the codes in `FINISH`.
+
+### Model pipeline
+
+`npm run model` runs `scripts/fetch-model.mjs` then `scripts/build-grid.mjs`. The fetch follows the steps in `docs/research/mesh-sources.md`: check the Commons API record (size, SHA-1, licence) and stop if any differ from the recorded values, GET the STL with a descriptive `User-Agent` naming this repo (never an email), verify the SHA-1, write `assets/cache/david/SOURCE.json` with the attribution. The build parses the binary STL, rotates the longest axis to +Y, centres the footprint, scales the height to `STATUE_HEIGHT_M`, applies `FIGURE_OFFSET_M`, logs the measured box and the transform, fails if the figure does not fit `BLOCK_M`, renders silhouettes from the fixed angles (front, back, left, right, top) into `output/model/` for a visual check and records which of base, sling, stump, back and head top are present, closes holes by a logged method, samples the signed distance on the lattice with a BVH (sign by flood fill from outside, so small holes seal), and writes the header and data files. The mesh is never committed; the attribution appears in the page footer.
+
 ## Blows, strokes and steps
 
 The making is a sequence of blows. A blow is `{ tool, point, normal, direction, size, strokeIndex }` in world units; it removes stock at an instant. A stroke is a run of blows along a short path with one tool set-up. A step is a named unit of work: one tool, one region of the figure, one margin, one stroke generator and its seed, a duration weight, a calendar span and a source citation. A stage groups steps by tool phase (roughing, claw work, flat work, drilling, rasping, abrading, polishing). Stages and steps are data in `src/choreography/`, never engine code.
 
 The stroke generator is deterministic: given the figure grid, the step's region and margin and the state the previous steps leave, it plans the step's blows in the sculptor's order (front face first, high points first, from the top down; `research: technique.md` fixes the order). The plan for the whole making is computed once at load and cached; its length and digest are exposed for tests.
 
-```ts
-interface StepDef {
-  id: string;              // unique, stable, kebab-case
-  stage: StageId;          // from src/choreography/stages.ts
-  title: string;           // at most 48 characters, shown in the timeline
-  detail: string;          // at most 200 characters, shown under the title, names the source
-  tool: ToolId;            // from src/tools/catalog.ts
-  region: RegionDef;       // which part of the figure, as a volume in world units
-  margin: number;          // metres left above the final surface at the end of this step
-  blowsPerShown: number;   // real blows one shown blow stands for; shown in the label
-  weight: number;          // playback duration multiplier; default 1
-  calendar: { from: string; to: string }; // ISO dates the step spans
-  focus?: CameraFocus;     // what the follow camera frames
-  plan(ctx: PlanContext): Blow[]; // deterministic, pure in ctx and the step's seed
-}
-```
+The interfaces are code: `src/contracts/making.ts` holds `Blow`, `StepDef`, `PlanContext`, `RegionDef`, `BlowCycle`, `ToolPose`, `ChipState`, `Making` and `Player`, with the field meanings in their comments. In short, a `StepDef` has a stable kebab-case id, a stage, a title of at most 48 characters, a detail of at most 200 that names its source, a tool, a region, a margin in metres, the real blows one shown blow stands for, a duration weight, a calendar span, an optional camera focus, and a `plan(ctx)` that is deterministic in the context and the step's seed.
 
 Timeline position `t` runs over `[0, N]` for N steps. Step `i` (0-based) has local progress `f = clamp(t - i, 0, 1)`; its blows apply at `floor(f * count)`. The material state at `t` is a pure function of `t`: it is obtained by replaying the plan from the untouched block, and a test asserts byte-identical grids after any history of plays, reversals, steps and scrubs. The tool's pose and the chips are continuous functions of `t` within a blow cycle, also pure in `t`. An integer `t = k` is a rest position: the first k steps are complete, the tool is down, nothing moves.
 
@@ -87,25 +85,27 @@ Chips: an instanced pool of small marble fragments, launched from the tip at the
 | `autoplay=0` | Do not start playing on load |
 | `noui=1` | Hide the page chrome |
 
-The renderer keeps `preserveDrawingBuffer: true`, or headless capture reads a blank canvas. `window.__sculpture` exposes read-only facts for tests (step ids, titles, stages, `N`, current `t`, plan length and digest, blows applied, dirty chunk count); tests drive the page through its real controls, never by writing state.
+The renderer keeps `preserveDrawingBuffer: true`, or headless capture reads a blank canvas. `window.__sculpture` exposes read-only facts for tests (`stepIds`, `stepTitles`, `stepStages`, `stages`, `N`, `t`, `planLength`, `planDigest`, `blowsApplied`, `dirtyChunks`, and `queryProblems`, the URL parameters the page ignored with why, so a capture harness can tell a wrong shot from the asked one); tests drive the page through its real controls, never by writing state.
 
 ## Modules and ownership
 
 | Path | Contents | Owner |
 |---|---|---|
-| `src/main.ts` | boot: query, viewer, plan, player, UI | page |
-| `src/stock/` | grids, formats, carving rule, chunking, meshing, workers | engine |
-| `src/choreography/` | stages, steps, regions, stroke generators, calendar | coordinator owns the lists; stage workers own their generators |
+| `src/contracts/` | the shared interfaces and constants, types only | coordinator |
+| `src/main.ts` | boot: query, viewer, making, player, UI | page |
+| `src/stock/` | grid reader, carving rule, chunking, meshing, workers | engine |
+| `src/timeline/` | the Making (plan, replay, evaluation at `t`), player | engine |
+| `src/choreography/` | stages, steps, regions, calendar; `generators/` holds the stroke generators | coordinator owns the lists; engine lands the first generic generators; stage workers own theirs |
 | `src/tools/` | catalog, procedural tool geometry, blow cycle, chips | tools |
 | `src/david/frame.ts` | world-frame constants from research | coordinator |
 | `src/david/synthetic.ts` | the procedural test figure | engine |
-| `src/viewer/` | renderer, scene, yard, lights, camera and controls, presets, marble shader | page |
-| `src/timeline/` | timeline evaluation, player | engine |
-| `src/ui/` | timeline bar, stage and view menus | page |
-| `scripts/` | fetch-model, build-grid, capture and sweep tooling | model pipeline; capture by page |
+| `src/viewer/` | renderer, scene, yard, lights, camera and controls, presets, marble shader, query | page |
+| `src/ui/` | timeline bar, stage and view menus, footer with attribution | page |
+| `scripts/fetch-model.mjs`, `scripts/build-grid.mjs`, `scripts/lib/model/` | the model pipeline and its grid writer | model pipeline |
+| `scripts/capture-shots.mjs`, `scripts/harness.mjs`, sweeps and video | capture tooling | page |
 | `tests/e2e/` | Playwright control and capture tests | page |
 
-A worker edits only paths it owns. A change another owner's path needs is requested in the handoff, not made.
+A worker edits only paths it owns. A change another owner's path needs is requested in the handoff, not made. The engine receives a `BlowCycle` from the tools and the page wires the two together, so neither imports the other's implementation.
 
 ## Budgets
 
