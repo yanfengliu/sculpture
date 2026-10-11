@@ -15,10 +15,9 @@ export const STATUE_MASS_KG = 5560;
 /**
  * The marble block as it stood in the Opera del Duomo yard, metres: width across the front (x), height (y), depth front to back (z).
  * Height: "nine braccia" in the 1464 commission and the 1501 contract, 5.25 m at the Florentine braccio of 58.36 cm (david-history.md, "The block and what it forced"); the statue fills it to within 8 cm, which fits the old crust Condivi saw at the crown.
- * Width: not recorded; the statue is 1.99 m wide, so the block was at least that, "almost 2 m" by inference (same section); 2.04 m leaves a hand's width, the coordinator's choice (docs/research/decisions.md).
- * Depth: not recorded, "rather shallow", with 1.1 m and 1.4 m both unsourced inferences (same section); PROVISIONAL 1.40 m until scripts/build-grid.mjs reports the figure's measured depth, which bounds it from below.
+ * Width and depth: not recorded ("rather shallow"; the statue's published width is 1.99 m, same section). The fetched mesh measures 2.158 m wide and 1.489 m deep at 5.17 m tall (scripts/build-grid.mjs, 2026-10-11), so the block is that plus about 3 cm of stone per side, the coordinator's choice (docs/research/decisions.md, Block).
  */
-export const BLOCK_M = { width: 2.04, height: 5.25, depth: 1.4 } as const;
+export const BLOCK_M = { width: 2.22, height: 5.25, depth: 1.54 } as const;
 
 /** Where the figure stands in the block: its lowest point (the bottom of the carved rock base) sits on the block's bottom face, and its footprint centre is the block's footprint centre. Source: docs/research/david-history.md (the base is carved from the same block; the figure runs the block's full height). Offsets in metres applied to the figure after normalisation. */
 export const FIGURE_OFFSET_M = { x: 0, y: 0, z: 0 } as const;

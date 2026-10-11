@@ -18,7 +18,8 @@ Each entry: the question, the choice, the reason and the evidence, with the date
 
 ## Block
 
-- **The block is 2.04 m wide, 5.25 m tall and, provisionally, 1.40 m deep** (2026-10-11). Height is the one recorded dimension, nine braccia (`david-history.md`, "The block and what it forced"). Width is not recorded; the statue is 1.99 m wide, so the block was at least that, and 2.04 m leaves a hand's width of stone that the roughing removes. Depth is not recorded and called shallow; the pipeline's measured depth of the figure bounds it from below, and the value is set to that plus a small margin once measured. The figure stands on the block's bottom face, centred on its footprint, running the block's full height, which leaves about 8 cm at the crown where the sources put the old crust.
+- **The block is 2.22 m wide, 5.25 m tall and 1.54 m deep** (2026-10-11; superseding the same day's 2.04 × 5.25 × 1.40 provisional). Height is the one recorded dimension, nine braccia (`david-history.md`, "The block and what it forced"). Width and depth are not recorded; the statue's published width is 1.99 m, but the fetched mesh measures 2.158 m wide and 1.489 m deep at 5.17 m tall (the pipeline's normalised box), and the block must hold the figure, so each is the measured extent plus about 3 cm of stone per side, which the roughing removes. The figure stands on the block's bottom face, centred on its footprint, running the block's full height, which leaves about 8 cm at the crown where the sources put the old crust.
+- **The figure grid's band is 16 cells, not 32** (2026-10-11). At 32 cells the gzipped 8 mm grid was 31 MB because the band covered most of the figure's box; 16 cells (128 mm) still exceeds the largest stage margin plus the deepest cut (about 110 mm), so the carving rule never clamps a cut short, and the file roughly halves.
 
 ## Figure
 
