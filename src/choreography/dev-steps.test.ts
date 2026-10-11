@@ -1,8 +1,7 @@
 /**
  * Plan integrity of the provisional dev steps (src/choreography/dev-steps.ts) over the synthetic figure. What a green run proves, and its bounds:
- *   1. At 2 cm cells: the step ids are unique kebab-case, every stage id of StageId appears in order, every step changes the stock or the finish, every blow lies inside the block and within the scaffold's reach (src/tools/blow-cycle.ts), every blow's tool axis points into the stock at an angle inside the tool catalog's documented range (the point's bulk range for sizes at or above BULK_CUT_SIZE_M), blows within a stroke are consecutive, and two fresh Makings give the same length and digest.
- *   2. At 8 mm cells, the page's resolution: the whole plan holds under 20,000 blows; the per-stage counts, the planning and replay times, the mean apply time per blow and the undo memory are logged for the handoff.
- * Bounds: the plan is judged by its data, not by its look; the 2 cm case takes about 20 s and the 8 mm case about a minute (a full replay), which proves the budget, not the frame rate.
+ *   At 2 cm cells: the step ids are unique kebab-case, every stage id of StageId appears in order, every step changes the stock or the finish, every blow lies inside the block and within the scaffold's reach (src/tools/blow-cycle.ts), every blow's tool axis points into the stock at an angle inside the tool catalog's documented range (the point's bulk range for sizes at or above BULK_CUT_SIZE_M), blows within a stroke are consecutive, and two fresh Makings give the same length and digest.
+ * Bounds: the plan is judged by its data, not by its look; the 2 cm case takes about 20 s. The 8 mm case, the page's resolution, lives in dev-steps.slow.test.ts and runs through `npm run test:slow`.
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
@@ -11,13 +10,11 @@ import type { BlowCycle, StageId, ToolPose } from '../contracts/making';
 import { BLOCK_M } from '../david/frame';
 import { syntheticFigure } from '../david/synthetic';
 import { createMaking, type EngineMaking } from '../timeline/making';
-import { BULK_CUT_SIZE_M as ENGINE_BULK_CUT_SIZE_M } from '../stock/tool-volumes';
 import { isReachable } from '../tools/blow-cycle';
 import { BULK_CUT_SIZE_M, TOOL_CATALOG } from '../tools/catalog';
 import { DEV_STAGES, DEV_STEPS } from './dev-steps';
 
 const STAGE_ORDER: readonly StageId[] = ['setup', 'layout', 'roughing', 'coarse-claw', 'fine-claw', 'drilling', 'rasping', 'polishing', 'on-site'];
-const BLOW_BUDGET = 20_000;
 
 const cycle: BlowCycle = {
   posesAt: (): ToolPose[] => [],
@@ -98,27 +95,4 @@ describe('dev steps', () => {
     expect(b.planLength).toBe(a.planLength);
     expect(b.planDigest).toBe(a.planDigest);
   }, 120_000);
-
-  it('stays under the blow budget at 8 mm and logs the measurements', () => {
-    const start = performance.now();
-    const m = making(0.008);
-    const built = performance.now();
-    m.planAll();
-    const planned = performance.now();
-    m.setTime(m.N);
-    const replayed = performance.now();
-    expect(ENGINE_BULK_CUT_SIZE_M).toBe(BULK_CUT_SIZE_M);
-    const perStage = new Map<string, number>();
-    for (const step of m.steps) perStage.set(step.stage, (perStage.get(step.stage) ?? 0) + step.blowCount);
-    const lines = [
-      `dev plan at 8 mm: ${String(m.planLength)} blows, digest ${m.planDigest}`,
-      `per stage: ${[...perStage.entries()].map(([stage, count]) => `${stage} ${String(count)}`).join(', ')}`,
-      `per step: ${m.steps.map((s) => `${s.id} ${String(s.blowCount)}`).join(', ')}`,
-      `figure build ${((built - start) / 1000).toFixed(2)} s, planAll (plan, apply all, undo all) ${((planned - built) / 1000).toFixed(2)} s, replay to the end ${((replayed - planned) / 1000).toFixed(2)} s`,
-      `mean apply ${(((replayed - planned) / m.planLength) * 1000).toFixed(0)} us per blow, undo log ${(m.undoBytes / 1e6).toFixed(1)} MB, triangles at the end ${String(m.remesher.triangles)}`,
-    ];
-    console.log(lines.join('\n'));
-    expect(m.planLength).toBeLessThan(BLOW_BUDGET);
-    expect(m.undoBytes).toBeGreaterThan(0);
-  }, 180_000);
 });

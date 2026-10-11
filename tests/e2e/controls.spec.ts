@@ -1,14 +1,11 @@
 /**
  * The timeline bar and the menus through real input (docs/design/spec.md, Page; Verification): every button, the scrubber by mouse and keyboard, the speed control, the stage menu, the view menu, the follow toggle (and its switch-off on a drag) and the finish toggle, each checked against the label, the scrubber and `window.__sculpture`.
- * Bound: the page runs against the development stub (src/viewer/stub-making.ts), so the step titles, ids and N below are the stub's and change at integration; the test proves the controls drive the player and the facts, not what the canvas shows beyond "it changed".
+ * Bound: every expected position and label is derived from the step list the page publishes (helpers.ts, `stepData`), so the test holds for any making with at least four steps and six stages on the synthetic figure; it proves the controls drive the player and the facts, not what the canvas shows beyond "it changed" or "it did not".
+ * Timing: step presses wait at 4× for steps whose weights the facts give; the suite's 15 s wait bounds the first three steps' weights to about 4 in total.
  */
 import { expect, test } from '@playwright/test';
 
-import { VIEWPORT, canvasBlocks, expectDifferentCanvas, facts, labelAndScrubber, openPage, waitFrames, waitUntilStill } from './helpers';
-
-const N = 9;
-const FIRST_LABEL = /^Day 1 · 13 September 1501 · The Giant in the yard — The block upright, the shed and the scaffold$/;
-const LAST_LABEL = /^Day 1092 · 8 September 1504 · On site in the Piazza — Gilding the sling and the stump$/;
+import { VIEWPORT, canvasBlocks, expectDifferentCanvas, facts, labelAndScrubber, openPage, stepData, waitFrames, waitUntilStill } from './helpers';
 
 test.use({ viewport: VIEWPORT });
 
@@ -17,16 +14,19 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('end and start move t to N and 0 with the label and the scrubber following', async ({ page }) => {
-  await expect(page.getByTestId('label')).toHaveText(FIRST_LABEL);
+  // A jump to the end replays the whole plan synchronously (about 18 s on the synthetic figure at 8 mm); one of the suite's two full jumps.
+  test.slow();
+  const steps = await stepData(page);
+  await expect(page.getByTestId('label')).toHaveText(steps.labelAt(0));
   await page.getByRole('button', { name: 'Go to end' }).click();
-  expect((await facts(page)).t).toBe(N);
+  expect((await facts(page)).t).toBe(steps.N);
   const atEnd = await labelAndScrubber(page);
-  expect(atEnd.label).toMatch(LAST_LABEL);
-  expect(atEnd.scrubber).toBe(String(N));
+  expect(atEnd.label).toMatch(steps.labelAt(steps.N));
+  expect(atEnd.scrubber).toBe(String(steps.N));
   await page.getByRole('button', { name: 'Go to start' }).click();
   expect((await facts(page)).t).toBe(0);
   const atStart = await labelAndScrubber(page);
-  expect(atStart.label).toMatch(FIRST_LABEL);
+  expect(atStart.label).toMatch(steps.labelAt(0));
   expect(atStart.scrubber).toBe('0');
 });
 
@@ -60,11 +60,12 @@ test('play backward runs t down from a later position and pauses on the second p
 });
 
 test('step forward animates to the next integer, a second press retargets, step back returns', async ({ page }) => {
+  const steps = await stepData(page);
   await page.getByTestId('speed').selectOption('4');
   await page.getByRole('button', { name: 'Step forward' }).click();
   expect((await facts(page)).moving).toBe(true);
   expect((await waitUntilStill(page)).t).toBe(1);
-  await expect(page.getByTestId('label')).toHaveText(/Laying the figure out — Drawing the principal view on the front$/);
+  await expect(page.getByTestId('label')).toHaveText(steps.labelAt(1));
   await page.getByRole('button', { name: 'Step forward' }).click();
   await page.getByRole('button', { name: 'Step forward' }).click();
   expect((await waitUntilStill(page)).t).toBe(3);
@@ -74,6 +75,7 @@ test('step forward animates to the next integer, a second press retargets, step 
 });
 
 test('the scrubber seeks by mouse and by keyboard and pauses playback', async ({ page }) => {
+  const steps = await stepData(page);
   const scrubber = page.getByTestId('scrubber');
   await page.getByTestId('play-pause').click();
   const box = await scrubber.boundingBox();
@@ -81,12 +83,11 @@ test('the scrubber seeks by mouse and by keyboard and pauses playback', async ({
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   const mid = await facts(page);
   expect(mid.playing).toBeNull();
-  expect(mid.t).toBeGreaterThan(N / 2 - 0.2);
-  expect(mid.t).toBeLessThan(N / 2 + 0.2);
-  await expect(page.getByTestId('label')).toHaveText(/The fine claw and the roundel — The fine claw over the whole figure$/);
+  // The thumb's width shifts the click's value by under one percent of the range.
+  expect(Math.abs(mid.t - steps.N / 2)).toBeLessThan(0.02 * steps.N + 0.05);
+  await expect(page.getByTestId('label')).toHaveText(steps.labelAt(mid.t));
+  // Home and an arrow on the focused range input; End is covered by the keyboard spec (a full jump costs seconds with the engine).
   await scrubber.focus();
-  await page.keyboard.press('End');
-  expect((await facts(page)).t).toBe(N);
   await page.keyboard.press('Home');
   expect((await facts(page)).t).toBe(0);
   await page.keyboard.press('ArrowRight');
@@ -94,28 +95,44 @@ test('the scrubber seeks by mouse and by keyboard and pauses playback', async ({
   expect((await labelAndScrubber(page)).scrubber).toBe('0.001');
 });
 
-test('the speed control sets the player speed and playback follows it', async ({ page }) => {
+test('the speed control sets the player speed and playback runs faster than 1×', async ({ page }) => {
+  const steps = await stepData(page);
+  const weight = steps.stepWeights[0] ?? 1;
   const speed = page.getByTestId('speed');
   await expect(speed).toHaveValue('1');
   await speed.selectOption('4');
   expect((await facts(page)).speed).toBe(4);
   await page.getByTestId('play-pause').click();
-  // Step 0 has weight 0.5: at 4× it lasts 1.5 s, at 1× six seconds, so passing t = 1 within 3 s proves the faster rate.
-  await page.waitForFunction(() => (window.__sculpture?.t ?? 0) > 1, undefined, { timeout: 3_000 });
+  // Past the first blow's approach (which the page stretches to the carry time), inside step 0.
+  await page.waitForFunction(() => (window.__sculpture?.t ?? 0) >= 0.2, undefined, { timeout: 10_000 });
+  // Step 0 lasts weight × 3 s at 4×; sample a fifth of it and compare with the 1× rate of 1 / (12 × weight) per second.
+  const rate = await page.evaluate(async (windowMs) => {
+    const t0 = window.__sculpture?.t ?? 0;
+    const start = performance.now();
+    await new Promise((resolve) => setTimeout(resolve, windowMs));
+    return ((window.__sculpture?.t ?? 0) - t0) / ((performance.now() - start) / 1000);
+  }, weight * 3 * 1000 * 0.2);
+  expect(rate).toBeGreaterThan(2 / (12 * weight));
   await speed.selectOption('0.5');
   expect((await facts(page)).speed).toBe(0.5);
 });
 
 test('the stage menu moves to the start of the chosen stage', async ({ page }) => {
+  const steps = await stepData(page);
   const stageMenu = page.getByTestId('stage-menu');
-  await expect(stageMenu).toHaveValue('setup');
-  await stageMenu.selectOption('drilling');
-  expect((await facts(page)).t).toBe(5);
-  await expect(page.getByTestId('label')).toHaveText(/^Day \d+ · \d{1,2} \w+ 150\d · Drilling — Drilling the hair and the pupils$/);
-  expect((await labelAndScrubber(page)).scrubber).toBe('5');
-  await stageMenu.selectOption('roughing');
-  expect((await facts(page)).t).toBe(2);
-  await expect(stageMenu).toHaveValue('roughing');
+  await expect(stageMenu).toHaveValue(steps.stepStages[0] ?? '');
+  // The fourth stage, not a late one: a jump replays every blow before it, seconds per stage with the engine.
+  const later = steps.stages[3];
+  const earlier = steps.stages[2];
+  if (later === undefined || earlier === undefined) throw new Error(`the page lists ${String(steps.stages.length)} stages; this test picks the third and the fourth`);
+  await stageMenu.selectOption(later);
+  const laterStart = steps.stageStart(later);
+  expect((await facts(page)).t).toBe(laterStart);
+  await expect(page.getByTestId('label')).toHaveText(steps.labelAt(laterStart));
+  expect((await labelAndScrubber(page)).scrubber).toBe(String(laterStart));
+  await stageMenu.selectOption(earlier);
+  expect((await facts(page)).t).toBe(steps.stageStart(earlier));
+  await expect(stageMenu).toHaveValue(earlier);
 });
 
 test('the view menu applies presets and the canvas changes with each', async ({ page }) => {

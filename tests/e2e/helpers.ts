@@ -20,11 +20,14 @@ export function collectProblems(page: Page): string[] {
   return problems;
 }
 
-/** Loads `/?<query>` and waits for the first published facts and two rendered frames. */
+/** Loads `/?<query>` on the synthetic figure (docs/design/spec.md, Query contract: tests pass `model=synthetic`; a spec that wants the David grid names `model=` itself) and waits for the first published facts and two rendered frames. */
 export async function openPage(page: Page, query: string): Promise<void> {
-  const response = await page.goto(`/?${query}`);
-  if (response === null || response.status() !== 200) throw new Error(`GET /?${query} answered ${String(response?.status())}, not 200`);
+  const full = /(^|&)model=/.test(query) ? query : `model=synthetic${query === '' ? '' : `&${query}`}`;
+  const response = await page.goto(`/?${full}`);
+  if (response === null || response.status() !== 200) throw new Error(`GET /?${full} answered ${String(response?.status())}, not 200`);
   await page.waitForFunction(() => window.__sculpture !== undefined);
+  // The engine meshes the stock in workers after the first facts; a canvas read before every chunk is in would show a partly meshed block.
+  await page.waitForFunction(() => window.__sculpture?.dirtyChunks === 0, undefined, { timeout: 60_000 });
   await waitFrames(page, 2);
 }
 
@@ -53,11 +56,56 @@ export async function waitFrames(page: Page, count: number): Promise<void> {
   );
 }
 
-/** Waits until neither playback nor a step animation moves `t`, then for two frames so the canvas shows the rest state. */
+/** Waits until neither playback nor a step animation moves `t` and every dirty chunk is meshed, then for two frames so the canvas shows the rest state. */
 export async function waitUntilStill(page: Page, timeout = 15_000): Promise<SculptureFacts> {
-  await page.waitForFunction(() => window.__sculpture?.moving === false, undefined, { timeout });
+  await page.waitForFunction(() => window.__sculpture?.moving === false && window.__sculpture.dirtyChunks === 0, undefined, { timeout });
   await waitFrames(page, 2);
   return facts(page);
+}
+
+export function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * The step list the page published, so a spec derives every expected position and label from the making it runs against instead of naming steps (the list changes when the David steps replace the dev steps).
+ * `stageStart` is the timeline position of a stage's first step, the stage menu's target; `labelAt` matches the label at `t`: step `floor(t)` (the last step at `t = N`), any day, date and stage title.
+ */
+export interface StepData {
+  readonly N: number;
+  readonly stepIds: readonly string[];
+  readonly stepTitles: readonly string[];
+  readonly stepStages: readonly string[];
+  readonly stepWeights: readonly number[];
+  readonly stages: readonly string[];
+  stageStart(stage: string): number;
+  stepIndexAt(t: number): number;
+  labelAt(t: number): RegExp;
+}
+
+export async function stepData(page: Page): Promise<StepData> {
+  const published = await facts(page);
+  const { N, stepIds, stepTitles, stepStages, stepWeights, stages } = published;
+  if (N < 1 || stepIds.length !== N || stepTitles.length !== N || stepStages.length !== N) throw new Error(`the page published ${String(N)} steps with ${String(stepIds.length)} ids and ${String(stepTitles.length)} titles; a making with matching lists is needed`);
+  const stepIndexAt = (t: number): number => Math.max(0, Math.min(N - 1, Math.floor(t)));
+  return {
+    N,
+    stepIds,
+    stepTitles,
+    stepStages,
+    stepWeights,
+    stages,
+    stageStart(stage) {
+      const first = stepStages.indexOf(stage);
+      if (first < 0) throw new Error(`no step belongs to stage ${JSON.stringify(stage)}; the stages with steps are ${[...new Set(stepStages)].join(', ')}`);
+      return first;
+    },
+    stepIndexAt,
+    labelAt(t) {
+      const title = stepTitles[stepIndexAt(t)] ?? '';
+      return new RegExp(`^Day \\d+ · \\d{1,2} [A-Z][a-z]+ 150\\d · .+ — ${escapeRegex(title)}$`);
+    },
+  };
 }
 
 /** Side of the blocks `canvasBlocks` averages over, CSS pixels. */
