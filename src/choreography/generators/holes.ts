@@ -1,9 +1,9 @@
 /**
  * Drill holes (docs/research/technique.md, Stage 5; tools.md, Trapano): single holes at given points, straight in, and running rows along a path, the bit driven at the running drill's angle, lifted and shifted a pitch each time.
- * Each target is moved onto the figure's surface and the hole starts where the stock stands above it; every hole is its own set-up.
+ * Each target is moved to the nearest point of the figure's surface within SEARCH_RADIUS and the hole starts where the stock stands above it; a target with no surface that near, or whose surface point lies outside the step's region, drills nothing. Every hole is its own set-up.
  */
 import type { Blow, PlanContext, Vec3 } from '../../contracts/making';
-import { blowAt, inRegion, normalize, projectToFigure, stockAbove } from './surface';
+import { blowAt, inRegion, nearestOnFigure, normalize, stockAbove } from './surface';
 
 export interface HolesOptions {
   /** Single holes, world metres near the figure's surface. */
@@ -19,9 +19,14 @@ export interface HolesOptions {
 }
 
 const LOOK_UP = 0.3;
+/** How far from a named target the figure's surface is looked for, metres: the landmarks of src/choreography/david-steps.ts are read off photographs and may stand this far off the surface, in the figure grid's clamp band where a Newton step cannot move (Codex review of 81acb40, item 16). */
+const SEARCH_RADIUS = 0.15;
+/** Lattice spacing of that search, metres; a candidate counts as near the surface within one spacing. */
+const SEARCH_SPACING = 0.01;
 
 function hole(ctx: PlanContext, target: Vec3, along: Vec3 | null, angle: number, depth: number, stroke: number): Blow | null {
-  const q = projectToFigure(ctx.figure, target);
+  const q = nearestOnFigure(ctx.figure, target, SEARCH_RADIUS, SEARCH_SPACING);
+  if (q === null) return null;
   const normal = ctx.figure.gradient(q[0], q[1], q[2]);
   if (!inRegion(ctx.region, q, normal)) return null;
   const above = stockAbove(ctx, q, LOOK_UP);

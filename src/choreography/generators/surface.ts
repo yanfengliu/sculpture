@@ -88,6 +88,41 @@ export function projectToFigure(figure: SdfSampler, q: Vec3, rounds = 3): Vec3 {
   return p;
 }
 
+/**
+ * The point of the figure's surface nearest `target` within `radius`, or null when the surface comes no nearer: the ball is scanned on a lattice at `spacing`, the candidates within `spacing` of the surface kept, the one with the least `|candidate − target| + |value|` (the triangle bound on the distance to the surface through it) taken and moved onto the surface by Newton steps; a target already within `spacing` of the surface skips the scan.
+ * Wider than `projectToFigure`, which cannot move a point where the figure grid is clamped to its band (16 cells, 128 mm at 8 mm) and the gradient is flat (Codex review of 81acb40, item 16). About 15,000 samples at a 15 cm radius and 1 cm spacing; deterministic in its arguments.
+ */
+export function nearestOnFigure(figure: SdfSampler, target: Vec3, radius: number, spacing: number): Vec3 | null {
+  if (Math.abs(figure.sample(target[0], target[1], target[2])) <= spacing) return settled(figure, projectToFigure(figure, target, 6), spacing);
+  const reach = Math.floor(radius / spacing + 1e-9);
+  let best: Vec3 | null = null;
+  let bestScore = Infinity;
+  for (let k = -reach; k <= reach; k += 1) {
+    for (let j = -reach; j <= reach; j += 1) {
+      for (let i = -reach; i <= reach; i += 1) {
+        const offset = Math.hypot(i, j, k) * spacing;
+        if (offset > radius) continue;
+        const x = target[0] + i * spacing;
+        const y = target[1] + j * spacing;
+        const z = target[2] + k * spacing;
+        const value = Math.abs(figure.sample(x, y, z));
+        if (value > spacing) continue;
+        const score = offset + value;
+        if (score < bestScore) {
+          bestScore = score;
+          best = [x, y, z];
+        }
+      }
+    }
+  }
+  return best === null ? null : settled(figure, projectToFigure(figure, best, 6), spacing);
+}
+
+/** `p` when the Newton steps left it within `tolerance` of the surface, else null: a point that would not converge is not drilled. */
+function settled(figure: SdfSampler, p: Vec3, tolerance: number): Vec3 | null {
+  return Math.abs(figure.sample(p[0], p[1], p[2])) <= tolerance ? p : null;
+}
+
 /** From a point on or near the figure, the point where the stock surface lies outward along the figure's normal, or null when the stock is already cut away there, the normal leaves the stock within `maxDistance`, or the surface found is the block's bottom face. */
 export function stockAbove(ctx: PlanContext, q: Vec3, maxDistance: number): { point: Vec3; depth: number } | null {
   const n = ctx.figure.gradient(q[0], q[1], q[2]);
