@@ -48,9 +48,9 @@ describe('label and detail', () => {
     expect(formatLabel(STEP, 'Roughing', 1)).toBe('Day 122 · 8 January 1502 · Roughing — Roughing the front with the point');
   });
 
-  it('writes the detail with the tool names and the blows per shown blow, singular and plural', () => {
-    expect(formatDetail(STEP, { italian: 'subbia', english: 'point' })).toBe('The point opens the front face (technique.md, stage 2). Tool: subbia (point). Each shown blow stands for 40 real blows.');
-    expect(formatDetail({ ...STEP, blowsPerShown: 1 }, { italian: 'carbone', english: 'charcoal' })).toContain('stands for one real blow.');
+  it('writes the detail with the tool names and the blows per shown blow first, singular and plural, then the step detail', () => {
+    expect(formatDetail(STEP, { italian: 'subbia', english: 'point' })).toBe('subbia (point); each shown blow stands for 40 real blows. The point opens the front face (technique.md, stage 2).');
+    expect(formatDetail({ ...STEP, blowsPerShown: 1 }, { italian: 'carbone', english: 'charcoal' })).toMatch(/^carbone \(charcoal\); each shown blow stands for one real blow\. /);
   });
 
   it('states the time-lapse with both ends of the calendar', () => {
