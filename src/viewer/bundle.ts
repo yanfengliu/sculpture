@@ -4,6 +4,7 @@
  */
 import type { Object3D } from 'three';
 
+import type { GridSource } from '../contracts/grid';
 import type { Making, ToolId } from '../contracts/making';
 
 export type RenderedTool = ToolId | 'mallet';
@@ -18,5 +19,7 @@ export interface MakingBundle {
   readonly making: Making;
   /** One mesh per rendered tool, origin at the working tip, shaft along +Y; the page sets each one's position and quaternion from `Making.poses` every frame and hides the ones no pose names. */
   readonly toolMeshes: ReadonlyMap<RenderedTool, Object3D>;
-  toolNames(tool: RenderedTool): ToolNames;
+  readonly toolNames: (tool: RenderedTool) => ToolNames;
+  /** The figure grid's attribution from its header, for the footer; null when no grid is loaded. */
+  readonly source: GridSource | null;
 }

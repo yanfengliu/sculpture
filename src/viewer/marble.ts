@@ -52,8 +52,15 @@ export const FINISH_NAMES: Readonly<Record<FinishCode, string>> = {
 export const FINISH_CODE_COUNT = Object.keys(FINISH).length;
 
 export interface MarbleOptions {
-  /** Flat finish-code colours instead of marble. */
+  /** Start with flat finish-code colours instead of marble (`?finish=1`). */
   readonly flat: boolean;
+}
+
+export interface Marble {
+  readonly material: THREE.MeshPhysicalMaterial;
+  readonly flat: boolean;
+  /** Switches between the marble and the flat finish-code colours; a uniform, so no recompile. */
+  setFlat(flat: boolean): void;
 }
 
 const DECLARATIONS = `
@@ -72,6 +79,7 @@ vFinish = ${FINISH_ATTRIBUTE};
 /** Value noise, fbm, the vein function and the per-code looks. World metres in; the frequencies are the mark pitches the tool notes give. */
 const FRAGMENT_FUNCTIONS = `
 uniform vec3 finishColours[${String(FINISH_CODE_COUNT)}];
+uniform float flatCodes;
 
 float marbleHash(vec3 p) {
   p = fract(p * 0.1031);
@@ -108,13 +116,13 @@ vec3 marbleColour(vec3 p, float finish) {
   int code = marbleCode(finish);
   // Warm white Carrara with grey-blue veins: a coarse set about every half metre and a fine feathery set.
   vec3 stone = vec3(0.93, 0.91, 0.87);
-  vec3 veinColour = vec3(0.50, 0.53, 0.58);
-  float coarse = marbleVein(p, normalize(vec3(0.3, 1.0, 0.45)), 12.0, 0.14, 3.0);
-  float fine = marbleVein(p, normalize(vec3(1.0, 0.35, -0.2)), 40.0, 0.07, 2.0);
+  vec3 veinColour = vec3(0.42, 0.46, 0.52);
+  float coarse = marbleVein(p, normalize(vec3(0.3, 1.0, 0.45)), 12.0, 0.22, 3.0);
+  float fine = marbleVein(p, normalize(vec3(1.0, 0.35, -0.2)), 40.0, 0.10, 2.0);
   float grain = marbleNoise(p * 90.0) * 0.06 - 0.03;
-  float vein = clamp(0.6 * coarse + 0.3 * fine, 0.0, 1.0);
+  float vein = clamp(0.75 * coarse + 0.4 * fine, 0.0, 1.0);
   vec3 marble = mix(stone, veinColour, vein) + grain;
-  if (code == ${String(FINISH.block)}) return mix(vec3(0.70, 0.66, 0.58), marble, 0.35) + grain * 2.0;
+  if (code == ${String(FINISH.block)}) return mix(vec3(0.60, 0.56, 0.47), marble, 0.35) + grain * 2.0;
   if (code == ${String(FINISH.drawn)}) return mix(vec3(0.42, 0.40, 0.38), marble, 0.3);
   if (code == ${String(FINISH.point)}) return mix(marble, vec3(0.97, 0.96, 0.94), 0.65);
   if (code == ${String(FINISH.twoTooth)} || code == ${String(FINISH.claw)}) return mix(marble, vec3(0.96, 0.95, 0.92), 0.45);
@@ -152,6 +160,7 @@ vec3 marbleBands(float u, vec3 t, float pitch, float amplitude) {
 /** The stroke marks of the tool as a world-space normal perturbation; n is the world normal. */
 vec3 marbleMark(vec3 p, float finish, vec3 n) {
   int code = marbleCode(finish);
+  vec3 mark = vec3(0.0);
   // Tangent frame on the dominant plane of the face.
   vec3 a = abs(n);
   vec3 up = a.y > 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
@@ -166,43 +175,52 @@ vec3 marbleMark(vec3 p, float finish, vec3 n) {
   float u1 = dot(uv, d1);
   float u2 = dot(uv, d2);
   if (code == ${String(FINISH.block)} || code == ${String(FINISH.drawn)}) {
-    return (vec3(marbleNoise(p * 160.0), marbleNoise(p * 160.0 + 5.0), marbleNoise(p * 160.0 + 9.0)) - 0.5) * 0.35;
-  }
-  if (code == ${String(FINISH.point)}) {
+    mark = (vec3(marbleNoise(p * 160.0), marbleNoise(p * 160.0 + 5.0), marbleNoise(p * 160.0 + 9.0)) - 0.5) * 0.35;
+  } else if (code == ${String(FINISH.point)}) {
     vec3 cell = floor(p / 0.03);
-    return (vec3(marbleHash(cell), marbleHash(cell + 1.0), marbleHash(cell + 2.0)) - 0.5) * 0.7;
-  }
-  if (code == ${String(FINISH.twoTooth)}) return marbleBands(u1, s1, 0.012, 0.45);
-  if (code == ${String(FINISH.claw)}) return marbleBands(u1, s1, 0.006, 0.35);
-  if (code == ${String(FINISH.fineClaw)}) return marbleBands(u2, s2, 0.003, 0.25);
-  if (code == ${String(FINISH.roundel)}) return marbleBands(u1, s1, 0.02, 0.2) + marbleBands(u2, s2, 0.02, 0.2);
-  if (code == ${String(FINISH.flat)}) return marbleBands(u1, s1, 0.015, 0.08);
-  if (code == ${String(FINISH.drill)}) {
+    mark = (vec3(marbleHash(cell), marbleHash(cell + 1.0), marbleHash(cell + 2.0)) - 0.5) * 0.7;
+  } else if (code == ${String(FINISH.twoTooth)}) {
+    mark = marbleBands(u1, s1, 0.012, 0.45);
+  } else if (code == ${String(FINISH.claw)}) {
+    mark = marbleBands(u1, s1, 0.006, 0.35);
+  } else if (code == ${String(FINISH.fineClaw)}) {
+    mark = marbleBands(u2, s2, 0.003, 0.25);
+  } else if (code == ${String(FINISH.roundel)}) {
+    mark = marbleBands(u1, s1, 0.02, 0.2) + marbleBands(u2, s2, 0.02, 0.2);
+  } else if (code == ${String(FINISH.flat)}) {
+    mark = marbleBands(u1, s1, 0.015, 0.08);
+  } else if (code == ${String(FINISH.drill)}) {
     vec2 cell = fract(uv / 0.008) - 0.5;
     float pit = smoothstep(0.42, 0.2, length(cell));
-    return (t1 * cell.x + t2 * cell.y) * pit * 1.2;
+    mark = (t1 * cell.x + t2 * cell.y) * pit * 1.2;
+  } else if (code == ${String(FINISH.rasp)}) {
+    mark = marbleBands(u1, s1, 0.002, 0.18) + marbleBands(u2, s2, 0.0024, 0.18);
+  } else if (code == ${String(FINISH.file)}) {
+    mark = marbleBands(u1, s1, 0.001, 0.08) + marbleBands(u2, s2, 0.0012, 0.08);
   }
-  if (code == ${String(FINISH.rasp)}) return marbleBands(u1, s1, 0.002, 0.18) + marbleBands(u2, s2, 0.0024, 0.18);
-  if (code == ${String(FINISH.file)}) return marbleBands(u1, s1, 0.001, 0.08) + marbleBands(u2, s2, 0.0012, 0.08);
-  return vec3(0.0);
+  return mark;
 }
 `;
 
-const COLOUR_MARBLE = `diffuseColor.rgb = marbleColour(vWorldPos, vFinish);`;
-const COLOUR_FLAT = `diffuseColor.rgb = finishColours[marbleCode(vFinish)];`;
-const ROUGHNESS = `float roughnessFactor = marbleRoughness(vFinish);`;
-const METALNESS = `float metalnessFactor = marbleMetalness(vFinish);`;
+const COLOUR = `diffuseColor.rgb = flatCodes > 0.5 ? finishColours[marbleCode(vFinish)] * 0.35 : marbleColour(vWorldPos, vFinish);`;
+/** Flat codes read as the legend's colours whatever the light: most of the colour comes out as emission. */
+const EMISSIVE = `
+#include <emissivemap_fragment>
+if (flatCodes > 0.5) totalEmissiveRadiance += finishColours[marbleCode(vFinish)] * 0.8;
+`;
+const ROUGHNESS = `float roughnessFactor = flatCodes > 0.5 ? 0.9 : marbleRoughness(vFinish);`;
+const METALNESS = `float metalnessFactor = flatCodes > 0.5 ? 0.0 : marbleMetalness(vFinish);`;
 /** `normal` is in view space here; the mark is built in world space and brought across with the view matrix. */
 const NORMAL = `
 #include <normal_fragment_maps>
-{
+if (flatCodes < 0.5) {
   vec3 worldNormal = inverseTransformDirection(normal, viewMatrix);
   vec3 mark = marbleMark(vWorldPos, vFinish, worldNormal);
   normal = normalize(normal + mat3(viewMatrix) * mark);
 }
 `;
 
-export function createMarbleMaterial(options: MarbleOptions): THREE.MeshPhysicalMaterial {
+export function createMarbleMaterial(options: MarbleOptions): Marble {
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
     roughness: 0.55,
@@ -213,7 +231,7 @@ export function createMarbleMaterial(options: MarbleOptions): THREE.MeshPhysical
     sheenColor: new THREE.Color(0xfff6ea),
     ior: 1.55,
     specularIntensity: 1,
-    transmission: options.flat ? 0 : 0.08,
+    transmission: 0.08,
     thickness: 0.1,
     attenuationColor: new THREE.Color(0xf6e9d2),
     attenuationDistance: 0.25,
@@ -221,20 +239,31 @@ export function createMarbleMaterial(options: MarbleOptions): THREE.MeshPhysical
   const colours = Object.entries(FINISH_FLAT_COLOURS)
     .sort(([a], [b]) => Number(a) - Number(b))
     .map(([, rgb]) => new THREE.Color(...rgb));
+  const flatCodes = { value: options.flat ? 1 : 0 };
   material.onBeforeCompile = (shader) => {
     shader.uniforms['finishColours'] = { value: colours };
+    shader.uniforms['flatCodes'] = flatCodes;
     shader.vertexShader = VERTEX_DECLARATIONS + shader.vertexShader.replace('#include <worldpos_vertex>', VERTEX_ASSIGN);
     shader.fragmentShader =
       DECLARATIONS +
       FRAGMENT_FUNCTIONS +
       shader.fragmentShader
-        .replace('#include <color_fragment>', options.flat ? COLOUR_FLAT : COLOUR_MARBLE)
+        .replace('#include <color_fragment>', COLOUR)
+        .replace('#include <emissivemap_fragment>', EMISSIVE)
         .replace('#include <roughnessmap_fragment>', ROUGHNESS)
         .replace('#include <metalnessmap_fragment>', METALNESS)
-        .replace('#include <normal_fragment_maps>', options.flat ? '#include <normal_fragment_maps>' : NORMAL);
+        .replace('#include <normal_fragment_maps>', NORMAL);
   };
-  material.customProgramCacheKey = () => `marble:${options.flat ? 'flat' : 'veined'}`;
-  return material;
+  material.customProgramCacheKey = () => 'marble';
+  return {
+    material,
+    get flat() {
+      return flatCodes.value > 0.5;
+    },
+    setFlat(flat) {
+      flatCodes.value = flat ? 1 : 0;
+    },
+  };
 }
 
 /** A `finish` attribute for `vertexCount` vertices, every vertex at `code`. */

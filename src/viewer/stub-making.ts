@@ -446,5 +446,6 @@ export function createStubBundle(material: THREE.Material): MakingBundle {
     making: createStubMaking({ blowCycle: createStubBlowCycle(), material }),
     toolMeshes: createPlaceholderTools(),
     toolNames: (tool) => STUB_TOOL_NAMES[tool],
+    source: null,
   };
 }

@@ -19,8 +19,9 @@ const PLANK_T = 0.04;
 const PLANK_GAP = 0.02;
 const POST = 0.12;
 const BEAM = 0.1;
-const POST_HEIGHT = 4.9;
-const TOP_BEAM_Y = 4.7;
+const POST_HEIGHT = 6.0;
+/** Above the block's top, so the beam crosses no preset's view of the head. */
+const TOP_BEAM_Y = 5.85;
 /** The turata: side walls at ±x, back wall at −z, open at +z. */
 const WALL_X = 4.5;
 const WALL_BACK_Z = -3.5;

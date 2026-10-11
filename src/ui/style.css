@@ -1,0 +1,182 @@
+/* The page chrome over the canvas: menus at the top left, the timeline bar and the footer at the bottom. Hidden entirely by `?noui=1` (the chrome is not built). */
+.chrome {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font: 14px/1.4 system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
+  color: #f4f1ea;
+}
+.chrome * {
+  box-sizing: border-box;
+}
+.panel {
+  pointer-events: auto;
+  background: rgba(24, 22, 20, 0.78);
+  backdrop-filter: blur(4px);
+  border-radius: 6px;
+}
+.menus {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 8px 12px;
+  max-width: calc(100vw - 24px);
+}
+.menus label,
+.bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chrome select,
+.chrome button {
+  font: inherit;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.chrome select {
+  color: #f4f1ea;
+  background: #3a3733;
+}
+.chrome button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.chrome button[aria-pressed='true'] {
+  background: #c8a24a;
+  color: #1b1a17;
+  border-color: #e3c46f;
+}
+.chrome button:focus-visible,
+.chrome select:focus-visible,
+.chrome input:focus-visible {
+  outline: 2px solid #ffd77a;
+  outline-offset: 1px;
+}
+.legend {
+  position: absolute;
+  top: 64px;
+  left: 12px;
+  padding: 8px 12px;
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 2px 14px;
+  font-size: 12px;
+}
+.legend[hidden] {
+  display: none;
+}
+.legend span::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  background: var(--swatch);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+.bar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 34px;
+  padding: 8px 14px 10px;
+}
+.label {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.detail {
+  font-size: 12.5px;
+  opacity: 0.85;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scrub {
+  position: relative;
+  margin: 10px 0 4px;
+  padding-top: 14px;
+}
+.marks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 14px;
+  font-size: 10px;
+  opacity: 0.8;
+}
+.mark {
+  position: absolute;
+  top: 0;
+  transform: translateX(-1px);
+  border-left: 1px solid rgba(255, 255, 255, 0.7);
+  height: 26px;
+  padding-left: 3px;
+  white-space: nowrap;
+  line-height: 12px;
+}
+.scrubber {
+  width: 100%;
+  margin: 0;
+  accent-color: #e3c46f;
+  cursor: pointer;
+}
+.buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.buttons button {
+  min-width: 40px;
+  height: 32px;
+  font-size: 16px;
+  line-height: 1;
+}
+.time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+  font-size: 12.5px;
+}
+.footer {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 11.5px;
+  color: #e8e3d8;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8), 0 0 1px rgba(0, 0, 0, 0.9);
+  pointer-events: auto;
+}
+.footer a {
+  color: inherit;
+}
+@media (max-width: 900px) {
+  .label {
+    font-size: 14px;
+  }
+  .footer {
+    flex-direction: column;
+    gap: 2px;
+  }
+}
