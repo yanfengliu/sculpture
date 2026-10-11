@@ -70,7 +70,19 @@ test('t= sets the position; step= by index or id wins over it; a step the making
   expect(missing.queryProblems).toEqual([expect.stringContaining('query parameter step="no-such-step" was ignored')]);
   await openPage(page, 'autoplay=0&step=999');
   expect((await facts(page)).queryProblems).toEqual([`query parameter step="999" was ignored: it takes a step id or a 1-based index from 1 to ${String(steps.N)}.`]);
-  // The clamp of t= to [0, N] is the player's (src/timeline/player.test.ts); loading at t above N would replay the whole plan here for nothing new.
+});
+
+test('a key the page does not read is reported; t above N is reported and clamped to N', async ({ page }) => {
+  // The clamp to N replays the whole plan: one of the suite's full jumps.
+  test.slow();
+  await openPage(page, 'autoplay=0&setp=5');
+  const typo = await facts(page);
+  expect(typo.t).toBe(0);
+  expect(typo.queryProblems).toEqual(['query parameter setp="5" was ignored: the page reads only shot, t, step, view, cam, model, finish, yard, autoplay, noui.']);
+  await openPage(page, 'autoplay=0&t=9999');
+  const clamped = await facts(page);
+  expect(clamped.t).toBe(clamped.N);
+  expect(clamped.queryProblems).toEqual([`query parameter t="9999" was clamped to N=${String(clamped.N)}, the end of the timeline: it takes a number from 0 to ${String(clamped.N)}.`]);
 });
 
 test('view= picks a preset, cam= wins over it, and an unknown view is reported', async ({ page }) => {

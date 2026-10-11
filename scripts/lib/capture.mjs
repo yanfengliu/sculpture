@@ -70,8 +70,21 @@ export async function seekReady(page, t, timeout = READY_TIMEOUT_MS) {
   return page.evaluate('window.__sculpture ?? null');
 }
 
+/** The timeline position `url` asks for with `t=`, or null when it asks for none or names a `step=` (which wins over `t=`). */
+export function requestedT(url) {
+  const params = new URL(url).searchParams;
+  if (params.has('step')) return null;
+  const text = params.get('t');
+  if (text === null || text.trim() === '') return null;
+  const t = Number(text);
+  return Number.isFinite(t) ? t : null;
+}
+
+/** Positions within this much of each other count as the same `t`: the page publishes the player's double, the URL a decimal string. */
+export const T_TOLERANCE = 1e-6;
+
 /**
- * Captures `url` to `file`. Returns `{ status, errors, warnings, facts }` with `status` one of `ready`, `IGNORED` (the page ignored a parameter, so this is not the shot that was asked for) or `TIMEOUT`.
+ * Captures `url` to `file`. Returns `{ status, errors, warnings, facts }` with `status` one of `ready`, `IGNORED` (the page ignored a parameter, so this is not the shot that was asked for), `WRONG-T` (the page rendered another position than `t=` asked for) or `TIMEOUT`.
  * The PNG is written whatever the status, so a failed shot can still be looked at.
  */
 export async function capture(capturePage, url, file) {
@@ -86,6 +99,11 @@ export async function capture(capturePage, url, file) {
     if (ignored.length > 0) {
       status = 'IGNORED';
       errors.push(...ignored);
+    }
+    const asked = requestedT(url);
+    if (asked !== null && status === 'ready' && Math.abs((facts?.t ?? Number.NaN) - asked) > T_TOLERANCE) {
+      status = 'WRONG-T';
+      errors.push(`the page rendered t=${JSON.stringify(facts?.t)}, not the requested t=${String(asked)}`);
     }
   } catch (error) {
     status = 'TIMEOUT';

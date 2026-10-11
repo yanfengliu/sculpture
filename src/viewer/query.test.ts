@@ -84,6 +84,18 @@ describe('parseViewerQuery', () => {
     expect(parseViewerQuery('step=').step).toBeNull();
   });
 
+  it('reports a key the page does not read and a key given twice, and keeps parsing the rest', () => {
+    const typo = parseViewerQuery('setp=5&veiw=head&t=2');
+    expect(typo.t).toBe(2);
+    expect(typo.problems).toEqual([
+      'query parameter setp="5" was ignored: the page reads only shot, t, step, view, cam, model, finish, yard, autoplay, noui.',
+      'query parameter veiw="head" was ignored: the page reads only shot, t, step, view, cam, model, finish, yard, autoplay, noui.',
+    ]);
+    const twice = parseViewerQuery('t=1&t=2');
+    expect(twice.t).toBe(1);
+    expect(twice.problems).toEqual(['query parameter t is given 2 times ("1", "2"); the first is used.']);
+  });
+
   it('names every bad flag value and keeps the default', () => {
     const query = parseViewerQuery('shot=yes&noui=true');
     expect(query).toMatchObject({ shot: false, noui: false });

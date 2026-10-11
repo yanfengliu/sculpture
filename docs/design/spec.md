@@ -74,12 +74,12 @@ Chips: an instanced pool of small marble fragments, launched from the tip at the
 
 ## Query contract
 
-`src/viewer/query.ts` is the only reader of the page URL.
+`src/viewer/query.ts` is the only reader of the page URL. A key outside this table, or a key given more than once, is reported in `queryProblems` (the first value of a repeated key is used).
 
 | Parameter | Effect |
 |---|---|
 | `shot=1` | Capture mode: no autoplay, no follow camera, no chip motion; `window.__shotReady = true` once at least 5 frames have rendered at the requested state with every dirty chunk meshed |
-| `t=<number>` | Timeline position in `[0, N]` |
+| `t=<number>` | Timeline position in `[0, N]`; a value above `N` is clamped to `N` and reported |
 | `step=<id or 1-based index>` | Position at the end of that step; wins over `t` |
 | `view=<preset id>` | Camera preset; `view=follow` (query only, not in the menu) frames the current blow from its normal, for the follow captures |
 | `cam=px,py,pz,tx,ty,tz` | Explicit camera position and target, for sweeps; kept exactly when the orbit's limits allow it (`src/viewer/orbit-limits.ts`: 0.2 to 80 m from the target, above the target's horizon), else reported as a problem naming the limit and `view=` stands |

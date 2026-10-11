@@ -94,7 +94,10 @@ function initialPosition(query: ViewerQuery, making: Making, problems: string[])
       problems.push(`query parameter step=${JSON.stringify(wanted)} was ignored: it takes a step id (${making.steps.map((step) => step.id).join(', ')}) or a 1-based index.`);
     }
   }
-  if (query.t !== null) return Math.min(making.N, Math.max(0, query.t));
+  if (query.t !== null) {
+    if (query.t > making.N) problems.push(`query parameter t=${JSON.stringify(String(query.t))} was clamped to N=${String(making.N)}, the end of the timeline: it takes a number from 0 to ${String(making.N)}.`);
+    return Math.min(making.N, Math.max(0, query.t));
+  }
   return null;
 }
 

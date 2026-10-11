@@ -45,6 +45,8 @@ export interface ViewerQuery {
 export const DEFAULT_MODEL: ModelId = 'david';
 const MODELS: readonly ModelId[] = ['david', 'synthetic'];
 const CAM_COMPONENTS = 6;
+/** Every parameter the page reads (docs/design/spec.md, Query contract); any other key is reported, so a misspelt one is not silently a different shot. */
+export const KNOWN_PARAMETERS: readonly string[] = ['shot', 't', 'step', 'view', 'cam', 'model', 'finish', 'yard', 'autoplay', 'noui'];
 
 /** Parses a query string (`location.search`, with or without the leading `?`). Pure, so the unit tests cover it without a browser. */
 export function parseViewerQuery(search: string): ViewerQuery {
@@ -63,6 +65,11 @@ export function parseViewerQuery(search: string): ViewerQuery {
     return fallback;
   };
 
+  for (const key of new Set(params.keys())) {
+    const values = params.getAll(key);
+    if (!KNOWN_PARAMETERS.includes(key)) problems.push(`query parameter ${key}=${JSON.stringify(values[0] ?? '')} was ignored: the page reads only ${KNOWN_PARAMETERS.join(', ')}.`);
+    else if (values.length > 1) problems.push(`query parameter ${key} is given ${String(values.length)} times (${values.map((value) => JSON.stringify(value)).join(', ')}); the first is used.`);
+  }
   const shot = flag('shot', false);
   const autoplayFlag = flag('autoplay', true);
   const view = nonEmpty(params.get('view'));

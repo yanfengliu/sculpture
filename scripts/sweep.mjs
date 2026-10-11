@@ -120,10 +120,8 @@ async function sweep(options) {
       const pose = drawPose(random, index);
       const url = shotUrl(t, pose, options);
       const file = resolve(options.out, `sweep-${String(index + 1).padStart(2, '0')}.png`);
+      // `capture` compares the rendered t with the URL's own t= and reports WRONG-T.
       const result = await capture(capturePage, url, file);
-      if (result.status === 'ready' && result.facts?.t !== t) {
-        result.errors.push(`the page rendered t=${JSON.stringify(result.facts?.t)}, not the requested t=${String(t)}`);
-      }
       const ok = result.status === 'ready' && result.errors.length === 0;
       if (!ok) failures += 1;
       console.log(describeResult(result, file, url));
