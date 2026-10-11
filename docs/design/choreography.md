@@ -42,33 +42,33 @@ Regions are boxes in world metres on the figure as placed by `src/david/frame.ts
 
 ## Steps
 
-Margins are the stone left above the final surface at the end of the step, in millimetres, from the technique note's bounds. `blowsPerShown` is the number of real blows one shown blow stands for: the step's days times five working hours times the tool's documented rate (point one a second, toothed chisels one and a half, the drill counted as one hole, rasps and abrasives one stroke a second), divided by the shown blows the generator plans; the generator budget per step is in the table and the label shows the rounded ratio. Weights set playback length: the whole making plays in about five minutes at 1×.
+Margins are the stone left above the final surface at the end of the step, in millimetres, from the technique note's bounds. `blowsPerShown` is the number of real blows one shown blow stands for: the step's days times five working hours times the tool's documented rate (point one a second, toothed chisels one and a half, rasps and abrasives one stroke a second), divided by the shown blows the generator plans and rounded; where the record gives the count directly (the knot's one or two blows, a drawn mark, a drilled hole, a brush stroke) the step states it instead. The blows column is what the generators planned at 8 mm on the synthetic figure on 2026-10-11 (`src/choreography/david-steps.ts`, 18,848 in all; the David grid's counts differ a little with its shape). Weights set playback length and are sized so the blow rate stays within a few hundred a second at 1×: the whole making plays in about five minutes.
 
 | # | Stage | Step id | Tool | Region | Margin | Blows (shown) | Weight | Source |
 |---|---|---|---|---|---|---|---|---|
-| 1 | setup | nodo | point | a 0.2 m box at the chest, front | 30 | 2 | 0.5 | technique.md stage 0; the 9 September entry |
-| 2 | layout | principal-view | charcoal | front face of the block | 0 | 400 | 0.6 | technique.md stage 1; Cellini on drawing the principal view |
-| 3 | roughing | high-points | point | high-points | 30 | 1,500 | 1.2 | technique.md stage 2; Vasari's water rule, St Matthew's knee and hand |
-| 4 | roughing | chest-and-face | point | chest-and-face | 30 | 1,500 | 1.2 | technique.md stage 2 |
-| 5 | roughing | front-furrows | point | front | 20 | 3,000 | 1.6 | technique.md stage 2; the sculptor's 45° stroke |
-| 6 | coarse-claw | two-tooth-front | two-tooth | front | 8 | 1,200 | 1.0 | technique.md stage 3; Vasari's order |
-| 7 | coarse-claw | claw-front | claw | front | 4 | 1,200 | 1.0 | technique.md stage 3; the 28 February 1502 valuation ends it |
-| 8 | fine-claw | sides-point | point | left-side and right-side | 20 | 1,500 | 1.0 | technique.md stage 4; sides and back reached last (inferred: the point still opens them) |
-| 9 | fine-claw | back-point | point | back | 20 | 1,200 | 0.9 | as 8 |
-| 10 | fine-claw | sides-and-back-claw | claw | left-side, right-side, back | 4 | 1,500 | 1.0 | technique.md stage 4 |
-| 11 | fine-claw | fine-claw-all | fine-claw | whole | 1.5 | 2,000 | 1.4 | technique.md stage 4; the dente di cane traces of 2003 |
-| 12 | fine-claw | roundel-hollows | roundel | head, left-hand, right-hand | 1.5 | 600 | 0.8 | technique.md stage 4; the unghietto traces |
-| 13 | drilling | hairline-and-curls | drill | hair | 0 | 300 | 0.8 | technique.md stage 5; the Stanford head page |
-| 14 | drilling | pupils-and-nostrils | drill | face | 0 | 12 | 0.4 | technique.md stage 5 |
-| 15 | drilling | fingers-sling-stump | drill | left-hand, sling, stump | 0 | 200 | 0.7 | technique.md stage 5 (inferred for the David) |
-| 16 | rasping | rasp-flesh | rasp | flesh | 0.5 | 1,500 | 1.1 | technique.md stage 6 |
-| 17 | rasping | file-details | file | face, left-hand, right-hand | 0.2 | 500 | 0.7 | technique.md stage 6 |
-| 18 | polishing | pumice-flesh | pumice | flesh | 0 | 1,500 | 1.1 | technique.md stage 7; Cellini's white pumice |
-| 19 | polishing | tripoli-straw-leather | polish | flesh | 0 | 1,000 | 0.9 | technique.md stage 7; Vasari's straw bunches |
-| 20 | on-site | last-touches | fine-claw | face, hair | 0 | 60 | 0.5 | technique.md stage 8; Soderini and the nose |
-| 21 | on-site | gilding | gilding | sling, stump | 0 | 300 | 0.7 | technique.md stage 8; the gilded broncone and sling |
+| 1 | setup | nodo | point | a 0.2 m box at the chest, front | 30 | 1 | 0.5 | technique.md stage 0; the 9 September entry |
+| 2 | layout | principal-view | charcoal | front face of the block | 0 | 348 | 0.6 | technique.md stage 1; Cellini on drawing the principal view |
+| 3 | roughing | high-points | point | high-points, front relief | 30 | 680 | 0.85 | technique.md stage 2; Vasari's water rule, St Matthew's knee and hand |
+| 4 | roughing | chest-and-face | point | chest-and-face, front relief | 30 | 682 | 0.85 | technique.md stage 2 |
+| 5 | roughing | front-furrows | point | front relief | 20 | 1,964 | 2.5 | technique.md stage 2; the legs and base, then the sculptor's 45° stroke |
+| 6 | coarse-claw | two-tooth-front | two-tooth | front relief | 8 | 781 | 1.0 | technique.md stage 3; Vasari's order |
+| 7 | coarse-claw | claw-front | claw | front relief | 4 | 897 | 1.1 | technique.md stage 3; the 28 February 1502 valuation ends it |
+| 8 | fine-claw | sides-point | point | left-side and right-side, the top | 20 | 5,011 | 3.0 | technique.md stage 4; sides and back reached last (inferred: the point still opens them); the crown kept under its crust |
+| 9 | fine-claw | back-point | point | back relief | 20 | 242 | 0.5 | as 8; the sides pass has already opened the stone beside the figure |
+| 10 | fine-claw | sides-and-back-claw | claw | left-side, right-side, back | 4 | 1,443 | 1.75 | technique.md stage 4 |
+| 11 | fine-claw | fine-claw-all | fine-claw | whole but the crown | 1.5 | 1,531 | 1.9 | technique.md stage 4; the dente di cane traces of 2003 |
+| 12 | fine-claw | roundel-hollows | roundel | head, left-hand, right-hand | 1.5 | 69 | 0.4 | technique.md stage 4; the unghietto traces |
+| 13 | drilling | hairline-and-curls | drill | hair | 0 | 82 | 0.5 | technique.md stage 5; the Stanford head page |
+| 14 | drilling | pupils-and-nostrils | drill | face | 0 | 2 | 0.3 | technique.md stage 5 |
+| 15 | drilling | fingers-sling-stump | drill | left-hand, sling, stump | 0 | 23 | 0.4 | technique.md stage 5 (inferred for the David) |
+| 16 | rasping | rasp-flesh | rasp | flesh | 0.5 | 1,943 | 2.4 | technique.md stage 6 |
+| 17 | rasping | file-details | file | face, left-hand, right-hand | 0.2 | 303 | 0.5 | technique.md stage 6 |
+| 18 | polishing | pumice-flesh | pumice | flesh | 0 | 1,071 | 1.3 | technique.md stage 7; Cellini's white pumice |
+| 19 | polishing | tripoli-straw-leather | polish | flesh | 0 | 752 | 0.95 | technique.md stage 7; Vasari's straw bunches |
+| 20 | on-site | last-touches | fine-claw | face, hair | 1 | 16 | 0.3 | technique.md stage 8; Soderini and the nose |
+| 21 | on-site | gilding | gilding | sling, stump | 0 | 1,007 | 1.3 | technique.md stage 8; the gilded broncone and sling |
 
-About 22,000 shown blows, under the plan budget of 60,000 and near the 20,000 the decisions note sizes the time-lapse on. Weights sum to about 20, so at `BASE_SECONDS` of 12 the making plays in about four minutes at 1×.
+About 19,000 shown blows, under the plan budget of 60,000 and near the 20,000 the decisions note sizes the time-lapse on. Weights sum to about 23, so at `BASE_SECONDS` of 12 the making plays in about four and a half minutes at 1×. The hollows and the drilled gaps plan few blows on the synthetic mannequin, which has few creases; the David grid gives the roundel and the drill more to do.
 
 ## What each step's detail says
 
