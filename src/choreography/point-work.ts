@@ -23,6 +23,8 @@ export interface PointWork {
 
 /** The point steps' work by step id, so the plan-order gate (./roughing-order.test.ts) can plan a step again with the planner's marks; each step's plan is `furrowsPhases(ctx, work.phases, work.floor)`. */
 export const POINT_WORK: Readonly<Record<string, (ctx: PlanContext) => PointWork>> = {
+  agostino: () => ({ phases: [{ options: { faces: ['front'], ...BULK, maxPasses: 2 } }] }),
+  'hole-between-legs': () => ({ phases: [{ options: { faces: ['front'], pitch: 0.12, size: 0.08, angle: 85 } }] }),
   nodo: () => ({ phases: [{ options: { faces: ['front'], pitch: 0.2, size: 0.06, angle: 85, maxPasses: 1 } }] }),
   'high-points': () => ({ phases: [{ options: { faces: ['front'], ...BULK, maxPasses: 2 } }] }),
   'chest-and-face': () => ({ phases: [{ options: { faces: ['front'], ...BULK, maxPasses: 2 } }] }),

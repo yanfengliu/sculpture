@@ -27,6 +27,8 @@ import { STAGES } from './stages';
 const STAGE_ORDER: readonly StageId[] = ['setup', 'layout', 'roughing', 'coarse-claw', 'fine-claw', 'drilling', 'rasping', 'polishing', 'on-site'];
 /** The step ids of docs/design/choreography.md, in its order. */
 const CONTRACT_IDS = [
+  'agostino',
+  'hole-between-legs',
   'nodo',
   'principal-view',
   'high-points',
@@ -76,7 +78,7 @@ describe('David steps', () => {
     expect(STAGES.map((s) => s.id)).toEqual(STAGE_ORDER);
     expect(DAVID_STEPS.map((s) => s.id)).toEqual(CONTRACT_IDS);
     expect([...new Set(DAVID_STEPS.map((s) => s.stage))]).toEqual(STAGE_ORDER);
-    let previousTo = '1501-09-08';
+    let previousTo = '1464-08-17';
     for (const step of DAVID_STEPS) {
       expect(step.title.length, step.id).toBeLessThanOrEqual(48);
       expect(step.detail.length, step.id).toBeLessThanOrEqual(200);
@@ -86,7 +88,8 @@ describe('David steps', () => {
       expect(step.blowsPerShown, step.id).toBeGreaterThanOrEqual(1);
       previousTo = step.calendar.to;
     }
-    expect(DAVID_STEPS[0]?.calendar.from).toBe('1501-09-09');
+    expect(DAVID_STEPS[0]?.calendar.from).toBe('1464-08-18');
+    expect(DAVID_STEPS.find((s) => s.id === 'nodo')?.calendar.from).toBe('1501-09-09');
     expect(DAVID_STEPS.at(-1)?.calendar.to).toBe('1504-09-08');
   });
 

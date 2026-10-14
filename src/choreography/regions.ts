@@ -329,6 +329,12 @@ export const FLESH: RegionDef = {
 
 /** A 0.2 m box at the chest where the knot stood, on the front. */
 export const NODO = box('nodo', 3.7, 3.9, -0.1, 0.1, 0.2, DEEP);
+/** What Agostino di Duccio began in 1464 to 1466, "only the trunk, lower limbs and feet" (technique.md, Stage 0): the front from the rock's top to the lower trunk. */
+export const AGOSTINO = box('agostino', 0.3, 2.6, -WIDE, WIDE, -DEEP, DEEP, facing(2, 1, 0.2));
+/**
+ * The hole between the legs that Vasari blames on a Maestro Simone (david-history.md, The block): the gap between the legs on the David grid, probed 2026-10-14 by columns front to back at a 3 cm margin (a read-only probe, not kept), open from x -0.02 to 0.25 at y 1.2, -0.02 to 0.20 at 1.4 and -0.08 to 0.09 at 1.6, closing at 2.1; the box runs through the block's depth so the cut goes through.
+ */
+export const HOLE = box('hole', 1.2, 1.6, -0.05, 0.22, -DEEP, DEEP);
 
 /** Whether a figure-surface point with its outward normal lies in the region. */
 export function inside(region: RegionDef, point: Vec3, normal: Vec3): boolean {
@@ -382,4 +388,4 @@ export function relief(region: RegionDef, side: 'front' | 'back'): RegionDef {
   return region.contains === undefined ? result : { ...result, contains: region.contains };
 }
 
-export const REGIONS: readonly RegionDef[] = [WHOLE, FRONT, BACK, LEFT_SIDE, RIGHT_SIDE, HIGH_POINTS, CHEST_AND_FACE, HEAD, HAIR, FACE, LEFT_HAND, RIGHT_HAND, SLING, STUMP, BASE, FLESH, NODO, CROWN, WHOLE_BUT_CROWN, SIDES_AND_BACK, HOLLOWS, HAIR_BUT_CROWN, DETAILS, GILT];
+export const REGIONS: readonly RegionDef[] = [WHOLE, FRONT, BACK, LEFT_SIDE, RIGHT_SIDE, HIGH_POINTS, CHEST_AND_FACE, HEAD, HAIR, FACE, LEFT_HAND, RIGHT_HAND, SLING, STUMP, BASE, FLESH, NODO, AGOSTINO, HOLE, CROWN, WHOLE_BUT_CROWN, SIDES_AND_BACK, HOLLOWS, HAIR_BUT_CROWN, DETAILS, GILT];

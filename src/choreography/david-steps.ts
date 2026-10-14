@@ -12,7 +12,7 @@ import { abrading, rasping } from './generators/rasping';
 import { scoop } from './generators/scoop';
 import { DAVID_LANDMARKS, FINGER_GAPS, SLING_GAP, STUMP_GAPS } from './landmarks';
 import { pointPlan } from './point-work';
-import { BACK, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HAIR_BUT_CROWN, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, relief, union } from './regions';
+import { AGOSTINO, BACK, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HAIR_BUT_CROWN, HOLE, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, relief, union } from './regions';
 
 /** The front of the block as a half relief: the three roughing steps take layers off the whole front, the knee and the hand emerging in the first, the chest and the face in the second, the legs and the base in the last (technique.md, Stage 2: Vasari's water rule). */
 const FRONT_RELIEF = relief(FRONT, 'front');
@@ -65,6 +65,36 @@ function step(spec: StepSpec): StepDef {
 }
 
 export const DAVID_STEPS: readonly StepDef[] = [
+  step({
+    id: 'agostino',
+    stage: 'setup',
+    title: 'Agostino di Duccio blocks out the legs',
+    detail: 'Subbia (point): commissioned in 1464, Agostino had by 1466 begun "only the trunk, lower limbs and feet", a coarse lump the 1500 inventory calls badly blocked out (technique.md, stage 0).',
+    tool: 'point',
+    region: relief(AGOSTINO, 'front'),
+    margin: 0.08,
+    weight: 1.0,
+    from: '1464-08-18',
+    to: '1466-04-30',
+    shown: 400,
+    focus: { kind: 'tip', distance: 2.2 },
+    plan: pointPlan('agostino'),
+  }),
+  step({
+    id: 'hole-between-legs',
+    stage: 'setup',
+    title: 'The hole between the legs',
+    detail: 'Subbia (point): a hole cut through between the legs, which Vasari lays on a Maestro Simone and the documents on Agostino; the block then lay in the yard (technique.md, stage 0; david-history.md).',
+    tool: 'point',
+    region: HOLE,
+    margin: 0.03,
+    weight: 0.5,
+    from: '1466-04-30',
+    to: '1466-04-30',
+    shown: 100,
+    focus: { kind: 'tip', distance: 1.8 },
+    plan: pointPlan('hole-between-legs'),
+  }),
   step({
     id: 'nodo',
     stage: 'setup',
