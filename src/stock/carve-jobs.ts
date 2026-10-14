@@ -15,8 +15,8 @@ import { toolVolume } from './tool-volumes';
 export const TOOL_IDS: readonly ToolId[] = ['charcoal', 'point', 'two-tooth', 'claw', 'fine-claw', 'roundel', 'flat', 'drill', 'rasp', 'file', 'pumice', 'polish', 'gilding'];
 /** Numbers per packed blow: tool code, point, normal, direction, size, margin (fixed point), the figure's distance at the point (metres) and the blow's index in the plan. */
 export const BLOW_FIELDS = 14;
-/** Numbers per row of a result's table: the blow index, its run and index ranges in the undo arrays and its changed-cell box. */
-export const TABLE_FIELDS = 11;
+/** Numbers per row of a result's table: the blow index, its run-pair, segment-pair and value ranges in the undo arrays and its changed-cell box. */
+export const TABLE_FIELDS = 13;
 const CHUNK_VOLUME = CHUNK_CELLS * CHUNK_CELLS * CHUNK_CELLS;
 
 /** The lattice a job carves on. */
@@ -169,10 +169,11 @@ export function runCarveJob(job: CarveJob, figure: Int16Array, layout: ChunkLayo
     };
     if (local.max[0] < local.min[0] || local.max[1] < local.min[1] || local.max[2] < local.min[2]) continue;
     const runsBefore = sink.runs.count;
-    const indicesBefore = sink.indices.count;
+    const segmentsBefore = sink.indices.count;
+    const valuesBefore = sink.stock.count;
     const result = carveCells(target, volume, local, { marginFixed, code: TOOL_FINISH[blow.tool], paintOver: TOOL_PAINT_OVER[blow.tool] }, sink);
     if (result.box === null) continue;
-    table.push(index, runsBefore, sink.runs.count, indicesBefore, sink.indices.count, result.box.min[0] + i0, result.box.min[1] + j0, result.box.min[2] + k0, result.box.max[0] + i0, result.box.max[1] + j0, result.box.max[2] + k0);
+    table.push(index, runsBefore, sink.runs.count, segmentsBefore, sink.indices.count, valuesBefore, sink.stock.count, result.box.min[0] + i0, result.box.min[1] + j0, result.box.min[2] + k0, result.box.max[0] + i0, result.box.max[1] + j0, result.box.max[2] + k0);
   }
   return { id: job.id, stock: job.stock, finish: job.finish, table: Uint32Array.from(table), runs: sink.runs.done(), indices: sink.indices.done(), oldStock: sink.stock.done(), oldFinish: sink.finish.done() };
 }
@@ -188,9 +189,9 @@ export function undoPartsOf(result: CarveResult): { index: number; part: UndoPar
       part: {
         runs: result.runs.subarray(v(1), v(2)),
         indices: result.indices.subarray(v(3), v(4)),
-        stock: result.oldStock.subarray(v(3), v(4)),
-        finish: result.oldFinish.subarray(v(3), v(4)),
-        box: { min: [v(5), v(6), v(7)], max: [v(8), v(9), v(10)] },
+        stock: result.oldStock.subarray(v(5), v(6)),
+        finish: result.oldFinish.subarray(v(5), v(6)),
+        box: { min: [v(7), v(8), v(9)], max: [v(10), v(11), v(12)] },
       },
     });
   }

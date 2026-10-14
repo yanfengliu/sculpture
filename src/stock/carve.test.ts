@@ -121,7 +121,11 @@ describe('carving rule on random blows', () => {
       expect(undoBlow(state, result.undo)).toEqual(result.dirty);
       let recorded = 0;
       for (const part of result.undo.parts) {
-        recorded += part.indices.length;
+        let segmentCells = 0;
+        for (let r = 1; r < part.indices.length; r += 2) segmentCells += part.indices[r] ?? 0;
+        expect(part.stock.length).toBe(segmentCells);
+        expect(part.finish.length).toBe(segmentCells);
+        recorded += segmentCells;
         for (let r = 1; r < part.runs.length; r += 2) recorded += part.runs[r] ?? 0;
       }
       expect(recorded).toBe(result.changed);

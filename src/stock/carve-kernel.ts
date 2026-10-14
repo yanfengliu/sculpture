@@ -2,7 +2,7 @@
  * The carving kernel (docs/design/spec.md, Stock and figure): one blow's rule, `stock' = max(stock, min(-tool, figure - margin))` in fixed point, over a cell box of a target array, plus the finish paint and the undo record.
  * The target is any x-fastest array of stock, finish and figure values: the whole grid on the main thread, or one 32³ chunk in a carve worker. Every cell's new value depends only on its own old value, the figure at the cell and the tool's distance there, so a blow applied chunk by chunk in the workers writes the same bytes as the serial path, as long as the blows reach each cell in index order (src/stock/carve-parallel.test.ts compares the two).
  * The box is walked in 4³ blocks, row by row across the box: a block farther from the tool volume than the band is skipped, a block or row segment deeper inside it than the band takes the clamp without evaluating the tool, and only the segments on the volume's boundary evaluate the distance per cell (a row at a time for the shapes that offer it); the per-cell result is the same either way (the distances are Lipschitz and each volume states its constant), so the block grid's alignment does not change the bytes.
- * Undo records the cells that were deep stock (−limit, unpainted) as runs of global indices, each run as long as the row of the box allows, and every other changed cell with its old bytes, so a bulk cut's record stays well under 1 byte per cell.
+ * Undo records the cells that were deep stock (−limit, unpainted) as runs of global indices (a Uint32 pair, start and length) and every other changed cell in segments of consecutive cells (a Uint32 pair) with the cells' old stock and finish packed in order, so a deep cell costs well under a byte and a band cell three bytes plus its share of a pair, against the seven of an index with its bytes (2026-10-13; the index form held 284 MB after the synthetic 8 mm plan, 55 KB per bulk blow). A run or a segment is as long as the box's row allows and continues from the end of one row to the start of the next only when the box spans the whole grid's width (the global indices are contiguous only then; a crater's box does not). A deep run short enough to cost more as a pair than as values (up to five cells between two stretches of band cells, two at a stretch's end) is folded into the segment as values.
  * A tool paints its finish code only over the codes its mask allows (the gilding leaf bonds to the claw and roundel texture of the sling and the stump, never over polished flesh; docs/design/choreography.md, Known compromises).
  */
 import { FIXED_POINT } from '../contracts/grid';
@@ -80,13 +80,21 @@ class Growable<T extends Uint32Array | Int16Array | Uint8Array> {
   }
 }
 
-/** Accumulates undo records, in global indices; a worker keeps one sink across the blows of a chunk job and slices it per blow by the counts. */
+/** Accumulates undo records, in global indices (src/stock/carve.ts, UndoPart: `runs` and `indices` hold pairs, `stock` and `finish` the segments' values in order); a worker keeps one sink across the blows of a chunk job and slices it per blow by the counts. */
 export class UndoSink {
   readonly runs = new Growable((n) => new Uint32Array(n), 256);
   readonly indices = new Growable((n) => new Uint32Array(n), 1024);
   readonly stock = new Growable((n) => new Int16Array(n), 1024);
   readonly finish = new Growable((n) => new Uint8Array(n), 1024);
 }
+
+/** Bytes of a run or segment pair (two Uint32) and of one cell's packed values (Int16 stock, Uint8 finish). */
+const PAIR_BYTES = 8;
+const VALUE_BYTES = 3;
+/** Longest deep run cheaper as values than as its pair plus the segment pair it would split (3 × 5 < 16). */
+const FOLD_BETWEEN = Math.floor((2 * PAIR_BYTES - 1) / VALUE_BYTES);
+/** Longest deep run at the end of a segment cheaper as values than as its pair (3 × 2 < 8). */
+const FOLD_AT_END = Math.floor((PAIR_BYTES - 1) / VALUE_BYTES);
 
 function occupancy(fixed: number): number {
   const o = 0.5 - fixed / FIXED_POINT;
@@ -108,6 +116,23 @@ export function carveCells(target: KernelTarget, volume: ToolVolume, box: CellBo
   const { runs, indices, stock: oldStock, finish: oldFinish } = sink;
   let runStart = -1;
   let runLength = 0;
+  let segStart = -1;
+  let segLength = 0;
+  /** Records the open run: as values at the end of the open segment when it ends exactly there and is short, else as a pair. */
+  const closeRun = (): void => {
+    if (runLength <= FOLD_AT_END && segStart >= 0 && segStart + segLength === runStart) {
+      for (let n = 0; n < runLength; n += 1) {
+        oldStock.push(-limit);
+        oldFinish.push(0);
+      }
+      segLength += runLength;
+    } else {
+      runs.push(runStart);
+      runs.push(runLength);
+    }
+    runStart = -1;
+    runLength = 0;
+  };
   let removed = 0;
   let changed = 0;
   let bi0 = nx;
@@ -198,15 +223,33 @@ export function carveCells(target: KernelTarget, volume: ToolVolume, box: CellBo
               if (s === -limit && was === 0) {
                 if (runStart >= 0 && runStart + runLength === globalIndex) runLength += 1;
                 else {
-                  if (runStart >= 0) {
-                    runs.push(runStart);
-                    runs.push(runLength);
-                  }
+                  if (runStart >= 0) closeRun();
                   runStart = globalIndex;
                   runLength = 1;
                 }
               } else {
-                indices.push(globalIndex);
+                // A band cell ends any open run: no later deep cell is contiguous with it.
+                if (runStart >= 0) {
+                  if (runLength <= FOLD_BETWEEN && runStart + runLength === globalIndex && segStart >= 0 && segStart + segLength === runStart) {
+                    // A short deep run between two stretches of band cells: its values cost less than its pair and the segment pair it would split.
+                    for (let n = 0; n < runLength; n += 1) {
+                      oldStock.push(-limit);
+                      oldFinish.push(0);
+                    }
+                    segLength += runLength;
+                    runStart = -1;
+                    runLength = 0;
+                  } else closeRun();
+                }
+                if (segStart >= 0 && segStart + segLength === globalIndex) segLength += 1;
+                else {
+                  if (segStart >= 0) {
+                    indices.push(segStart);
+                    indices.push(segLength);
+                  }
+                  segStart = globalIndex;
+                  segLength = 1;
+                }
                 oldStock.push(s);
                 oldFinish.push(was);
               }
@@ -232,9 +275,10 @@ export function carveCells(target: KernelTarget, volume: ToolVolume, box: CellBo
       }
     }
   }
-  if (runStart >= 0) {
-    runs.push(runStart);
-    runs.push(runLength);
+  if (runStart >= 0) closeRun();
+  if (segStart >= 0) {
+    indices.push(segStart);
+    indices.push(segLength);
   }
   return { changed, removed, box: bi1 < 0 ? null : { min: [bi0, bj0, bk0], max: [bi1, bj1, bk1] } };
 }
