@@ -1,6 +1,6 @@
 /**
  * The yard spans through the real controls (docs/design/spec.md, Page, Yard spans; docs/policies/local-rules.md: nothing stands between the camera and the stock): the spans between the camera and the block are hidden per preset, the Yard toggle and `yard=0` hide every span, and the facts name what is hidden.
- * Bound: on the synthetic figure at `t = 0`, from the three-quarter, back and front presets of src/viewer/presets.ts and the span ids of src/viewer/yard-spans.ts; it proves the page hides and shows the groups the rule names and that the canvas changes, not that no pixel of a far span crosses the figure.
+ * Bound: on the synthetic figure at `t = 0`, where no plank bridge is laid yet, from the three-quarter, back and front presets of src/viewer/presets.ts and the span ids of src/viewer/yard-spans.ts; it proves the page hides and shows the groups the rule names and that the canvas changes, not that no pixel of a far span crosses the figure. When the bridges are laid is src/viewer/bridges.test.ts's.
  */
 import { expect, test } from '@playwright/test';
 
@@ -17,7 +17,10 @@ test('from the three-quarter preset the front and right spans are hidden and the
   expect(threeQuarter.hiddenSpans).toEqual(['wall-right', 'scaffold-front', 'scaffold-right']);
 
   await page.getByTestId('view-menu').selectOption('back');
-  expect((await facts(page)).hiddenSpans).toEqual(['wall-back', 'scaffold-back']);
+  // At t = 0 no back bridge is laid yet (src/viewer/bridges.ts), so the back span has nothing to hide.
+  const back = await facts(page);
+  expect(back.bridges).toEqual([]);
+  expect(back.hiddenSpans).toEqual(['wall-back']);
   await page.getByTestId('view-menu').selectOption('front');
   expect((await facts(page)).hiddenSpans).toEqual(['scaffold-front']);
 });

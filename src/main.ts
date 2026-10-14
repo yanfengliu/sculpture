@@ -29,6 +29,7 @@ import { createUi } from './ui';
 import type { Attribution } from './ui';
 import { installKeyboard } from './ui/keyboard';
 import type { MakingBundle, RenderedTool } from './viewer/bundle';
+import { createBridgeTracker } from './viewer/bridges';
 import { buildFacts, factsSignature, publishFacts } from './viewer/facts';
 import { DEFAULT_FOLLOW_DISTANCE, createFollow, framingFor, viewDirectionFor } from './viewer/follow';
 import { createMarbleMaterial } from './viewer/marble';
@@ -75,6 +76,15 @@ async function createMakingForQuery(query: ViewerQuery, material: Material, prob
   const figure = await loadFigure(query, problems);
   const options = { figure: figure.grid, steps: DAVID_STEPS, stages: STAGES, blowCycle: strikes.cycle, material, workers: defaultWorkerCount() };
   const making = createMaking(figure.header === undefined ? options : { ...options, header: figure.header });
+  const bridges = createBridgeTracker({
+    N: making.N,
+    blowsOf: (step) => making.blowsOf(step),
+    get blowsApplied() {
+      return making.blowsApplied;
+    },
+    sampleStock: (x, y, z) => making.stock.sample(x, y, z),
+    stepId: (step) => making.steps[step]?.id ?? String(step),
+  });
   return {
     making,
     blowCycle,
@@ -83,6 +93,7 @@ async function createMakingForQuery(query: ViewerQuery, material: Material, prob
     carrySeconds: (blow, previous) => blowCycle.approachSeconds(blow, previous),
     source: figure.header?.source ?? null,
     strikes,
+    bridges,
   };
 }
 
@@ -163,10 +174,20 @@ viewer.controls.addEventListener('start', () => {
   view = 'free';
 });
 
+let bridgeProblems: readonly string[] = [];
+/** Lays the plank bridges the work needs at the making's position (src/viewer/bridges.ts) and warns of a needed bridge the stone still fills. */
+function layBridges(): void {
+  if (bundle.bridges === undefined) return;
+  const state = bundle.bridges.update(making.t);
+  viewer.yard.setBridges(state.laid);
+  for (const problem of state.problems.slice(bridgeProblems.length)) console.warn(problem);
+  bridgeProblems = state.problems;
+}
+
 let lastSignature = '';
 /** Publishes the facts when any of them changed: every frame, and right after a control acts, so a test that reads them after a click never sees the frame before it. */
 function publish(): void {
-  const facts = buildFacts(making, player, { view, follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled, hiddenSpans: viewer.yard.hidden, queryProblems: problems });
+  const facts = buildFacts(making, player, { view, follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled, hiddenSpans: viewer.yard.hidden, bridges: viewer.yard.bridges, bridgeProblems, queryProblems: problems });
   const signature = factsSignature(facts);
   if (signature === lastSignature) return;
   lastSignature = signature;
@@ -303,6 +324,7 @@ viewer.start((seconds) => {
     if (player.t !== making.t) making.setTime(player.t);
     if (followPending !== null && making.dirtyChunks === 0) applyFollowView();
   }
+  layBridges();
   const current = making.current;
   rig.update(making.poses, current === null ? null : { tool: current.blow.tool, phase: current.phase });
   bundle.strikes?.clear();

@@ -59,7 +59,11 @@ export function createTimelineBar(N: number, marks: readonly StageMark[], action
   const label = document.createElement('div');
   label.className = 'label';
   label.dataset['testid'] = 'label';
-  label.setAttribute('aria-live', 'polite');
+  // The label's date changes several times a second while playing, so it is not a live region: screen readers hear the step, from this status line, when the step changes.
+  const status = document.createElement('div');
+  status.className = 'sr-only';
+  status.setAttribute('role', 'status');
+  status.dataset['testid'] = 'step-status';
   const detail = document.createElement('div');
   detail.className = 'detail';
   detail.dataset['testid'] = 'detail';
@@ -92,6 +96,10 @@ export function createTimelineBar(N: number, marks: readonly StageMark[], action
   scrubber.value = '0';
   scrubber.addEventListener('input', () => {
     actions.seek(Number(scrubber.value));
+  });
+  // A mouse scrub hands the keys back to the page, so Space and the arrows play and step instead of nudging the thumb; a scrubber focused from the keyboard keeps its arrows.
+  scrubber.addEventListener('pointerup', () => {
+    scrubber.blur();
   });
   scrub.append(markRow, scrubber);
 
@@ -130,16 +138,23 @@ export function createTimelineBar(N: number, marks: readonly StageMark[], action
     speedLabel,
     time,
   );
-  element.append(label, detail, scrub, buttons);
+  element.append(label, status, detail, scrub, buttons);
 
   let lastLabel = '';
   let lastDetail = '';
+  let lastStatus = '';
   return {
     element,
     update(state) {
       if (state.label !== lastLabel) {
         lastLabel = state.label;
         label.textContent = state.label;
+        // `<stage> — <title>`, the label's last part: it changes only with the step.
+        const step = state.label.slice(state.label.lastIndexOf(' · ') + ' · '.length);
+        if (step !== lastStatus) {
+          lastStatus = step;
+          status.textContent = step;
+        }
       }
       if (state.detail !== lastDetail) {
         lastDetail = state.detail;

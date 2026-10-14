@@ -103,7 +103,8 @@ export async function stepData(page: Page): Promise<StepData> {
     stepIndexAt,
     labelAt(t) {
       const title = stepTitles[stepIndexAt(t)] ?? '';
-      return new RegExp(`^Day \\d+ · \\d{1,2} [A-Z][a-z]+ 150\\d · .+ — ${escapeRegex(title)}$`);
+      // A day in Michelangelo's count, or the years of a step before it (src/ui/label.ts: Agostino's roughing of 1464 to 1466).
+      return new RegExp(`^(Day \\d+ · \\d{1,2} [A-Z][a-z]+ 150\\d|1[45]\\d\\d(–1[45]\\d\\d)?) · .+ — ${escapeRegex(title)}$`);
     },
   };
 }

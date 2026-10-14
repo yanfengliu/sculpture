@@ -2,9 +2,10 @@
  * The Opera del Duomo yard as docs/research/technique.md stage 0 infers it: a packed-earth floor; the `turata` of planks Vasari describes around the block, open at the front for the camera; a two-level timber scaffold with plank decks at 1.5 m and 3.2 m ringing the front and sides, standing half a metre clear of the stock; a plumb line from the top beam; a plank bench for the tools; the small wax model on a stand.
  * World frame per docs/design/spec.md: metres, +Y up, the figure faces +Z, the origin under the block's footprint centre. The block's size comes from src/david/frame.ts.
  *
- * Spans (docs/policies/local-rules.md: nothing stands between the camera and the stock): the structures are built as one group per side of the block (each turata wall with its posts and rails, each scaffold side with its posts, ledgers and decks, the bench with the props on it, the model stand), each with the centre and outward normal of src/viewer/yard-spans.ts. `Yard.update(camera)` hides the spans the camera is outside of and shows the rest; `setEnabled(false)` (the Yard toggle, `yard=0`) hides them all. The floor always stays.
+ * Spans (docs/policies/local-rules.md: nothing stands between the camera and the stock): the structures are built as one group per side of the block (each turata wall with its posts and rails, each scaffold side with its posts, ledgers and decks, the head bridge across the front, the back bridges, the bench with the props on it, the model stand), each with the centre, outward normal and inner faces of src/viewer/yard-spans.ts. `Yard.update(camera)` hides the spans the camera is outside of and shows the rest; `setEnabled(false)` (the Yard toggle, `yard=0`) hides them all. The floor always stays.
+ * Bridges: each plank bridge of src/tools/scaffold.ts is its own mesh, hidden until `setBridges` lays it (src/viewer/bridges.ts decides when the work needs it); a span's inner faces count only its laid bridges.
  * The enclosure's planks are single-sided and face inward, so a camera outside the turata looks through its wall; from inside, the planks are the backdrop. They still cast shadows from either side.
- * Every texture is drawn on a canvas here: no runtime asset is fetched.
+ * The materials and their canvas textures are src/viewer/yard-materials.ts: no runtime asset is fetched.
  */
 import * as THREE from 'three';
 
@@ -15,7 +16,9 @@ import { quatFromBasis } from '../tools/math';
 import { propModel } from '../tools/props';
 import type { Platform } from '../tools/scaffold';
 import { BRIDGES, DECK_EXTENTS, DECK_LEVELS, SCAFFOLD_TIMBER } from '../tools/scaffold';
-import type { Box, SpanGeometry, YardSpanId } from './yard-spans';
+import type { YardMaterials } from './yard-materials';
+import { FLOOR_SIZE, hash, yardMaterials } from './yard-materials';
+import type { Box, SpanFace, SpanGeometry, YardSpanId } from './yard-spans';
 import { hiddenSpans, innerFaces, outwardNormal } from './yard-spans';
 
 /** The scaffold's timbers, deck extents and bridges are the tools' model (src/tools/scaffold.ts), the one the reach check uses, so the decks drawn are the decks the blows are planned from. */
@@ -27,7 +30,6 @@ const WALL_BACK_Z = -3.5;
 const WALL_FRONT_Z = 4.5;
 const WALL_HEIGHT = 4.0;
 const WALL_PLANK_W = 0.26;
-const FLOOR_SIZE = 60;
 
 /** The bench top's plank thickness; its extent is `BENCH` from src/tools/bench.ts, where the tools' rest slots are laid out. */
 const BENCH_THICKNESS = 0.05;
@@ -35,9 +37,11 @@ const BENCH_THICKNESS = 0.05;
 export const PLUMB_LINE = { x: 0.95, z: FRONT_INNER_Z, reel: DECK_LEVELS[1] - PLANK_T - BEAM, height: 1.58 } as const;
 /** Where the small wax model's stand (a post and a board) stands, beside the bench. */
 const WAX_STAND = { x: -3.3, z: 0.3, boardTop: 1.03 } as const;
-/** The bridges behind the block (src/tools/scaffold.ts) make the scaffold's back span; the head bridge across the front belongs to the front span. */
+/** The bridges behind the block (src/tools/scaffold.ts) make the scaffold's back span; the head bridge across the front is a span of its own, so its plank ends, which stick out past the block's sides, never hide the front scaffold. */
 const BACK_BRIDGES = BRIDGES.filter((bridge) => bridge.zMax <= 0);
 const FRONT_BRIDGES = BRIDGES.filter((bridge) => bridge.zMax > 0);
+/** Name of a bridge's mesh; its `userData.bridge` holds the bridge's id. */
+const bridgeMeshName = (id: string): string => `bridge-${id}`;
 
 interface Timber {
   readonly size: readonly [number, number, number];
@@ -74,70 +78,6 @@ class Timbers {
   }
 }
 
-function hash(n: number): number {
-  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
-  return x - Math.floor(x);
-}
-
-/** Wood grain: streaks along the plank's length with a little noise. */
-function woodTexture(base: readonly [number, number, number], seed: number): THREE.CanvasTexture {
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext('2d');
-  if (context === null) throw new Error('the wood texture needs a 2d canvas context, and the browser gave none');
-  const [r, g, b] = base;
-  context.fillStyle = `rgb(${String(r)},${String(g)},${String(b)})`;
-  context.fillRect(0, 0, size, size);
-  for (let y = 0; y < size; y += 1) {
-    const streak = 0.5 + 0.5 * Math.sin(y * 0.35 + 4 * hash(seed + y));
-    const dark = 0.75 + 0.25 * streak;
-    context.fillStyle = `rgba(${String(Math.round(r * dark))},${String(Math.round(g * dark))},${String(Math.round(b * dark))},${String(0.35 + 0.3 * hash(seed + y * 7))})`;
-    context.fillRect(0, y, size, 1);
-  }
-  for (let i = 0; i < 400; i += 1) {
-    context.fillStyle = `rgba(40,25,10,${String(0.05 + 0.1 * hash(seed + i * 3))})`;
-    context.fillRect(Math.floor(hash(seed + i) * size), Math.floor(hash(seed + i * 11) * size), 1 + Math.floor(hash(seed + i * 13) * 3), 6 + Math.floor(hash(seed + i * 17) * 30));
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-/** Packed earth: a mottled warm grey-brown with stones and a dusting of marble chips near the block. */
-function earthTexture(): THREE.CanvasTexture {
-  const size = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext('2d');
-  if (context === null) throw new Error('the earth texture needs a 2d canvas context, and the browser gave none');
-  context.fillStyle = 'rgb(150,132,108)';
-  context.fillRect(0, 0, size, size);
-  for (let i = 0; i < 9000; i += 1) {
-    const shade = 110 + Math.floor(hash(i * 5 + 1) * 70);
-    context.fillStyle = `rgba(${String(shade)},${String(shade - 14)},${String(shade - 30)},${String(0.25 + 0.5 * hash(i * 7 + 2))})`;
-    const radius = 2 + hash(i * 3 + 3) * 10;
-    context.beginPath();
-    context.arc(hash(i * 11 + 4) * size, hash(i * 13 + 5) * size, radius, 0, Math.PI * 2);
-    context.fill();
-  }
-  for (let i = 0; i < 700; i += 1) {
-    const shade = 180 + Math.floor(hash(i * 17 + 6) * 60);
-    context.fillStyle = `rgba(${String(shade)},${String(shade)},${String(shade - 6)},0.8)`;
-    context.fillRect(hash(i * 19 + 7) * size, hash(i * 23 + 8) * size, 1 + hash(i * 29 + 9) * 2, 1 + hash(i * 31 + 10) * 2);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(FLOOR_SIZE / 5, FLOOR_SIZE / 5);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
 function buildFloor(material: THREE.Material): THREE.Mesh {
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE), material);
   floor.rotation.x = -Math.PI / 2;
@@ -146,26 +86,8 @@ function buildFloor(material: THREE.Material): THREE.Mesh {
   return floor;
 }
 
-/** The yard's materials: `yardMaterials()` draws their textures on canvases for the page; a unit test passes plain ones, since Node has no canvas. */
-export interface YardMaterials {
-  readonly timber: THREE.Material;
-  readonly deck: THREE.Material;
-  readonly wall: THREE.Material;
-  readonly floor: THREE.Material;
-}
 type Materials = YardMaterials;
 
-/** The page's materials, with wood grain and packed earth drawn on canvases. */
-export function yardMaterials(): YardMaterials {
-  const wall = new THREE.MeshStandardMaterial({ map: woodTexture([150, 128, 98], 7), roughness: 0.9, metalness: 0, side: THREE.FrontSide });
-  wall.shadowSide = THREE.DoubleSide;
-  return {
-    timber: new THREE.MeshStandardMaterial({ map: woodTexture([156, 122, 82], 3), roughness: 0.85, metalness: 0 }),
-    deck: new THREE.MeshStandardMaterial({ map: woodTexture([172, 142, 100], 5), roughness: 0.9, metalness: 0 }),
-    wall,
-    floor: new THREE.MeshStandardMaterial({ map: earthTexture(), roughness: 1, metalness: 0 }),
-  };
-}
 
 /** One span under construction: its timbers and deck planks as instanced boxes, plus any props, built into one group named by its id. */
 class SpanBuilder {
@@ -174,11 +96,23 @@ class SpanBuilder {
   private readonly extras: THREE.Object3D[] = [];
   constructor(
     readonly id: YardSpanId,
-    materials: Materials,
-    seed: number,
+    private readonly materials: Materials,
+    private readonly seed: number,
   ) {
     this.timbers = new Timbers(materials.timber, seed);
     this.decks = new Timbers(materials.deck, seed + 1);
+  }
+
+  /** A plank bridge of src/tools/scaffold.ts as its own mesh, hidden until laid: planks along x, resting on the side decks' inner ledgers at the bridge's level, their tops flush with the decks. */
+  bridge(bridge: Platform): void {
+    const planks = new Timbers(this.materials.deck, this.seed + 7 + this.extras.length);
+    for (let z = bridge.zMin + PLANK_W / 2; z <= bridge.zMax - PLANK_W / 2 + 1e-6; z += PLANK_W + PLANK_GAP) {
+      planks.add([bridge.xMax - bridge.xMin, PLANK_T, PLANK_W], [(bridge.xMin + bridge.xMax) / 2, bridge.level - PLANK_T / 2, z]);
+    }
+    const mesh = planks.build(bridgeMeshName(bridge.id));
+    mesh.userData['bridge'] = bridge.id;
+    mesh.visible = false;
+    this.extras.push(mesh);
   }
 
   post(x: number, z: number): void {
@@ -242,19 +176,16 @@ function buildFrontScaffold(span: SpanBuilder): void {
   const line = propModel('plumb-line');
   line.position.set(PLUMB_LINE.x, PLUMB_LINE.reel - PLUMB_LINE.height, PLUMB_LINE.z);
   span.add(line);
-  for (const bridge of FRONT_BRIDGES) buildBridge(span, bridge);
-}
-
-/** A plank bridge of src/tools/scaffold.ts: planks along x, resting on the side decks' inner ledgers at the bridge's level, their tops flush with the decks. */
-function buildBridge(span: SpanBuilder, bridge: Platform): void {
-  for (let z = bridge.zMin + PLANK_W / 2; z <= bridge.zMax - PLANK_W / 2 + 1e-6; z += PLANK_W + PLANK_GAP) {
-    span.decks.add([bridge.xMax - bridge.xMin, PLANK_T, PLANK_W], [(bridge.xMin + bridge.xMax) / 2, bridge.level - PLANK_T / 2, z]);
-  }
 }
 
 /** The back of the scaffold: the bridges laid behind the block at both levels, which the decks do not ring. */
 function buildBackScaffold(span: SpanBuilder): void {
-  for (const bridge of BACK_BRIDGES) buildBridge(span, bridge);
+  for (const bridge of BACK_BRIDGES) span.bridge(bridge);
+}
+
+/** The head bridge across the front at the top level. */
+function buildHeadBridge(span: SpanBuilder): void {
+  for (const bridge of FRONT_BRIDGES) span.bridge(bridge);
 }
 
 /** The bench with the tools' rest slots on top and the props that lie on it: the leather pad with tripoli at its slot, the curved rasp beside the chisels. */
@@ -340,6 +271,11 @@ export interface YardSpan extends SpanGeometry {
   readonly group: THREE.Group;
 }
 
+/** A span as the yard keeps it: its faces follow the bridges laid. */
+interface LiveSpan extends YardSpan {
+  faces: readonly SpanFace[];
+}
+
 export interface Yard {
   /** Everything in the yard but the stock, the tools and the chips; add this to the scene. */
   readonly group: THREE.Group;
@@ -351,6 +287,10 @@ export interface Yard {
   readonly hidden: readonly YardSpanId[];
   /** Applies the rule for a camera at `position`: hides the spans the camera is outside of, or every span while the yard is off. */
   update(position: { readonly x: number; readonly y: number; readonly z: number }): void;
+  /** Ids of the bridges laid now, in the order of BRIDGES (src/tools/scaffold.ts). */
+  readonly bridges: readonly string[];
+  /** Lays exactly the bridges `ids` names: shows their planks, hides the rest, and counts only laid bridges in their spans' inner faces. */
+  setBridges(ids: readonly string[]): void;
 }
 
 interface SpanPlan extends Omit<SpanGeometry, 'faces'> {
@@ -361,6 +301,7 @@ interface SpanPlan extends Omit<SpanGeometry, 'faces'> {
 const SIDE_SCAFFOLD_CENTRE_X = (INNER_X + OUTER_X) / 2;
 const SIDE_SCAFFOLD_CENTRE_Z = (SIDE_BACK_Z + SIDE_FRONT_Z) / 2;
 const SCAFFOLD_CENTRE_Y = (DECK_LEVELS[0] + DECK_LEVELS[1]) / 2;
+const HEAD_BRIDGE_CENTRE: Vec3 = FRONT_BRIDGES[0] === undefined ? [0, DECK_LEVELS[1], BLOCK_M.depth / 2] : [0, FRONT_BRIDGES[0].level, (FRONT_BRIDGES[0].zMin + FRONT_BRIDGES[0].zMax) / 2];
 const BACK_SCAFFOLD_Z = BACK_BRIDGES.length === 0 ? -BLOCK_M.depth / 2 : BACK_BRIDGES.reduce((sum, bridge) => sum + (bridge.zMin + bridge.zMax) / 2, 0) / BACK_BRIDGES.length;
 const WALL_CENTRE_Z = (WALL_BACK_Z + WALL_FRONT_Z) / 2;
 const BENCH_CENTRE: Vec3 = [(BENCH.xMin + BENCH.xMax) / 2, BENCH.top / 2, (BENCH.zMin + BENCH.zMax) / 2];
@@ -396,6 +337,7 @@ const SPAN_PLANS: readonly SpanPlan[] = [
     },
   },
   { id: 'scaffold-front', centre: [0, SCAFFOLD_CENTRE_Y, (FRONT_INNER_Z + FRONT_OUTER_Z) / 2], normal: [0, 0, 1], cameraHides: true, build: buildFrontScaffold },
+  { id: 'head-bridge', centre: HEAD_BRIDGE_CENTRE, normal: [0, 0, 1], cameraHides: true, build: buildHeadBridge },
   {
     id: 'scaffold-left',
     centre: [-SIDE_SCAFFOLD_CENTRE_X, SCAFFOLD_CENTRE_Y, SIDE_SCAFFOLD_CENTRE_Z],
@@ -419,14 +361,16 @@ const SPAN_PLANS: readonly SpanPlan[] = [
   { id: 'model-stand', centre: STAND_CENTRE, normal: outwardNormal(STAND_CENTRE), cameraHides: true, build: buildWaxModel },
 ];
 
-/** Every mesh and instance box of `group`, in world space: the pieces whose inner faces decide when the span hides. */
-function pieceBoxes(group: THREE.Group): Box[] {
+/** Every mesh and instance box of `group` in world space, bridges only when `laid` names them: the pieces whose inner faces decide when the span hides. */
+function pieceBoxes(group: THREE.Group, laid: ReadonlySet<string>): Box[] {
   group.updateMatrixWorld(true);
   const boxes: Box[] = [];
   const box = new THREE.Box3();
   const matrix = new THREE.Matrix4();
   group.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
+    const bridge: unknown = object.userData['bridge'];
+    if (typeof bridge === 'string' && !laid.has(bridge)) return;
     const geometry = object.geometry as THREE.BufferGeometry;
     geometry.computeBoundingBox();
     const local = geometry.boundingBox;
@@ -448,21 +392,23 @@ const BLOCK_BOX: Box = { min: [-BLOCK_M.width / 2, 0, -BLOCK_M.depth / 2], max: 
 export function buildYard(materials: YardMaterials = yardMaterials()): Yard {
   const group = new THREE.Group();
   group.name = 'yard';
-  const spans: YardSpan[] = SPAN_PLANS.map((plan, index) => {
+  let laid: ReadonlySet<string> = new Set();
+  const spans: LiveSpan[] = SPAN_PLANS.map((plan, index) => {
     const builder = new SpanBuilder(plan.id, materials, 1 + index * 37);
     plan.build(builder, materials);
     const built = builder.build();
-    return { id: plan.id, centre: plan.centre, normal: plan.normal, faces: innerFaces(pieceBoxes(built), BLOCK_BOX, plan.normal), cameraHides: plan.cameraHides, group: built };
+    return { id: plan.id, centre: plan.centre, normal: plan.normal, faces: innerFaces(pieceBoxes(built, laid), BLOCK_BOX, plan.normal), cameraHides: plan.cameraHides, group: built };
   });
   group.add(buildFloor(materials.floor), ...spans.map((span) => span.group));
+  const bridgeMeshes = spans.flatMap((span) => span.group.children.filter((child) => typeof child.userData['bridge'] === 'string').map((mesh) => ({ span, mesh, id: String(mesh.userData['bridge']) })));
 
   let enabled = true;
   let hidden: readonly YardSpanId[] = [];
   let camera: Vec3 | null = null;
-  const apply = (): void => {
+  const apply = (force = false): void => {
     if (camera === null) return;
     const ids = hiddenSpans(spans, camera, enabled);
-    if (ids.length === hidden.length && ids.every((id, index) => id === hidden[index])) return;
+    if (!force && ids.length === hidden.length && ids.every((id, index) => id === hidden[index])) return;
     hidden = ids;
     for (const span of spans) span.group.visible = !ids.includes(span.id);
   };
@@ -482,6 +428,17 @@ export function buildYard(materials: YardMaterials = yardMaterials()): Yard {
     update(position) {
       camera = [position.x, position.y, position.z];
       apply();
+    },
+    get bridges() {
+      return BRIDGES.map((bridge) => bridge.id).filter((id) => laid.has(id));
+    },
+    setBridges(ids) {
+      const next = new Set(ids);
+      if (next.size === laid.size && [...next].every((id) => laid.has(id))) return;
+      laid = next;
+      for (const { mesh, id } of bridgeMeshes) mesh.visible = laid.has(id);
+      for (const span of new Set(bridgeMeshes.map((item) => item.span))) span.faces = innerFaces(pieceBoxes(span.group, laid), BLOCK_BOX, span.normal);
+      apply(true);
     },
   };
 }
