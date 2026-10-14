@@ -22,6 +22,8 @@ import { createBlowCycle } from './tools/blow-cycle';
 import { TOOL_CATALOG } from './tools/catalog';
 import type { CatalogId } from './tools/catalog';
 import { ChipPool } from './tools/chips';
+import { recordStrikes } from './tools/dust';
+import { DustPool } from './tools/dust-pool';
 import { animateToolParts, toolModel } from './tools/geometry/index';
 import { createUi } from './ui';
 import type { Attribution } from './ui';
@@ -66,10 +68,12 @@ async function loadFigure(query: ViewerQuery, problems: string[]): Promise<Figur
  */
 async function createMakingForQuery(query: ViewerQuery, material: Material, problems: string[]): Promise<MakingBundle> {
   const blowCycle = createBlowCycle();
+  // The Making asks the cycle for chips; the log keeps those strikes for the dust puffs.
+  const strikes = recordStrikes(blowCycle);
   const toolMeshes = new Map<RenderedTool, Object3D>();
   for (const id of Object.keys(TOOL_CATALOG) as CatalogId[]) toolMeshes.set(id, toolModel(id));
   const figure = await loadFigure(query, problems);
-  const options = { figure: figure.grid, steps: DAVID_STEPS, stages: STAGES, blowCycle, material, workers: defaultWorkerCount() };
+  const options = { figure: figure.grid, steps: DAVID_STEPS, stages: STAGES, blowCycle: strikes.cycle, material, workers: defaultWorkerCount() };
   const making = createMaking(figure.header === undefined ? options : { ...options, header: figure.header });
   return {
     making,
@@ -78,6 +82,7 @@ async function createMakingForQuery(query: ViewerQuery, material: Material, prob
     toolNames: (tool) => ({ italian: TOOL_CATALOG[tool].italian, english: TOOL_CATALOG[tool].english }),
     carrySeconds: (blow, previous) => blowCycle.approachSeconds(blow, previous),
     source: figure.header?.source ?? null,
+    strikes,
   };
 }
 
@@ -150,7 +155,8 @@ const rig = createToolRig({
   },
 });
 const chips = new ChipPool();
-viewer.scene.add(making.stockObject, rig.group, chips.mesh);
+const dust = new DustPool();
+viewer.scene.add(making.stockObject, rig.group, chips.mesh, dust.points);
 const follow = createFollow(viewer.camera, viewer.controls);
 let view = camera.view;
 viewer.controls.addEventListener('start', () => {
@@ -299,7 +305,9 @@ viewer.start((seconds) => {
   }
   const current = making.current;
   rig.update(making.poses, current === null ? null : { tool: current.blow.tool, phase: current.phase });
+  bundle.strikes?.clear();
   chips.update(making.chips);
+  dust.update(bundle.strikes?.dust() ?? []);
   if (!query.shot && player.moving) {
     const framing = followFraming();
     follow.update(seconds, framing?.target ?? null, framing?.distance ?? DEFAULT_FOLLOW_DISTANCE, framing?.direction ?? null);
