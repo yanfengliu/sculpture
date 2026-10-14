@@ -1,8 +1,9 @@
 /**
- * A blow's frame and the distance helpers the tool volumes share (src/stock/tool-volumes.ts): the local frame of a blow (`n` the outward stock normal, `d` the tool axis from handle to tip, `u` the push direction and `w = n × u` across the blade), signed distances to a polygon, a rounded rectangle and an extrusion, and the world bounds of frame-local boxes and cylinders.
+ * A blow's frame and the distance helpers the tool volumes share (src/stock/tool-volumes.ts): the local frame of a blow (`n` the outward stock normal, `d` the tool axis from handle to tip, `u` the push direction and `w = n × u` across the blade), signed distances to a polygon, a rounded rectangle and an extrusion, the world bounds of frame-local boxes and cylinders, and the seeded irregularity of a blow (its seed, numbers drawn from it and a lattice of pits).
  * Every helper is a pure function of its arguments; the volumes build their shapes from them and nothing else here knows a tool.
  */
 import type { Blow, Vec3 } from '../contracts/making';
+import { FNV_OFFSET, fnvNumber } from './digest';
 
 export interface Frame {
   readonly px: number;
@@ -110,4 +111,62 @@ export function cylinderBounds(centre: Vec3, d: Vec3, radius: number, halfHeight
   const ey = extent(1);
   const ez = extent(2);
   return { min: [centre[0] - ex, centre[1] - ey, centre[2] - ez], max: [centre[0] + ex, centre[1] + ey, centre[2] + ez] };
+}
+
+/** A blow's seed from its own fields: FNV-1a over the IEEE-754 bytes of its point, direction and size (src/stock/digest.ts). Every path that rebuilds a volume from the blow (the main thread, the planner's scratch, the carve workers, which unpack the same doubles) draws the same irregularity from it, and no state outside the blow is read. */
+export function blowSeed(blow: Blow): number {
+  let h = FNV_OFFSET;
+  for (const v of blow.point) h = fnvNumber(h, v);
+  for (const v of blow.direction) h = fnvNumber(h, v);
+  return fnvNumber(h, blow.size);
+}
+
+/** Mixes a 32-bit integer (the finaliser of MurmurHash3): every input bit reaches every output bit. */
+function mix32(k: number): number {
+  let h = Math.imul(k ^ (k >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** The `n`-th number in [0, 1) drawn from `seed`. */
+export function seededUnit(seed: number, n: number): number {
+  return mix32((seed ^ Math.imul(n + 1, 0x9e3779b9)) >>> 0) / 4294967296;
+}
+
+/** The radii of the pits as fractions of the lattice's pitch, the smallest and the largest: each cell draws one between them. */
+const PIT_RADIUS_MIN = 0.25;
+const PIT_RADIUS_MAX = 0.42;
+/** Steepest slope of `pitDepth` per lattice unit: every pit is a cone of one slope, its depth its radius over the largest radius. */
+export const PIT_SLOPE = 1 / PIT_RADIUS_MAX;
+/** The mean of `pitDepth` over the lattice: a cone of radius r holds π r⁴ / 3 over the largest radius, and r is drawn evenly between the two radii. */
+export const PIT_MEAN = (Math.PI * (PIT_RADIUS_MAX ** 5 - PIT_RADIUS_MIN ** 5)) / (15 * (PIT_RADIUS_MAX - PIT_RADIUS_MIN) * PIT_RADIUS_MAX);
+
+/** The rows of the rotation of the unit quaternion (w, x, y, z), normalised first: three orthonormal vectors. */
+export function rotationRows(w: number, x: number, y: number, z: number): readonly [Vec3, Vec3, Vec3] {
+  const length = Math.sqrt(w * w + x * x + y * y + z * z);
+  const [a, b, c, d] = [w / length, x / length, y / length, z / length];
+  return [
+    [1 - 2 * (c * c + d * d), 2 * (b * c - a * d), 2 * (b * d + a * c)],
+    [2 * (b * c + a * d), 1 - 2 * (b * b + d * d), 2 * (c * d - a * b)],
+    [2 * (b * d - a * c), 2 * (c * d + a * b), 1 - 2 * (b * b + c * c)],
+  ];
+}
+
+/**
+ * The depth of a lattice of pits at lattice coordinates (x, y, z), 0 to 1: one conical pit per unit cell, the V of a point driven straight in (tools.md, Subbia), its radius and its centre drawn from the cell's integer coordinates and `seed`, the centre moved off the cell's middle as far as the cone stays inside the cell, so the pits fall irregularly and sampling on a grid gives noise, not the lattice's moiré. A plane through the lattice cuts each cone in a round pit whose width and depth depend on how near the centre it passes.
+ * Every cone has one slope, so a pit's depth is its radius over the largest radius; the field is zero on every cell face, so neighbouring cells meet without a step, and its slope is at most PIT_SLOPE per lattice unit.
+ */
+export function pitDepth(x: number, y: number, z: number, seed: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const iz = Math.floor(z);
+  const k = mix32((Math.imul(ix, 0x27d4eb2f) ^ Math.imul(iy, 0x165667b1) ^ Math.imul(iz, 0x61c88647) ^ seed) >>> 0);
+  const radius = PIT_RADIUS_MIN + (PIT_RADIUS_MAX - PIT_RADIUS_MIN) * ((k & 0xff) / 256);
+  // Each byte of the hash moves the centre along one axis by up to the room the cone leaves in the cell.
+  const room = 0.5 - radius;
+  const tx = x - ix - 0.5 - room * (((k >>> 8) & 0xff) / 128 - 1);
+  const ty = y - iy - 0.5 - room * (((k >>> 16) & 0xff) / 128 - 1);
+  const tz = z - iz - 0.5 - room * ((k >>> 24) / 128 - 1);
+  const pit = radius - Math.sqrt(tx * tx + ty * ty + tz * tz);
+  return pit > 0 ? pit / PIT_RADIUS_MAX : 0;
 }
