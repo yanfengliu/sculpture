@@ -1,6 +1,6 @@
 /**
  * Plan integrity of the David steps (src/choreography/david-steps.ts) against docs/design/choreography.md, over the synthetic figure at 2 cm cells, and the drill's landmarks on the David grid. What a green run proves, and its bounds:
- *   1. The 21 step ids are the contract's, in its order; every stage id of StageId appears in order and matches src/choreography/stages.ts; every step cites technique.md and keeps the title and detail lengths; every step changes the stock or the finish; every blow lies inside the block and within reach of a scaffold deck or plank bridge (src/tools/scaffold.ts through src/tools/blow-cycle.ts); every blow's tool axis points into the surface at an angle inside the tool catalog's documented range (the point's bulk range at or above BULK_CUT_SIZE_M), measured against the blow's own stored normal; blows within a stroke are consecutive and stroke indices unique in a step; two fresh Makings give the same length and digest; the calendar runs forward from 9 September 1501 to 8 September 1504 without overlap.
+ *   1. The 23 step ids are the contract's, in its order; every stage id of StageId appears in order and matches src/choreography/stages.ts; every step cites technique.md and keeps the title and detail lengths; every step changes the stock or the finish; every blow lies inside the block and within reach of a scaffold deck or plank bridge (src/tools/scaffold.ts through src/tools/blow-cycle.ts); every blow's tool axis points into the surface at an angle inside the tool catalog's documented range (the point's bulk range at or above BULK_CUT_SIZE_M), measured against the blow's own stored normal; blows within a stroke are consecutive and stroke indices unique in a step; two fresh Makings give the same length and digest; the calendar runs forward from Agostino's commission of 18 August 1464 (the nodo on 9 September 1501) to 8 September 1504 without overlap; every step has a positive rate or a direct count, and once planned its real blows per shown blow are the spec's rule over its planned blows.
  *   2. On the David grid (public/model/david.json beside its data, loaded from disk; skipped with a logged reason until `npm run model` builds it): every target of DAVID_LANDMARKS (the hairline path, the curls ring, the pupils and the nostrils) lies within 2 cm of the figure's surface, the holes generator's search (nearestOnFigure, 15 cm reach, 1 cm spacing) lands it, and the landing with the figure's gradient there is inside the step's region, HAIR for the hairline and the curls and FACE for the pupils and the nostrils, so the drill drops none of them as it dropped the photo-read targets of review F16; each target's move and landing region are logged (shown with --reporter=verbose).
  * Bounds: the plan is judged by its data, not by its look, and on the synthetic mannequin, not the David grid; the angle check trusts the stored normal, so a normal that is not the stock's gradient passes here and is the carve tests' claim; the blow budget at 8 mm is the slow test's claim; the landmark case pins the targets to this grid build (cell 8 mm, the Scan the World mesh), says nothing about whether a hole reads as a pupil or a curl at 8 mm, and runs the search on the figure alone, so a hole the stock would refuse (stockAbove) is the plan's claim; no network.
  */
@@ -85,7 +85,8 @@ describe('David steps', () => {
       expect(step.detail, step.id).toMatch(/technique\.md/);
       expect(step.calendar.from >= previousTo, `${step.id} starts before the previous step ends`).toBe(true);
       expect(step.calendar.from <= step.calendar.to, step.id).toBe(true);
-      expect(step.blowsPerShown, step.id).toBeGreaterThanOrEqual(1);
+      expect(step.rate, `${step.id} rate`).toBeGreaterThan(0);
+      if (step.realPerShown !== undefined) expect(Number.isInteger(step.realPerShown) && step.realPerShown >= 1, `${step.id} direct count ${String(step.realPerShown)}`).toBe(true);
       previousTo = step.calendar.to;
     }
     expect(DAVID_STEPS[0]?.calendar.from).toBe('1464-08-18');
@@ -103,6 +104,10 @@ describe('David steps', () => {
       if (step === undefined) throw new Error('missing step');
       const blows = a.blowsOf(s);
       expect(blows.length, `${step.id} plans no blows`).toBeGreaterThan(0);
+      // The real-blows rule of docs/design/spec.md (StepDef): the record's direct count, else the step's days × 5 working hours × 3600 s × its rate ÷ its planned blows, rounded, at least 1.
+      const days = Math.max(1, Math.round((Date.parse(step.calendar.to) - Date.parse(step.calendar.from)) / 86_400_000));
+      const expected = step.realPerShown ?? Math.max(1, Math.round((days * 5 * 3600 * step.rate) / blows.length));
+      expect(a.steps[s]?.blowsPerShown, `${step.id}: real blows per shown blow from ${String(blows.length)} planned`).toBe(expected);
       const stockChanged = differs(a.stock.values, stock);
       const finishChanged = differs(a.finish, finish);
       expect(stockChanged || finishChanged, `${step.id} changes neither stock nor finish`).toBe(true);

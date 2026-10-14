@@ -1,6 +1,6 @@
 /**
- * The making of the David, step by step: the 21 steps of docs/design/choreography.md (coordinator-owned), each citing docs/research/technique.md and tools.md, over the regions of ./regions.ts and the generators of ./generators/.
- * The calendar follows the two documented anchors (half done on 28 February 1502, nearly finished on 25 January 1504) with the technique note's inferred shares inside each span; `blowsPerShown` is the step's days × five hours × the tool's documented rate ÷ the shown blows the generator plans, rounded (docs/design/choreography.md, Steps).
+ * The making of the David, step by step: the 23 steps of docs/design/choreography.md (coordinator-owned), each citing docs/research/technique.md and tools.md, over the regions of ./regions.ts and the generators of ./generators/.
+ * The calendar follows the two documented anchors (half done on 28 February 1502, nearly finished on 25 January 1504) with the technique note's inferred shares inside each span; each step carries its tool's inferred rate, and the engine computes the real blows one shown blow stands for from it once the step is planned, the step's days × five hours × the rate ÷ the planned blows, rounded, unless the step gives the record's direct count (docs/design/choreography.md, Steps; src/timeline/step-info.ts).
  * Known compromises, stated in the details: a shown blow stands for many, the toothed marks are shading at 8 mm, drill holes come out oversized, the sling and stump regions are boxes (docs/research/decisions.md). The finishing passes (fine claw, rasp, file, pumice, polish, gilding) tile the skin at three quarters of each tool's footprint so every flesh cell reaches the step's margin; the fine claw's finishing blow is a combing patch (src/stock/tool-volumes.ts, PATCH_SIZE_M).
  */
 import type { Blow, PlanContext, StepDef, ToolId } from '../contracts/making';
@@ -16,11 +16,7 @@ import { AGOSTINO, BACK, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HAIR_BUT_CROWN
 
 /** The front of the block as a half relief: the three roughing steps take layers off the whole front, the knee and the hand emerging in the first, the chest and the face in the second, the legs and the base in the last (technique.md, Stage 2: Vasari's water rule). */
 const FRONT_RELIEF = relief(FRONT, 'front');
-/** Real blows one shown blow stands for: `days` of work at five hours a day and `rate` blows a second, over `shown` planned blows. */
-function ratio(days: number, rate: number, shown: number): number {
-  return Math.max(1, Math.round((days * 5 * 3600 * rate) / shown));
-}
-
+/** The inferred rate of real blows a second by tool (docs/research/decisions.md, the real-blows rule; tools.md gives no rate): the point one a second, the toothed chisels and the roundel one and a half, the rubbing tools, the drill, the charcoal and the brush one stroke a second. The engine turns it into the real blows one shown blow stands for once a step is planned (src/timeline/step-info.ts). */
 const RATE: Readonly<Record<ToolId, number>> = { charcoal: 1, point: 1, 'two-tooth': 1.5, claw: 1.5, 'fine-claw': 1.5, roundel: 1.5, flat: 1.5, drill: 1, rasp: 1, file: 1, pumice: 1, polish: 1, gilding: 1 };
 
 interface StepSpec {
@@ -34,20 +30,13 @@ interface StepSpec {
   readonly weight: number;
   readonly from: string;
   readonly to: string;
-  /** Planned blows the generator is expected to produce (docs/design/choreography.md); only the ratio uses it. */
-  readonly shown: number;
-  /** Real blows per shown blow when the record gives them directly (the nodo's one or two blows, a drawn mark, a drilled hole), instead of the rate ratio. */
+  /** Real blows per shown blow when the record gives them directly (the nodo's one or two blows, a drawn mark, a drilled hole, a brush stroke), instead of the rate rule. */
   readonly realPerShown?: number;
   readonly focus?: StepDef['focus'];
   readonly plan: (ctx: PlanContext) => readonly Blow[];
 }
 
-function days(from: string, to: string): number {
-  return Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000));
-}
-
 function step(spec: StepSpec): StepDef {
-  const blowsPerShown = spec.realPerShown ?? ratio(days(spec.from, spec.to), RATE[spec.tool], spec.shown);
   const def: StepDef = {
     id: spec.id,
     stage: spec.stage,
@@ -56,7 +45,8 @@ function step(spec: StepSpec): StepDef {
     tool: spec.tool,
     region: spec.region,
     margin: spec.margin,
-    blowsPerShown,
+    rate: RATE[spec.tool],
+    ...(spec.realPerShown === undefined ? {} : { realPerShown: spec.realPerShown }),
     weight: spec.weight,
     calendar: { from: spec.from, to: spec.to },
     plan: spec.plan,
@@ -76,7 +66,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.0,
     from: '1464-08-18',
     to: '1466-04-30',
-    shown: 400,
     focus: { kind: 'tip', distance: 2.2 },
     plan: pointPlan('agostino'),
   }),
@@ -91,7 +80,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.5,
     from: '1466-04-30',
     to: '1466-04-30',
-    shown: 100,
     focus: { kind: 'tip', distance: 1.8 },
     plan: pointPlan('hole-between-legs'),
   }),
@@ -106,7 +94,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.5,
     from: '1501-09-09',
     to: '1501-09-09',
-    shown: 2,
     realPerShown: 1,
     focus: { kind: 'tip', distance: 1.6 },
     plan: pointPlan('nodo'),
@@ -122,7 +109,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.6,
     from: '1501-09-13',
     to: '1501-09-20',
-    shown: 400,
     realPerShown: 1,
     plan: (ctx) => drawing(ctx, { stride: 0.05, angle: 35 }),
   }),
@@ -137,7 +123,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.85,
     from: '1501-09-20',
     to: '1501-10-22',
-    shown: 1500,
     focus: { kind: 'tip', distance: 2.2 },
     plan: pointPlan('high-points'),
   }),
@@ -152,7 +137,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.85,
     from: '1501-10-22',
     to: '1501-11-23',
-    shown: 1500,
     focus: { kind: 'tip', distance: 2.2 },
     plan: pointPlan('chest-and-face'),
   }),
@@ -167,7 +151,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 2.5,
     from: '1501-11-23',
     to: '1502-01-04',
-    shown: 3000,
     plan: pointPlan('front-furrows'),
   }),
   step({
@@ -181,7 +164,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.0,
     from: '1502-01-04',
     to: '1502-01-31',
-    shown: 1200,
     plan: (ctx) => combing(ctx, { tool: 'two-tooth', pitch: 0.1, stride: 0.08, size: 0.012, angle: 45, passes: ['horizontal'], untilCovered: false }),
   }),
   step({
@@ -195,7 +177,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.1,
     from: '1502-01-31',
     to: '1502-02-28',
-    shown: 1200,
     plan: (ctx) => combing(ctx, { tool: 'claw', pitch: 0.1, stride: 0.08, size: 0.008, angle: 45, passes: ['diagonal'], untilCovered: false }),
   }),
   step({
@@ -209,7 +190,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 3.0,
     from: '1502-02-28',
     to: '1502-05-09',
-    shown: 1500,
     plan: pointPlan('sides-point'),
   }),
   step({
@@ -223,7 +203,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.5,
     from: '1502-05-09',
     to: '1502-07-11',
-    shown: 1200,
     plan: pointPlan('back-point'),
   }),
   step({
@@ -237,7 +216,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.75,
     from: '1502-07-11',
     to: '1502-09-19',
-    shown: 1500,
     plan: (ctx) => combing(ctx, { tool: 'claw', pitch: 0.1, stride: 0.08, size: 0.008, angle: 45, passes: ['diagonal'], untilCovered: false }),
   }),
   step({
@@ -251,7 +229,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.9,
     from: '1502-09-19',
     to: '1502-12-26',
-    shown: 2000,
     plan: (ctx) => combing(ctx, { tool: 'fine-claw', pitch: 0.06, stride: 0.07, size: 0.04, angle: 45, passes: ['diagonal'] }),
   }),
   step({
@@ -265,7 +242,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.4,
     from: '1502-12-26',
     to: '1503-02-21',
-    shown: 600,
     focus: { kind: 'tip', distance: 1.4 },
     plan: (ctx) => scoop(ctx, { stride: 0.05, size: 0.004, angle: 45 }),
   }),
@@ -280,7 +256,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.5,
     from: '1503-02-21',
     to: '1503-03-25',
-    shown: 300,
     realPerShown: 3,
     focus: { kind: 'tip', distance: 1.2 },
     plan: (ctx) => holes(ctx, { paths: [DAVID_LANDMARKS.hairline, DAVID_LANDMARKS.curls], pitch: 0.02, depth: 0.015, runningAngle: 40 }),
@@ -296,7 +271,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.3,
     from: '1503-03-25',
     to: '1503-04-10',
-    shown: 12,
     realPerShown: 1,
     focus: { kind: 'tip', distance: 1.0 },
     plan: (ctx) => holes(ctx, { points: [...DAVID_LANDMARKS.pupils, ...DAVID_LANDMARKS.nostrils], pitch: 0.02, depth: 0.012, runningAngle: 40 }),
@@ -312,7 +286,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.4,
     from: '1503-04-10',
     to: '1503-05-09',
-    shown: 200,
     realPerShown: 2,
     focus: { kind: 'tip', distance: 1.2 },
     plan: (ctx) => holes(ctx, { points: [...FINGER_GAPS, ...SLING_GAP, ...STUMP_GAPS], paths: [FINGER_GAPS, STUMP_GAPS], pitch: 0.02, depth: 0.02, runningAngle: 40 }),
@@ -328,7 +301,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 2.4,
     from: '1503-05-09',
     to: '1503-07-19',
-    shown: 1500,
     plan: (ctx) => rasping(ctx, { tool: 'rasp', pitch: 0.0375, stride: 0.07, size: 0.03, angle: 10, passes: ['diagonal'] }),
   }),
   step({
@@ -342,7 +314,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.5,
     from: '1503-07-19',
     to: '1503-09-02',
-    shown: 500,
     focus: { kind: 'tip', distance: 1.2 },
     plan: (ctx) => rasping(ctx, { tool: 'file', pitch: 0.0225, stride: 0.036, size: 0.02, angle: 10, passes: ['vertical'] }),
   }),
@@ -357,7 +328,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.3,
     from: '1503-09-02',
     to: '1503-11-21',
-    shown: 1500,
     plan: (ctx) => abrading(ctx, { tool: 'pumice', pitch: 0.06, stride: 0.07, size: 0.004, angle: 5, passes: ['horizontal'] }),
   }),
   step({
@@ -371,7 +341,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.95,
     from: '1503-11-21',
     to: '1504-01-25',
-    shown: 1000,
     plan: (ctx) => abrading(ctx, { tool: 'polish', pitch: 0.075, stride: 0.09, size: 0, angle: 8, passes: ['diagonal'] }),
   }),
   step({
@@ -385,7 +354,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.3,
     from: '1504-06-08',
     to: '1504-06-30',
-    shown: 60,
     realPerShown: 50,
     focus: { kind: 'tip', distance: 1.2 },
     plan: (ctx) => rasping(ctx, { tool: 'file', pitch: 0.2, stride: 0.15, size: 0.001, angle: 10, passes: ['diagonal'] }),
@@ -401,7 +369,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.3,
     from: '1504-07-01',
     to: '1504-09-08',
-    shown: 300,
     realPerShown: 4,
     focus: { kind: 'tip', distance: 1.6 },
     plan: (ctx) => gild(ctx, { pitch: 0.06, stride: 0.05, angle: 30 }),

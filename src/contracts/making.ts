@@ -77,8 +77,10 @@ export interface StepDef {
   readonly region: RegionDef;
   /** Metres left above the final surface at the end of this step. */
   readonly margin: number;
-  /** Real blows one shown blow stands for. */
-  readonly blowsPerShown: number;
+  /** Real blows a second at the tool, inferred (docs/research/decisions.md, the real-blows rule: the point one a second, the toothed chisels one and a half, the rubbing tools one stroke): with the step's calendar days at WORK_HOURS_PER_DAY, it gives the real blows one shown blow stands for once the step is planned (StepInfo.blowsPerShown). Positive. */
+  readonly rate: number;
+  /** Real blows one shown blow stands for when the record gives the count directly (the knot's one or two blows, a drawn mark, a drilled hole, a brush stroke), instead of the rate rule; a whole number of at least 1. */
+  readonly realPerShown?: number;
   /** Playback duration multiplier; 1 is BASE_SECONDS per step. */
   readonly weight: number;
   /** ISO dates the step spans in the simulated calendar. */
@@ -127,6 +129,7 @@ export interface StepInfo {
   readonly title: string;
   readonly detail: string;
   readonly tool: ToolId;
+  /** Real blows one shown blow stands for: the step's `realPerShown` when it has one, else the step's calendar days × WORK_HOURS_PER_DAY × 3600 s × its `rate` ÷ its planned blows, rounded, at least 1; 0 while the step is not planned yet. */
   readonly blowsPerShown: number;
   readonly weight: number;
   readonly calendar: { readonly from: string; readonly to: string };
@@ -190,3 +193,6 @@ export interface Player {
 
 /** Seconds per step at speed 1 and weight 1. */
 export const BASE_SECONDS = 12;
+
+/** Working hours a day the real-blows rule assumes (docs/research/decisions.md, the real-blows rule; inferred, no source gives a working day). */
+export const WORK_HOURS_PER_DAY = 5;
