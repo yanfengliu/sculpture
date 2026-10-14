@@ -6,10 +6,10 @@
  */
 import type { Vec3 } from '../contracts/making';
 
-export type YardSpanId = 'wall-left' | 'wall-right' | 'wall-back' | 'scaffold-front' | 'scaffold-left' | 'scaffold-right' | 'scaffold-back' | 'bench' | 'model-stand';
+export type YardSpanId = 'wall-left' | 'wall-right' | 'wall-back' | 'scaffold-front' | 'head-bridge' | 'scaffold-left' | 'scaffold-right' | 'scaffold-back' | 'bench' | 'model-stand';
 
-/** Every span the yard builds, in the order the facts list them: the three turata walls, the scaffold's front, sides and back (the bridges behind the block), the bench and the model stand. */
-export const YARD_SPAN_IDS: readonly YardSpanId[] = ['wall-left', 'wall-right', 'wall-back', 'scaffold-front', 'scaffold-left', 'scaffold-right', 'scaffold-back', 'bench', 'model-stand'];
+/** Every span the yard builds, in the order the facts list them: the three turata walls, the scaffold's front, the head bridge across the front, the scaffold's sides and back (the bridges behind the block), the bench and the model stand. */
+export const YARD_SPAN_IDS: readonly YardSpanId[] = ['wall-left', 'wall-right', 'wall-back', 'scaffold-front', 'head-bridge', 'scaffold-left', 'scaffold-right', 'scaffold-back', 'bench', 'model-stand'];
 
 export interface SpanGeometry {
   readonly id: YardSpanId;
