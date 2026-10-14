@@ -6,12 +6,13 @@
  *   4. Blow `k` of a step applies when the position passes STRIKE_PHASE of its window `[k / count, (k + 1) / count)`, the blow in progress is the window's blow at its phase, and chips come from struck blows only.
  *   5. Jumps: a Making whose forward moves of 4 blows or more go through the chunk carve jobs (the in-process carver) matches a serial Making byte for byte, in the grids, the meshes, the poses and the chips, over 24 scrubs and plays, keeps `dirtyChunks` at 0 once `setTime` returns, and undoes the jumped blows back to the untouched block.
  *   6. Cycles: a step with more blows than its playing seconds allow visible strikes is cut into cycles of `group` consecutive blows; the cycle's first blow is the one in progress, the whole group applies at the cycle's strike, and the step's end applies every blow.
+ *   7. Look-back: at `t = 1.01`, before the second step's first strike, the chips shown are exactly those of the first step's last strikes still within the stub cycle's 1.5 s lifetime, newest first, each at its own seconds since its strike.
  * Bounds: the steps here are inline rasters, not the choreography; the mesher is synchronous; the carver runs in-process, so the worker pool's transport is not exercised; nothing is rendered.
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 
-import { type Blow, type BlowCycle, type ChipState, type PlanContext, type StageDef, type StepDef, STRIKE_PHASE, type ToolId, type ToolPose } from '../contracts/making';
+import { BASE_SECONDS, type Blow, type BlowCycle, type ChipState, type PlanContext, type StageDef, type StepDef, STRIKE_PHASE, type ToolId, type ToolPose } from '../contracts/making';
 import { BLOCK_M } from '../david/frame';
 import { syntheticFigure } from '../david/synthetic';
 import { FNV_OFFSET, fnvArray, fnvHex, fnvNumber, fnvText } from '../stock/digest';
@@ -200,6 +201,31 @@ describe('making', () => {
     making.setTime(1);
     expect(making.blowsApplied).toBe(count);
     expect(making.poses).toEqual([]);
+  });
+
+  it("shows the previous step's last strikes' chips when the next step is young", () => {
+    const making = fresh();
+    making.setTime(1.01);
+    // Step 1 is a hundredth in, before its first strike, so every chip is step 0's: its last strikes, newest first, as long as the stub still shows them.
+    expect(making.blowsApplied).toBe(making.steps[0]?.blowCount);
+    const { cycles, group } = making.cyclesOf(0);
+    expect(group).toBe(1);
+    const elapsed = (making.t - 1) * BASE_SECONDS;
+    const secondsPerCycle = BASE_SECONDS / cycles;
+    const expected: ChipState[] = [];
+    for (let c = cycles - 1; c >= 0; c -= 1) {
+      const blow = making.blowsOf(0)[c];
+      if (blow !== undefined) expected.push(...cycle.chipsAt(blow, elapsed + (cycles - (c + STRIKE_PHASE)) * secondsPerCycle));
+    }
+    expect(expected.length).toBeGreaterThan(1);
+    expect(expected.length).toBeLessThan(cycles);
+    expect(making.chips.length).toBe(expected.length);
+    making.chips.forEach((chip, i) => {
+      const want = expected[i] as ChipState;
+      for (let axis = 0; axis < 3; axis += 1) expect(chip.position[axis]).toBeCloseTo(want.position[axis] ?? Number.NaN, 9);
+      expect(chip.life).toBeCloseTo(want.life, 9);
+    });
+    expect(making.chips[0]?.position[0]).toBe(making.blowsOf(0)[cycles - 1]?.point[0]);
   });
 
   it('jumps through chunk jobs to the same bytes as the serial path, with exact undo', () => {
