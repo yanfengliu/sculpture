@@ -3,7 +3,7 @@
  *   1. At a 4 cm cell the sampled grid's inside cells reach from the floor (min y within a cell of 0) to the statue's height (max y within a cell of STATUE_HEIGHT_M), stay inside the block and keep 8 cm of clearance to its side and top faces (the base stands on the bottom face).
  *   2. The grid agrees with the analytic distance at seeded random cells to within one fixed-point step after clamping, so the per-part sampling is the union it claims to be.
  *   3. The inside volume lies between 1.5 and 4.5 m³, the left hand sits at the left shoulder, the right hand at the right thigh, the left foot's toes reach further forward (+Z) than the right's, and the pose is not mirror-symmetric.
- *   4. The 1.6 cm build finishes in under 2 s, a loose bound; the 8 mm build is measured once by hand and reported in the handoff, not here.
+ *   4. The 1.6 cm build takes under 2 s of this file's own CPU time (`process.cpuUsage()`, not wall time, which grows with the suite's parallel files), a loose bound; the 8 mm build is measured once by hand and reported in the handoff, not here.
  * Bounds: the figure is a mannequin, not the David; nothing here compares it with the reference photographs.
  */
 import { describe, expect, it } from 'vitest';
@@ -106,10 +106,11 @@ describe('synthetic figure', () => {
     expect(asymmetric).toBeGreaterThan(100);
   });
 
-  it('builds the 1.6 cm grid in under 2 s', () => {
-    const start = performance.now();
+  it('builds the 1.6 cm grid in under 2 s of CPU time', () => {
+    const before = process.cpuUsage();
     const fine = syntheticFigure(0.016);
-    const seconds = (performance.now() - start) / 1000;
+    const used = process.cpuUsage(before);
+    const seconds = (used.user + used.system) / 1e6;
     expect(fine.nx * fine.ny * fine.nz).toBeGreaterThan(1_000_000);
     expect(seconds).toBeLessThan(2);
   });

@@ -13,7 +13,8 @@ describe('createPlayer', () => {
   it('starts at rest at t = 0 with N steps, speed 1 and nothing moving', () => {
     const player = createPlayer(WEIGHTS);
     expect(player).toMatchObject({ t: 0, N: 3, playing: null, speed: 1, target: null, moving: false });
-    expect(SPEEDS).toEqual([0.5, 1, 2, 4]);
+    expect(SPEEDS).toContain(player.speed);
+    expect([...SPEEDS].sort((a, b) => a - b)).toEqual([...SPEEDS]);
   });
 
   it('plays forward at weight × BASE_SECONDS / speed seconds per step and reports whether t changed', () => {

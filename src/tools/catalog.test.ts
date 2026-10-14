@@ -70,14 +70,21 @@ describe('tool catalog', () => {
   });
 
   it('reads a dimension by key and names the tool and key when it is missing', () => {
-    expect(dimension('point', 'shaftLength')).toBe(0.28);
+    expect(dimension('point', 'shaftLength')).toBe(TOOL_CATALOG.point.dimensions['shaftLength']?.value);
     expect(() => dimension('point', 'bowLength')).toThrow(/point has no bowLength/);
   });
 
   it('keeps the point steeper than the toothed chisels only for bulk cuts and the drill at the running-drill angle', () => {
-    expect(TOOL_CATALOG.point.angle).toEqual({ min: 30, max: 90, inferred: false });
-    expect(TOOL_CATALOG.claw.angle).toEqual({ min: 35, max: 60, inferred: false });
-    expect(TOOL_CATALOG.drill.angle).toEqual({ min: 35, max: 45, inferred: false });
-    expect(TOOL_CATALOG.mallet.dimensions.handleLength).toEqual({ value: 0.175, inferred: false });
+    const { point, claw, drill } = { point: TOOL_CATALOG.point.angle, claw: TOOL_CATALOG.claw.angle, drill: TOOL_CATALOG.drill.angle };
+    if (point === null || claw === null || drill === null) throw new Error('the point, the claw and the drill each need a working angle range');
+    // Only bulk cuts go steeper than any toothed chisel; the sculptor's stroke lies lower than the claw's lowest.
+    expect(point.max).toBeGreaterThan(claw.max);
+    expect(point.min).toBeLessThan(claw.min);
+    // The running drill works inside the claw's range, at a narrower span.
+    expect(drill.min).toBeGreaterThanOrEqual(claw.min);
+    expect(drill.max).toBeLessThanOrEqual(claw.max);
+    expect(drill.max - drill.min).toBeLessThan(claw.max - claw.min);
+    expect([point.inferred, claw.inferred, drill.inferred]).toEqual([false, false, false]);
+    expect(TOOL_CATALOG.mallet.dimensions['handleLength']?.inferred).toBe(false);
   });
 });

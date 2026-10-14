@@ -11,7 +11,9 @@ const withoutBridges = [FLOOR, ...DECKS];
 
 describe('scaffold', () => {
   it('rings the front and sides at two levels a scaffold\u2019s clearance from the block, with the bridges between the side decks', () => {
-    expect(DECK_LEVELS).toEqual([1.5, 3.2]);
+    expect([...DECK_LEVELS].sort((a, b) => a - b)).toEqual([...DECK_LEVELS]);
+    // From the top deck a standing sculptor reaches the block's top face.
+    expect(Math.max(...DECK_LEVELS) + REACH.above).toBeGreaterThanOrEqual(BLOCK_M.height);
     expect(DECKS).toHaveLength(6);
     expect(DECK_EXTENTS.innerX).toBeCloseTo(BLOCK_M.width / 2 + SCAFFOLD_TIMBER.clearance, 9);
     expect(DECK_EXTENTS.frontZMin).toBeCloseTo(BLOCK_M.depth / 2 + SCAFFOLD_TIMBER.clearance, 9);

@@ -13,3 +13,23 @@ A gate counts only once it has gone red with its defect reintroduced (`../fleet/
 **Mutation 2:** `cameraOutside` in `src/viewer/yard-spans.ts` put back to the centre-plane test of `97f0b3a`. Red: `116 crossings`.
 
 Both restored; the file passes 3 of 3.
+
+## Pinned constants: no test asserts an imported constant's literal value (2026-10-14)
+
+**Gate:** `src/repo-conventions.test.ts`, "asserts the literal value of no imported constant in a test file": a line `expect(NAME…).toBe|toEqual|toStrictEqual(<literal>)` in a `*.test.ts` or `*.spec.ts`, where NAME is an UPPER_SNAKE_CASE name the file imports (from `src/contracts/` or any module). It retires the lesson of 2026-10-11 (`scripts/lib/model/grid-writer.test.ts` pinned `DEFAULT_BAND_CELLS` at 32 and went red on the decision to make it 16, never on a defect).
+
+**First run:** 12 hits in 10 files (`DEFAULT_PORT`, `BROWSER_CHANNEL`, `FIXED_POINT`, `SPEEDS`, `TOOL_CATALOG.point.angle` and three more catalog lines, `PROP_IDS`, `DECK_LEVELS`, `CALENDAR_START`, `DEFAULT_MODEL`), each rewritten to test what the code does with the constant.
+
+**Mutation:** `expect(DEFAULT_BAND_CELLS).toBe(16);` added to `scripts/lib/model/grid-writer.test.ts`, a pin that passes on its own. Red: `scripts/lib/model/grid-writer.test.ts:29 asserts an imported constant's literal value (expect(DEFAULT_BAND_CELLS).toBe(16);)`, while the writer's own 17 tests stayed green. Restored.
+
+**Retired evidence:** `git show 85149b1:docs/learning/lessons-evidence.md`, section `pinned-constant-2026-10-11`.
+
+## Wall-clock bounds: no test bounds a wall-clock delta (2026-10-14)
+
+**Gate:** `src/repo-conventions.test.ts`, "bounds no wall-clock time in a test file": an ordering matcher on `performance.now() -` or `Date.now() -`, or on a name the file assigned, pushed or derived from one. It retires the lesson of 2026-10-14 (the determinism case of `src/timeline/making.test.ts` failed one full-suite run at 3.35 s and passed the next).
+
+**First run:** 2 hits, `src/david/synthetic.test.ts` (the 1.6 cm build under 2 s) and `src/stock/mesher.test.ts` (the sphere chunk's median under 5 ms), both moved to the file's own CPU time with `process.cpuUsage()`; the mesher times its 200 runs together, since the process CPU clock ticks at about 16 ms on Windows.
+
+**Mutation:** the determinism case put back to `const start = performance.now()` and `expect(performance.now() - start).toBeLessThan(3000)`. Red: `src/timeline/making.test.ts:131 bounds a wall-clock time (expect(performance.now() - start).toBeLessThan(3000);)`. Restored.
+
+**Retired evidence:** `git show 85149b1:docs/learning/lessons-evidence.md`, section `wall-clock-bound-2026-10-14`.

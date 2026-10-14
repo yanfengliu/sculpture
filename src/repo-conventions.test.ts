@@ -18,7 +18,13 @@
  *   3. No environment reads. No file under `src/`, tests included, matches /import\.meta\.env/ or /process\.env/: runtime inputs reach the app through the page URL only. This header writes both as escaped regexes so it matches neither.
  *      - Blind spots: an alias of the meta object, a computed key, and files outside `src/` (`vite.config.ts` and `scripts/harness.mjs` read the process environment on purpose).
  *
- *   4. Anti-vacuity. Each root exists and holds at least one text file, so a renamed root or a broken walk fails instead of reporting "passed" for "did not run". The detectors also run on synthetic input below, so each has been seen to fail.
+ *   4. No pinned constants. No test file (`*.test.ts`, `*.spec.ts`) under the three roots asserts the literal value of a constant it imports: a line matching `expect(NAME…).toBe|toEqual|toStrictEqual(<literal>)` fails, with its path, line and text, where NAME is an UPPER_SNAKE_CASE name the file imports (from `src/contracts/` or any other module), optionally followed by member or index access, and the literal starts with a digit, a minus sign, a quote, `{` or `[`. A constant is a decision; a test checks what the code does with it (the lesson of 2026-10-11: `scripts/lib/model/grid-writer.test.ts` pinned `DEFAULT_BAND_CELLS` and went red on the next decision, never on a defect).
+ *      - Line-based: an `expect(` split over lines, a constant renamed on import into lower case, or a constant reached through a function call (`dimension('point', 'shaftLength')`) passes.
+ *
+ *   5. No wall-clock bounds. No test file asserts an ordering bound (`toBeLessThan`, `toBeLessThanOrEqual`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`) on a wall-clock delta: `performance.now() -` or `Date.now() -` inside the `expect(…)`, or a name the file assigned, pushed or derived from one (followed through any number of assignments in the file). A bound in wall time measures the machine's load as much as the code (the lesson of 2026-10-14: the determinism case of `src/timeline/making.test.ts` passed one full-suite run and failed the next at 3.35 s); state it in the file's own CPU time (`process.cpuUsage()`) or move it to the slow suite. A logged timing that asserts nothing stays.
+ *      - Textual: a delta computed in a helper in another file, a destructured name, or `new Date()` arithmetic passes.
+ *
+ *   6. Anti-vacuity. Each root exists and holds at least one text file, so a renamed root or a broken walk fails instead of reporting "passed" for "did not run". The detectors also run on synthetic input below, so each has been seen to fail.
  *
  * This file reads the repository's own sources from disk and imports nothing from the app. It needs no browser.
  */
@@ -43,6 +49,15 @@ const BINARY_PROBE_BYTES = 8000;
 const URL_PATTERNS: readonly RegExp[] = [/\blocation\b/, /new URL\(/, new RegExp(['URLSearch', 'Params'].join(''))];
 /** Escaped, so this file's own source matches neither pattern and needs no exemption from itself. */
 const ENV_PATTERNS: readonly RegExp[] = [/import\.meta\.env/, /process\.env/];
+const ANY_TEST_FILE = /\.(test|spec)\.ts$/;
+/** `expect(NAME…)` asserted equal to a literal; group 1 is the constant's name. Written with character classes so this file's own text does not match it. */
+const PINNED = /\bexpect[(]\s*([A-Z][A-Z0-9_]*)(?:\.[A-Za-z_$][\w$]*|\[[^\]]*\])*\s*(?:,[^)]*)?[)]\s*\.(?:toBe|toEqual|toStrictEqual)[(]\s*(?:-?\d|['"`{[])/;
+/** The names an import clause brings in, as written in the importing file. */
+const IMPORT_CLAUSE = /\bimport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"][^'"]+['"]/g;
+/** A wall-clock delta: the clock read and something subtracted from it. Built from fragments so this file's own text does not match it. */
+const WALL_CLOCK = new RegExp(['\\b(?:performance\\.now|Date\\.now)', '\\(\\)\\s*-'].join(''));
+const ORDERING_MATCHER = /\.(?:toBeLessThan|toBeLessThanOrEqual|toBeGreaterThan|toBeGreaterThanOrEqual)\(/;
+const ASSIGNED_NAMES: readonly RegExp[] = [/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g, /\b([A-Za-z_$][\w$]*)\.push\(/g, /(?:^\s*|[;{]\s*)([A-Za-z_$][\w$]*)\s*[-+*/]?=(?![=>])/g];
 
 interface SourceFile {
   /** Repository-relative, always with `/` separators. */
@@ -126,6 +141,88 @@ function envReads(files: readonly SourceFile[]): Hit[] {
   return matchingLines(files, ENV_PATTERNS, (path) => path.startsWith(SRC_ROOT));
 }
 
+/** The names `text` imports, local names after `as`. */
+function importedNames(text: string): Set<string> {
+  const names = new Set<string>();
+  for (const clause of text.matchAll(IMPORT_CLAUSE)) {
+    for (const part of (clause[1] ?? '').split(',')) {
+      const name = part.replace(/^\s*type\s+/, '').split(/\s+as\s+/).at(-1)?.trim();
+      if (name !== undefined && name !== '') names.add(name);
+    }
+  }
+  return names;
+}
+
+/** Assertions of an imported constant's literal value in test files. */
+function pinnedConstants(files: readonly SourceFile[]): Hit[] {
+  const hits: Hit[] = [];
+  for (const { path, text } of files) {
+    if (!ANY_TEST_FILE.test(path)) continue;
+    const imported = importedNames(text);
+    text.split(LINE_BREAK).forEach((line, index) => {
+      const name = PINNED.exec(line)?.[1];
+      if (name !== undefined && imported.has(name)) hits.push({ path, line: index + 1, text: line.trim() });
+    });
+  }
+  return hits;
+}
+
+/** The text inside the first `expect(…)` of a line, to its matching parenthesis. */
+function expectArgument(line: string): string | null {
+  const start = line.indexOf('expect(');
+  if (start < 0) return null;
+  let depth = 0;
+  for (let i = start + 'expect'.length; i < line.length; i += 1) {
+    if (line[i] === '(') depth += 1;
+    else if (line[i] === ')') {
+      depth -= 1;
+      if (depth === 0) return line.slice(start + 'expect('.length, i);
+    }
+  }
+  return line.slice(start + 'expect('.length);
+}
+
+const mentions = (text: string, names: ReadonlySet<string>): boolean => [...names].some((name) => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(text));
+
+/** Ordering bounds on a wall-clock delta in test files, following the delta through the names it is assigned to. */
+function wallClockBounds(files: readonly SourceFile[]): Hit[] {
+  const hits: Hit[] = [];
+  for (const { path, text } of files) {
+    if (!ANY_TEST_FILE.test(path)) continue;
+    const lines = text.split(LINE_BREAK);
+    const tainted = new Set<string>();
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const line of lines) {
+        if (!WALL_CLOCK.test(line) && !mentions(line, tainted)) continue;
+        for (const pattern of ASSIGNED_NAMES) {
+          for (const match of line.matchAll(pattern)) {
+            const name = match[1];
+            if (name !== undefined && !tainted.has(name)) {
+              tainted.add(name);
+              grew = true;
+            }
+          }
+        }
+      }
+    }
+    lines.forEach((line, index) => {
+      const argument = expectArgument(line);
+      if (argument === null || !ORDERING_MATCHER.test(line)) return;
+      if (WALL_CLOCK.test(argument) || mentions(argument, tainted)) hits.push({ path, line: index + 1, text: line.trim() });
+    });
+  }
+  return hits;
+}
+
+function describePinned({ path, line, text }: Hit): string {
+  return `${path}:${String(line)} asserts an imported constant's literal value (${text}): that compares the constant with itself and goes red on the next decision, never on a defect; test what the code does with the constant instead.`;
+}
+
+function describeWallClock({ path, line, text }: Hit): string {
+  return `${path}:${String(line)} bounds a wall-clock time (${text}): wall time grows with the machine's load and the suite's parallel files; measure the file's own CPU time with process.cpuUsage() or move the bound to the slow suite.`;
+}
+
 function describeLineOffender({ path, lines }: LineOffender): string {
   return `${path} has ${String(lines)} lines, ${String(lines - MAX_LINES)} over the ${String(MAX_LINES)}-line bound: split it into modules of one concern each.`;
 }
@@ -156,6 +253,16 @@ describe('repository conventions', () => {
 
   it('reads no build or process environment under src/', () => {
     expect(envReads(loadRoot('src')).map(describeEnvRead)).toEqual([]);
+  });
+
+  it('asserts the literal value of no imported constant in a test file', () => {
+    const files = LINE_ROOTS.flatMap((root) => loadRoot(root));
+    expect(files.filter(({ path }) => ANY_TEST_FILE.test(path)).length).toBeGreaterThan(10);
+    expect(pinnedConstants(files).map(describePinned)).toEqual([]);
+  });
+
+  it('bounds no wall-clock time in a test file', () => {
+    expect(wallClockBounds(LINE_ROOTS.flatMap((root) => loadRoot(root))).map(describeWallClock)).toEqual([]);
   });
 });
 
@@ -214,5 +321,39 @@ describe('repository convention detectors', () => {
       { path: 'src/viewer/a.ts', line: 2, text: `const mode = ${viteEnv}.MODE;` },
       { path: 'src/viewer/b.test.ts', line: 1, text: `const port = ${nodeEnv}.SCULPTURE_PORT;` },
     ]);
+  });
+
+  it('finds an imported constant asserted equal to a literal, through members and indexes, and nothing else', () => {
+    const pin = (name: string, literal: string): string => ['expect', '(', name, ').toBe(', literal, ');'].join('');
+    const files: SourceFile[] = [
+      { path: 'scripts/lib/model/grid-writer.test.ts', text: `import { DEFAULT_BAND_CELLS, FIXED_POINT } from '../../../src/contracts/grid';\n${pin('DEFAULT_BAND_CELLS', '32')}\n${pin('FIXED_POINT', 'DEFAULT_BAND_CELLS * 8')}\n` },
+      { path: 'src/tools/catalog.test.ts', text: `import { TOOL_CATALOG } from './catalog';\n${['expect', '(TOOL_CATALOG.point.angle).toEqual({ min: 30 });'].join('')}\n${['expect', "(TOOL_CATALOG['claw'].chips, 'chips').toStrictEqual([1]);"].join('')}\n` },
+      { path: 'src/ui/label.test.ts', text: `import { CALENDAR_START } from './label';\n${pin('CALENDAR_START', "'1501-09-09'")}\n${pin('dayNumber(CALENDAR_START)', '1')}\n` },
+      { path: 'src/viewer/local.test.ts', text: `const LIMIT = 3;\n${pin('LIMIT', '3')}\n` },
+      { path: 'src/viewer/renamed.test.ts', text: `import { MAX as LIMIT, MIN } from './limits';\n${pin('LIMIT', '-1')}\n${pin('MAX', '2')}\n` },
+      { path: 'src/viewer/app.ts', text: `import { MAX } from './limits';\n${pin('MAX', '2')}\n` },
+    ];
+    expect(pinnedConstants(files).map(({ path, line }) => `${path}:${String(line)}`)).toEqual([
+      'scripts/lib/model/grid-writer.test.ts:2',
+      'src/tools/catalog.test.ts:2',
+      'src/tools/catalog.test.ts:3',
+      'src/ui/label.test.ts:2',
+      'src/viewer/renamed.test.ts:2',
+    ]);
+  });
+
+  it('finds ordering bounds on a wall-clock delta, directly or through assigned, pushed and derived names, and leaves logged timings and CPU time alone', () => {
+    const clock = ['performance', 'now()'].join('.');
+    const date = ['Date', 'now()'].join('.');
+    const files: SourceFile[] = [
+      { path: 'src/timeline/making.test.ts', text: `const start = ${clock};\nrun();\n${['expect', `(${clock} - start).toBeLessThan(3000);`].join('')}\n` },
+      { path: 'src/david/synthetic.test.ts', text: `const start = ${clock};\nconst seconds = (${clock} - start) / 1000;\n${['expect', '(seconds).toBeLessThan(2);'].join('')}\n` },
+      { path: 'src/stock/mesher.test.ts', text: `times.push(${clock} - start);\nconst median = times[100] ?? 0;\nconsole.log(median);\n${['expect', '(median, "median").toBeLessThan(5);'].join('')}\n` },
+      { path: 'tests/e2e/timing.spec.ts', text: `const waited = ${date} - t0;\n${['expect', '(waited).toBeGreaterThan(10);'].join('')}\n` },
+      { path: 'src/stock/budgets.test.ts', text: `const seconds = (${clock} - start) / 1000;\nconsole.log(seconds);\n${['expect', '(triangles).toBeLessThan(2_500_000);'].join('')}\n` },
+      { path: 'src/timeline/cpu.test.ts', text: `const used = process.cpuUsage(before);\n${['expect', '(used.user).toBeLessThan(3e6);'].join('')}\n` },
+      { path: 'src/stock/app.ts', text: `const seconds = ${clock} - start;\n${['expect', '(seconds).toBeLessThan(2);'].join('')}\n` },
+    ];
+    expect(wallClockBounds(files).map(({ path, line }) => `${path}:${String(line)}`)).toEqual(['src/timeline/making.test.ts:3', 'src/david/synthetic.test.ts:3', 'src/stock/mesher.test.ts:4', 'tests/e2e/timing.spec.ts:2']);
   });
 });

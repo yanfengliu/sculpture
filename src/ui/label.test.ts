@@ -20,7 +20,6 @@ describe('calendar arithmetic', () => {
   });
 
   it('numbers 9 September 1501 as day 1, the formal start of 13 September as day 5 and the unveiling as day 1096', () => {
-    expect(CALENDAR_START).toBe('1501-09-09');
     expect(dayNumber(CALENDAR_START)).toBe(1);
     expect(dayNumber('1501-09-13')).toBe(5);
     expect(dayNumber(CALENDAR_END)).toBe(1096);
