@@ -226,6 +226,8 @@ export const FACE: RegionDef = { label: 'face', min: [-WIDE, 4.5, -DEEP], max: [
 export const LEFT_HAND = box('left-hand', 3.95, 4.4, 0.05, 0.6, -0.3, DEEP);
 /** The hand at the thigh, with the stone. */
 export const RIGHT_HAND = box('right-hand', 2.0, 2.45, -0.95, -0.5, -0.4, DEEP);
+/** Between the thighs, where the crease under the crotch narrows to a centimetre or two (./landmarks.ts, LEG_GAPS): the walls the drill's rows run along. */
+export const BETWEEN_THE_LEGS = box('between-the-legs', 2.0, 2.4, -0.35, 0.05, -0.2, 0.3);
 
 /**
  * The sling strap on the David grid, traced 2026-10-11 from the grid's depth maps (the first zero crossing of the signed distance along a ray) under grazing light from +x and −x and from the steps those maps take at the band's two edges; the probe lived under tmp/ and is not kept.
@@ -368,6 +370,8 @@ export const CROWN = box('crown', 5.08, TOP + 0.1, -WIDE, WIDE, -DEEP, DEEP, fac
 
 /** The whole figure except the crown, for the passes that bring the skin to its last millimetres. */
 export const WHOLE_BUT_CROWN: RegionDef = { label: 'whole-but-crown', min: WHOLE.min, max: WHOLE.max, contains: (point, normal) => !inside(CROWN, point, normal) };
+/** Where the webs are cleared (./generators/webs.ts): the figure above the rock, which is left rough, and under the crown's crust. */
+export const GAPS: RegionDef = { label: 'gaps', min: [WHOLE.min[0], BASE.max[1], WHOLE.min[2]], max: WHOLE.max, contains: (point, normal) => !inside(CROWN, point, normal) };
 
 /** The sides and the back together, reached last in the same order of tools. */
 export const SIDES_AND_BACK = union('sides-and-back', LEFT_SIDE, RIGHT_SIDE, BACK);
@@ -388,4 +392,4 @@ export function relief(region: RegionDef, side: 'front' | 'back'): RegionDef {
   return region.contains === undefined ? result : { ...result, contains: region.contains };
 }
 
-export const REGIONS: readonly RegionDef[] = [WHOLE, FRONT, BACK, LEFT_SIDE, RIGHT_SIDE, HIGH_POINTS, CHEST_AND_FACE, HEAD, HAIR, FACE, LEFT_HAND, RIGHT_HAND, SLING, STUMP, BASE, FLESH, NODO, AGOSTINO, HOLE, CROWN, WHOLE_BUT_CROWN, SIDES_AND_BACK, HOLLOWS, HAIR_BUT_CROWN, DETAILS, GILT];
+export const REGIONS: readonly RegionDef[] = [WHOLE, FRONT, BACK, LEFT_SIDE, RIGHT_SIDE, HIGH_POINTS, CHEST_AND_FACE, HEAD, HAIR, FACE, LEFT_HAND, RIGHT_HAND, BETWEEN_THE_LEGS, SLING, STUMP, BASE, FLESH, NODO, AGOSTINO, HOLE, CROWN, WHOLE_BUT_CROWN, GAPS, SIDES_AND_BACK, HOLLOWS, HAIR_BUT_CROWN, DETAILS, GILT];

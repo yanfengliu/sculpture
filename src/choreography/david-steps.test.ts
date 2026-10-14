@@ -1,7 +1,7 @@
 /**
  * Plan integrity of the David steps (src/choreography/david-steps.ts) against docs/design/choreography.md, over the synthetic figure at 2 cm cells, and the drill's landmarks on the David grid. What a green run proves, and its bounds:
- *   1. The 23 step ids are the contract's, in its order; every stage id of StageId appears in order and matches src/choreography/stages.ts; every step cites technique.md and keeps the title and detail lengths; every step changes the stock or the finish; every blow lies inside the block and within reach of a scaffold deck or plank bridge (src/tools/scaffold.ts through src/tools/blow-cycle.ts); every blow's tool axis points into the surface at an angle inside the tool catalog's documented range (the point's bulk range at or above BULK_CUT_SIZE_M), measured against the blow's own stored normal; blows within a stroke are consecutive and stroke indices unique in a step; two fresh Makings give the same length and digest; the calendar runs forward from Agostino's commission of 18 August 1464 (the nodo on 9 September 1501) to 8 September 1504 without overlap; every step has a positive rate or a direct count, and once planned its real blows per shown blow are the spec's rule over its planned blows.
- *   2. On the David grid (public/model/david.json beside its data, loaded from disk; skipped with a logged reason until `npm run model` builds it): every target of DAVID_LANDMARKS (the hairline path, the curls ring, the pupils and the nostrils) lies within 2 cm of the figure's surface, the holes generator's search (nearestOnFigure, 15 cm reach, 1 cm spacing) lands it, and the landing with the figure's gradient there is inside the step's region, HAIR for the hairline and the curls and FACE for the pupils and the nostrils, so the drill drops none of them as it dropped the photo-read targets of review F16; each target's move and landing region are logged (shown with --reporter=verbose).
+ *   1. The step ids are the contract's, in its order (CONTRACT_IDS); every stage id of StageId appears in order and matches src/choreography/stages.ts; every step cites technique.md and keeps the title and detail lengths; every step changes the stock or the finish; every blow lies inside the block and within reach of a scaffold deck or plank bridge (src/tools/scaffold.ts through src/tools/blow-cycle.ts); every blow's tool axis points into the surface at an angle inside the tool catalog's documented range (the point's bulk range at or above BULK_CUT_SIZE_M), measured against the blow's own stored normal; blows within a stroke are consecutive and stroke indices unique in a step; two fresh Makings give the same length and digest; the calendar runs forward from Agostino's commission of 18 August 1464 (the nodo on 9 September 1501) to 8 September 1504 without overlap; every step has a positive rate or a direct count, and once planned its real blows per shown blow are the spec's rule over its planned blows.
+ *   2. On the David grid (public/model/david.json beside its data, loaded from disk; skipped with a logged reason until `npm run model` builds it): every target of DAVID_LANDMARKS (the hairline path, the curls ring, the pupils and the nostrils) lies within 2 cm of the figure's surface, the holes generator's search (nearestOnFigure, 15 cm reach, 1 cm spacing) lands it, and the landing with the figure's gradient there is inside the step's region, HAIR for the hairline and the curls and FACE for the pupils and the nostrils, so the drill drops none of them as it dropped the photo-read targets of review F16; each target's move and landing region are logged (shown with --reporter=verbose). The rows of LEG_GAPS run in the crease between the thighs: every target along them, at the step's 2 cm pitch, lies outside the figure within the crease's half width of its nearer wall, and the search lands it on that wall inside BETWEEN_THE_LEGS.
  * Bounds: the plan is judged by its data, not by its look, and on the synthetic mannequin, not the David grid; the angle check trusts the stored normal, so a normal that is not the stock's gradient passes here and is the carve tests' claim; the blow budget at 8 mm is the slow test's claim; the landmark case pins the targets to this grid build (cell 8 mm, the Scan the World mesh), says nothing about whether a hole reads as a pupil or a curl at 8 mm, and runs the search on the figure alone, so a hole the stock would refuse (stockAbove) is the plan's claim; no network.
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 
-import type { BlowCycle, RegionDef, StageId, ToolPose } from '../contracts/making';
+import type { BlowCycle, RegionDef, StageId, ToolPose, Vec3 } from '../contracts/making';
 import { BLOCK_M } from '../david/frame';
 import { syntheticFigure } from '../david/synthetic';
 import { loadFigureGrid } from '../stock/grid';
@@ -19,13 +19,17 @@ import { createMaking, type EngineMaking } from '../timeline/making';
 import { isReachable } from '../tools/blow-cycle';
 import { BULK_CUT_SIZE_M, TOOL_CATALOG } from '../tools/catalog';
 import { DAVID_STEPS } from './david-steps';
-import { DAVID_LANDMARKS } from './landmarks';
+import { DAVID_LANDMARKS, LEG_GAPS } from './landmarks';
 import { nearestOnFigure } from './generators/surface';
-import { FACE, HAIR, inside } from './regions';
+import { BETWEEN_THE_LEGS, FACE, HAIR, inside } from './regions';
 import { STAGES } from './stages';
 
+/** The spacing of the drill rows between the legs (the between-the-legs step's pitch), and the half width of the crease between the thighs where they run, metres: the probe of 2026-10-14 measured the crease 56 mm wide at most there (src/choreography/landmarks.ts, LEG_GAPS). */
+const LEG_ROW_PITCH = 0.02;
+const CREASE_HALF_WIDTH = 0.03;
+
 const STAGE_ORDER: readonly StageId[] = ['setup', 'layout', 'roughing', 'coarse-claw', 'fine-claw', 'drilling', 'rasping', 'polishing', 'on-site'];
-/** The step ids of docs/design/choreography.md, in its order, with the two setup steps of 1464 to 1466 added on 2026-10-14 ahead of its table. */
+/** The step ids of docs/design/choreography.md, in its order, with the four steps added on 2026-10-14 ahead of its table: the two setup steps of 1464 to 1466 (agostino, hole-between-legs) and the two web steps (fine-claw-gaps after fine-claw-all, between-the-legs after fingers-sling-stump). */
 const CONTRACT_IDS = [
   'agostino',
   'hole-between-legs',
@@ -40,10 +44,12 @@ const CONTRACT_IDS = [
   'back-point',
   'sides-and-back-claw',
   'fine-claw-all',
+  'fine-claw-gaps',
   'roundel-hollows',
   'hairline-and-curls',
   'pupils-and-nostrils',
   'fingers-sling-stump',
+  'between-the-legs',
   'rasp-flesh',
   'file-details',
   'pumice-flesh',
@@ -179,6 +185,36 @@ describe.skipIf(!hasDavid)('the drill landmarks on the David grid', () => {
         const landed = regions.length === 0 ? 'neither hair nor face' : regions.join(' and ');
         lines.push(`${label} moved ${(moved * 1000).toFixed(1)} mm, landed in ${landed}`);
         expect(inside(region, landing, normal), `${label} landed in ${landed}, not ${region.label}`).toBe(true);
+      }
+    }
+    console.log(lines.join('\n'));
+  }, 60_000);
+
+  it('run the drill rows between the legs down the crease between the thighs', async () => {
+    const { grid } = await loadFigureGrid(DAVID_HEADER, fetchFromDisk);
+    const lines: string[] = [];
+    for (const row of LEG_GAPS) {
+      for (let n = 0; n + 1 < row.length; n += 1) {
+        const a = row[n];
+        const b = row[n + 1];
+        if (a === undefined || b === undefined) continue;
+        const length = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+        const count = Math.max(1, Math.floor(length / LEG_ROW_PITCH));
+        for (let k = 0; k <= count; k += 1) {
+          const s = k / count;
+          const target: Vec3 = [a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s, a[2] + (b[2] - a[2]) * s];
+          const label = `leg row target (${target.map((c) => c.toFixed(3)).join(', ')})`;
+          const distance = grid.sample(target[0], target[1], target[2]);
+          expect(distance, `${label} lies inside the figure`).toBeGreaterThan(0);
+          expect(distance, `${label} is ${(distance * 1000).toFixed(1)} mm from the nearer wall, wider than the crease`).toBeLessThanOrEqual(CREASE_HALF_WIDTH);
+          const landing = nearestOnFigure(grid, target, 0.15, 0.01);
+          expect(landing, `${label} finds no surface within 15 cm`).not.toBeNull();
+          if (landing === null) continue;
+          const moved = Math.hypot(landing[0] - target[0], landing[1] - target[1], landing[2] - target[2]);
+          lines.push(`${label}: wall ${(distance * 1000).toFixed(1)} mm away, landed ${(moved * 1000).toFixed(1)} mm off`);
+          expect(moved, `${label} landed ${(moved * 1000).toFixed(1)} mm off, beyond the crease's nearer wall`).toBeLessThanOrEqual(CREASE_HALF_WIDTH + 0.01);
+          expect(inside(BETWEEN_THE_LEGS, landing, grid.gradient(landing[0], landing[1], landing[2])), `${label} landed outside ${BETWEEN_THE_LEGS.label}`).toBe(true);
+        }
       }
     }
     console.log(lines.join('\n'));

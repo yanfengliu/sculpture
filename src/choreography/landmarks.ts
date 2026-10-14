@@ -1,5 +1,5 @@
 /**
- * The drill's targets on the David (docs/research/technique.md, Stage 5): the head's landmarks from the probed tables of ./regions.ts, and the gaps the chisel cannot reach between the fingers, under the sling and by the stump, out of ./david-steps.ts to keep it short.
+ * The drill's targets on the David (docs/research/technique.md, Stage 5): the head's landmarks from the probed tables of ./regions.ts, and the gaps the chisel cannot reach between the fingers, under the sling, by the stump and between the legs, out of ./david-steps.ts to keep it short.
  */
 import { facePair, NOSTRILS_MARK, onHeadRing, PUPILS_MARK } from './regions';
 
@@ -22,4 +22,22 @@ export const SLING_GAP: readonly [number, number, number][] = [[0.34, 4.35, -0.0
 export const STUMP_GAPS: readonly [number, number, number][] = [
   [-0.3, 1.0, -0.2],
   [-0.3, 0.8, -0.25],
+];
+/**
+ * The crease between the thighs on the David grid, probed 2026-10-14 (a read-only probe under tmp/, not kept: at each height the runs outside the figure along x between two runs inside it, every centimetre of z): the gap between the thighs is 5 to 6 cm wide at y 2.12, narrows to 16 mm at y 2.20 (z 0.06 to 0.07, x −0.172) and 8 mm at y 2.22 (z 0.04 to 0.07, x −0.176), and closes at y 2.24, where it parts into a front crease (z 0.10 to 0.15, x −0.166, 4 to 20 mm wide up to y 2.30) and a back one (z −0.08 to −0.02, x −0.19 to −0.20).
+ * Two running rows on the crease's centreline, each run downward so the bit leans down into the wall and the bow is held above: one along its floor from the back crease to the front, one down the front crease into the gap. The generator drills each sample's nearest wall.
+ */
+export const LEG_GAPS: readonly (readonly [number, number, number][])[] = [
+  [
+    [-0.196, 2.27, -0.04],
+    [-0.18, 2.22, 0.02],
+    [-0.172, 2.19, 0.07],
+    [-0.168, 2.14, 0.08],
+  ],
+  [
+    [-0.166, 2.3, 0.13],
+    [-0.168, 2.25, 0.12],
+    [-0.17, 2.19, 0.1],
+    [-0.168, 2.12, 0.06],
+  ],
 ];

@@ -10,9 +10,10 @@ import { gild } from './generators/gild';
 import { holes } from './generators/holes';
 import { abrading, rasping } from './generators/rasping';
 import { scoop } from './generators/scoop';
-import { DAVID_LANDMARKS, FINGER_GAPS, SLING_GAP, STUMP_GAPS } from './landmarks';
+import { webs } from './generators/webs';
+import { DAVID_LANDMARKS, FINGER_GAPS, LEG_GAPS, SLING_GAP, STUMP_GAPS } from './landmarks';
 import { pointPlan } from './point-work';
-import { AGOSTINO, BACK, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HAIR_BUT_CROWN, HOLE, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, relief, union } from './regions';
+import { AGOSTINO, BACK, BETWEEN_THE_LEGS, DETAILS, FACE, FLESH, FRONT, GAPS, GILT, HAIR, HAIR_BUT_CROWN, HOLE, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, relief, union } from './regions';
 
 /** The front of the block as a half relief: the three roughing steps take layers off the whole front, the knee and the hand emerging in the first, the chest and the face in the second, the legs and the base in the last (technique.md, Stage 2: Vasari's water rule). */
 const FRONT_RELIEF = relief(FRONT, 'front');
@@ -228,8 +229,22 @@ export const DAVID_STEPS: readonly StepDef[] = [
     margin: 0.0015,
     weight: 1.9,
     from: '1502-09-19',
-    to: '1502-12-26',
+    to: '1502-12-05',
     plan: (ctx) => combing(ctx, { tool: 'fine-claw', pitch: 0.06, stride: 0.07, size: 0.04, angle: 45, passes: ['diagonal'] }),
+  }),
+  step({
+    id: 'fine-claw-gaps',
+    stage: 'fine-claw',
+    title: 'The dente di cane into the hollows and gaps',
+    detail: 'Dente di cane (fine claw): worked from the open side into the hollows and the gaps between the limbs, taking the stone its bands passed over wherever the chisel reaches (technique.md, stage 4).',
+    tool: 'fine-claw',
+    region: GAPS,
+    margin: 0.0015,
+    weight: 0.5,
+    from: '1502-12-05',
+    to: '1502-12-26',
+    focus: { kind: 'tip', distance: 1.4 },
+    plan: (ctx) => webs(ctx, { tool: 'fine-claw', size: 0.04, angles: [45, 60, 35] }),
   }),
   step({
     id: 'roundel-hollows',
@@ -285,10 +300,25 @@ export const DAVID_STEPS: readonly StepDef[] = [
     margin: 0,
     weight: 0.4,
     from: '1503-04-10',
-    to: '1503-05-09',
+    to: '1503-04-25',
     realPerShown: 2,
     focus: { kind: 'tip', distance: 1.2 },
     plan: (ctx) => holes(ctx, { points: [...FINGER_GAPS, ...SLING_GAP, ...STUMP_GAPS], paths: [FINGER_GAPS, STUMP_GAPS], pitch: 0.02, depth: 0.02, runningAngle: 40 }),
+  }),
+  step({
+    id: 'between-the-legs',
+    stage: 'drilling',
+    title: 'The bow drill between the legs',
+    detail: 'Trapano (bow drill): running holes down the crease between the thighs, where the chisel cannot reach, the webbing between them left (technique.md, stage 5; tools.md, Trapano).',
+    tool: 'drill',
+    region: BETWEEN_THE_LEGS,
+    margin: 0,
+    weight: 0.3,
+    from: '1503-04-25',
+    to: '1503-05-09',
+    realPerShown: 2,
+    focus: { kind: 'tip', distance: 1.2 },
+    plan: (ctx) => holes(ctx, { paths: LEG_GAPS, pitch: 0.02, depth: 0.02, runningAngle: 40 }),
   }),
   step({
     id: 'rasp-flesh',
