@@ -25,6 +25,8 @@ export interface SculptureFacts {
   /** Blows in the whole plan and a digest of it, both deterministic. */
   readonly planLength: number;
   readonly planDigest: string;
+  /** Where the plan came from: `file`, the plan file `npm run model` builds beside the David grid (src/timeline/plan-file.ts), or `page`, planned in the page as the making goes. */
+  readonly planSource: string;
   /** Blows applied to the stock so far and chunks waiting to be remeshed. */
   readonly blowsApplied: number;
   readonly dirtyChunks: number;
@@ -69,6 +71,7 @@ export const EMPTY_FACTS: SculptureFacts = {
   t: 0,
   planLength: 0,
   planDigest: '',
+  planSource: 'page',
   blowsApplied: 0,
   dirtyChunks: 0,
   playing: null,
@@ -93,6 +96,7 @@ export interface PageState {
   readonly bridges: readonly string[];
   readonly bridgeProblems: readonly string[];
   readonly queryProblems: readonly string[];
+  readonly planSource: string;
 }
 
 /** The facts at this instant, from the making, the player and the page state. */
@@ -110,6 +114,7 @@ export function buildFacts(making: Making, player: Player & { readonly moving: b
     t: player.t,
     planLength: making.planLength,
     planDigest: making.planDigest,
+    planSource: page.planSource,
     blowsApplied: making.blowsApplied,
     dirtyChunks: making.dirtyChunks,
     playing: player.playing,
