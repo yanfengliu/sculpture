@@ -243,6 +243,11 @@ installKeyboard(actions);
 // The page plays on load only when the query set no position (spec, Page, First load): a valid t= or step= is a place to look at, not a start.
 if (query.autoplay && position === null) player.play('forward');
 
+/**
+ * A `view=follow` framing waiting for the making to reach the player's position: from the load, where a position with no blow in progress is reported and the default preset stands, or from `__shotSeek`, where it keeps the pose. The framing waits until `dirtyChunks` is 0 (a jump in flight counts there, and the step at the position is planned only once the jump before it has landed), so a follow shot frames the blow in progress rather than the block before the replay (query.spec.ts, `shot=1&t=2.5&view=follow`).
+ */
+let followPending: 'load' | 'seek' | null = view === FOLLOW_VIEW ? 'load' : null;
+
 let readyFrames = 0;
 if (query.shot) {
   window.__shotSeek = (t: number): void => {
@@ -251,9 +256,8 @@ if (query.shot) {
     player.pause();
     player.seek(t);
     making.setTime(player.t);
-    // A follow shot re-frames the blow in progress at the new position, as a fresh load with view=follow would.
-    const current = making.current;
-    if (view === FOLLOW_VIEW && current !== null) viewer.setPose(framingFor(current.blow.point, focusDistance(making, player.t), viewDirectionFor(current.blow.normal)));
+    // A follow shot re-frames the blow in progress at the new position, as a fresh load with view=follow would, once the replay to it has landed.
+    if (view === FOLLOW_VIEW) followPending = 'seek';
   };
 }
 
@@ -270,15 +274,16 @@ function followFraming(): { readonly target: Vec3; readonly distance: number; re
   return current === null ? null : { target: current.blow.point, distance, direction };
 }
 
-let followPending = view === FOLLOW_VIEW;
-/** Frames the blow in progress for `view=follow` once the making is at the requested position; a position with no blow in progress is reported and the default preset stands. */
+/** Frames the blow in progress for `view=follow` once the making is at the requested position with every chunk meshed; a load at a position with no blow in progress is reported and the default preset stands. */
 function applyFollowView(): void {
-  followPending = false;
+  const pending = followPending;
+  followPending = null;
   const current = making.current;
   if (current !== null) {
     viewer.setPose(framingFor(current.blow.point, focusDistance(making, player.t), viewDirectionFor(current.blow.normal)));
     return;
   }
+  if (pending !== 'load') return;
   const problem = `query parameter view="follow" was ignored: no blow is in progress at t=${String(player.t)}; it takes a t inside a step.`;
   problems.push(problem);
   console.warn(problem);
@@ -290,7 +295,7 @@ viewer.start((seconds) => {
   if (viewer.frames > 0) {
     advanceWithCarry(seconds, player, making, carry);
     if (player.t !== making.t) making.setTime(player.t);
-    if (followPending) applyFollowView();
+    if (followPending !== null && making.dirtyChunks === 0) applyFollowView();
   }
   const current = making.current;
   rig.update(making.poses, current === null ? null : { tool: current.blow.tool, phase: current.phase });
@@ -302,7 +307,8 @@ viewer.start((seconds) => {
   ui?.update({ t: player.t, playing: player.playing, speed: player.speed, view: isPresetId(view) ? view : 'free', follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled });
   publish();
   if (query.shot) {
-    if (making.dirtyChunks === 0 && !player.moving) {
+    // Ready only once the follow framing, if any, has been applied: the frames before it show the pose the load started from.
+    if (making.dirtyChunks === 0 && !player.moving && followPending === null) {
       readyFrames += 1;
       if (readyFrames >= READY_FRAMES) window.__shotReady = true;
     } else {
