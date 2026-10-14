@@ -7,6 +7,7 @@ import type { Object3D } from 'three';
 import type { GridSource } from '../contracts/grid';
 import type { Blow, BlowCycle, Making, ToolId } from '../contracts/making';
 import type { StrikeLog } from '../tools/dust';
+import type { BridgeTracker } from './bridges';
 
 export type RenderedTool = ToolId | 'mallet';
 
@@ -29,4 +30,6 @@ export interface MakingBundle {
   readonly source: GridSource | null;
   /** The strikes the Making asked chips for, kept for the dust puffs (src/tools/dust.ts); absent, no dust. */
   readonly strikes?: StrikeLog;
+  /** Which plank bridges the work needs at a position (src/viewer/bridges.ts); absent, none is ever laid. */
+  readonly bridges?: BridgeTracker;
 }

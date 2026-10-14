@@ -24,6 +24,7 @@
     "model:plan": "node scripts/build-plan.mjs",
     "model:verify": "node scripts/verify-plan.mjs",
     "shots": "node scripts/capture-shots.mjs",
+    "fps": "node scripts/capture-fps.mjs",
     "sweep": "node scripts/sweep.mjs",
     "video": "node scripts/export-video.mjs",
     "audit:runtime": "npm audit --omit=dev --audit-level=high",
