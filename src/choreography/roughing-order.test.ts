@@ -15,8 +15,9 @@ import { syntheticFigure } from '../david/synthetic';
 import { seedOf } from '../stock/digest';
 import type { Grid } from '../stock/grid';
 import { createMaking } from '../timeline/making';
-import { DAVID_STEPS, POINT_WORK } from './david-steps';
+import { DAVID_STEPS } from './david-steps';
 import { type FurrowMark, planFurrows } from './generators/furrows';
+import { POINT_WORK } from './point-work';
 import { STAGES } from './stages';
 
 const CELL = 0.02;

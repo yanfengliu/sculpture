@@ -6,59 +6,16 @@
 import type { Blow, PlanContext, StepDef, ToolId } from '../contracts/making';
 import { combing } from './generators/combing';
 import { drawing } from './generators/drawing';
-import type { FloorOptions } from './generators/floor';
-import { furrowsPhases, type FurrowsPhase } from './generators/furrows';
 import { gild } from './generators/gild';
 import { holes } from './generators/holes';
 import { abrading, rasping } from './generators/rasping';
 import { scoop } from './generators/scoop';
-import { BACK, CROWN, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HAIR_BUT_CROWN, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, NOSTRILS_MARK, PUPILS_MARK, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, facePair, onHeadRing, relief, union } from './regions';
+import { DAVID_LANDMARKS, FINGER_GAPS, SLING_GAP, STUMP_GAPS } from './landmarks';
+import { pointPlan } from './point-work';
+import { BACK, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HAIR_BUT_CROWN, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, relief, union } from './regions';
 
-/** The bulk cuts of the heavy point: one shown blow stands for a field of real pits, so its crater is flat-floored (src/stock/tool-volumes.ts); the pitch keeps neighbouring craters overlapping. */
-const BULK = { pitch: 0.2, size: 0.15, angle: 85 } as const;
-/** The sculptor's stroke: the point at 45 degrees, not lifted between blows (tools.md, Subbia); furrows 12 cm apart, each a run along the form. */
-const STROKE = { pitch: 0.04, rowPitch: 0.12, size: 0.035, angle: 45, maxPasses: 1 } as const;
-/** The bulk craters of a furrowed step stop a stroke's depth short of the step's margin, so the furrows are what finishes the layer. */
-const furrowed = (margin: number) => margin + STROKE.size;
 /** The front of the block as a half relief: the three roughing steps take layers off the whole front, the knee and the hand emerging in the first, the chest and the face in the second, the legs and the base in the last (technique.md, Stage 2: Vasari's water rule). */
 const FRONT_RELIEF = relief(FRONT, 'front');
-/** The floor pass of the point steps that finish their part of the block (the front, the sides, the back): chops of 6 cm struck down and in at the stone left standing on the floor beside the base (./generators/floor.ts). */
-const FLOOR: FloorOptions = { size: 0.06, angle: 85 };
-
-/** A point step's work: its phases over the faces and, for a step that finishes its part of the block, the floor pass. */
-export interface PointWork {
-  readonly phases: readonly FurrowsPhase[];
-  readonly floor?: FloorOptions;
-}
-
-/** The point steps' work by step id, so the plan-order gate (./roughing-order.test.ts) can plan a step again with the planner's marks; each step's plan is `furrowsPhases(ctx, work.phases, work.floor)`. */
-export const POINT_WORK: Readonly<Record<string, (ctx: PlanContext) => PointWork>> = {
-  nodo: () => ({ phases: [{ options: { faces: ['front'], pitch: 0.2, size: 0.06, angle: 85, maxPasses: 1 } }] }),
-  'high-points': () => ({ phases: [{ options: { faces: ['front'], ...BULK, maxPasses: 2 } }] }),
-  'chest-and-face': () => ({ phases: [{ options: { faces: ['front'], ...BULK, maxPasses: 2 } }] }),
-  'front-furrows': (ctx) => ({
-    phases: [{ options: { faces: ['front'], ...BULK, margin: furrowed(ctx.margin) } }, { options: { faces: ['front'], ...STROKE } }],
-    floor: FLOOR,
-  }),
-  'sides-point': (ctx) => ({
-    phases: [{ options: { faces: ['left', 'right', 'top'], ...BULK, keep: CROWN, margin: furrowed(ctx.margin) } }, { options: { faces: ['left', 'right'], ...STROKE, pitch: 0.06, rowPitch: 0.2 } }],
-    floor: FLOOR,
-  }),
-  'back-point': (ctx) => ({
-    phases: [{ options: { faces: ['back'], ...BULK, margin: furrowed(ctx.margin) } }, { options: { faces: ['back'], ...STROKE } }],
-    floor: FLOOR,
-  }),
-};
-
-/** The plan of the point step `id` from POINT_WORK. */
-function pointPlan(id: string): (ctx: PlanContext) => readonly Blow[] {
-  return (ctx) => {
-    const work = POINT_WORK[id]?.(ctx);
-    if (work === undefined) throw new Error(`no point work is defined for step "${id}"; add it to POINT_WORK`);
-    return furrowsPhases(ctx, work.phases, work.floor);
-  };
-}
-
 /** Real blows one shown blow stands for: `days` of work at five hours a day and `rate` blows a second, over `shown` planned blows. */
 function ratio(days: number, rate: number, shown: number): number {
   return Math.max(1, Math.round((days * 5 * 3600 * rate) / shown));
@@ -106,27 +63,6 @@ function step(spec: StepSpec): StepDef {
   };
   return spec.focus === undefined ? def : { ...def, focus: spec.focus };
 }
-
-/**
- * The drill's landmarks on the head, built from the probed tables of ./regions.ts (HAIR_AXIS, the hairline, the head's radii and FACE_AZIMUTH), so every target lies on the David's surface and lands in its step's region; the values read off photographs before (review F16) were centred near x 0 facing +z, 10 cm off a head whose axis is at x −0.323 and whose face looks toward azimuth 38, so the generator moved them to the wrong part of the head or dropped them.
- * The hairline path runs the face side of the hairline from the left temple to the right (azimuth 337.5 to 90), 1 cm above it so its holes fall in HAIR; the curls ring runs 8 cm above the hairline round the whole head, open at the nape (from 202.5 round to 180): the generator drills every segment's start and the last segment's end, so a ring closed on its first vertex would get two holes at the seam. The pupils and the nostrils are the face marks' pairs. Exported for the David-grid case of ./david-steps.test.ts.
- */
-export const DAVID_LANDMARKS: Readonly<Record<'hairline' | 'curls' | 'pupils' | 'nostrils', readonly [number, number, number][]>> = {
-  hairline: [337.5, 0, 22.5, 45, 67.5, 90].map((azimuth) => onHeadRing(azimuth, 'hairline')),
-  curls: Array.from({ length: 16 }, (_, n) => onHeadRing((202.5 + n * 22.5) % 360, 'curls')),
-  pupils: facePair(PUPILS_MARK),
-  nostrils: facePair(NOSTRILS_MARK),
-};
-const FINGER_GAPS: readonly [number, number, number][] = [
-  [0.26, 4.15, 0.22],
-  [0.29, 4.08, 0.22],
-  [0.31, 4.02, 0.2],
-];
-const SLING_GAP: readonly [number, number, number][] = [[0.34, 4.35, -0.05]];
-const STUMP_GAPS: readonly [number, number, number][] = [
-  [-0.3, 1.0, -0.2],
-  [-0.3, 0.8, -0.25],
-];
 
 export const DAVID_STEPS: readonly StepDef[] = [
   step({
