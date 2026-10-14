@@ -73,15 +73,22 @@ function clearStroke(scratch: ScratchStock, point: Vec3, normal: Vec3, along: Ve
   return best ?? blowAt('point', point, normal, along, angle, size, stroke);
 }
 
-/** The order of a pass: the work spreads from the column whose figure lies highest over the raster's neighbours, to the highest of them each time, lower rows first in a tie; when the spread has nowhere to go it starts again at the highest column left. Before all that, a column whose stone stands a layer shallower than its neighbours' (a pillar the last pass left between its craters) is struck first, so no crater beside it cuts the floor from under it and sets it adrift (src/stock/connectivity.test.ts). */
+/**
+ * The order of a pass (docs/research/technique.md, Stage 2, Vasari's water rule): the pass starts at the live column whose figure lies highest (nearest the face) and grows from there as a patch over the raster's neighbours: the next column is the frontier's lowest in distance from the pass's start, plus how much lower its figure lies than the start's, plus twice its distance from the last column struck, so the cut spreads outward from the high point, leans toward the high ground and moves on to a near column rather than hopping across the face; when the frontier is empty the same rule picks among every live column, so a pass that mops up scattered columns still works outward from where it began (src/choreography/roughing-order.test.ts holds the first blow of every layer to the high points and the spread to growing).
+ * One exception keeps the stone whole: a live column inside the chosen column's crater footprint whose stone stands a layer shallower (a pillar the last pass left between its craters) is struck first, since the deeper crater beside it would cut the stone from under it and set it adrift (src/stock/connectivity.test.ts). Until 2026-10-14 every pillar of the face was struck before each pass began and the frontier's highest column came next wherever it lay, so the later layers started wherever a pillar stood and the strikes hopped over the face.
+ */
 class Spread {
   private readonly frontier = new Set<number>();
+  private start: Column | null = null;
+  private last: Column | null = null;
 
   constructor(
     private readonly model: FaceModel,
     private readonly live: (column: Column) => boolean,
     /** The layer a column's stone stands in: its entry in units of half a cut. */
     private readonly layer: (column: Column) => number,
+    /** Raster cells around a chosen column that its blow may cut: where a shallower pillar is struck first. */
+    private readonly footprint: number,
   ) {}
 
   /** Adds the live columns within `cells` raster cells of `column` to the frontier. */
@@ -97,29 +104,65 @@ class Spread {
   /** The next column to strike, or null when none is left. */
   next(candidates: readonly Column[]): Column | null {
     let best: Column | null = null;
-    for (const index of this.frontier) {
+    if (this.start === null) {
+      for (const column of candidates) {
+        if (this.live(column) && (best === null || higher(column, best))) best = column;
+      }
+      this.start = best;
+    } else {
+      best = this.nearest(this.frontier, true) ?? this.nearest(candidates.map((column) => column.index), false);
+    }
+    if (best === null) return null;
+    const chosen = this.pillarUnder(best) ?? best;
+    this.frontier.delete(chosen.index);
+    this.last = chosen;
+    return chosen;
+  }
+
+  /** The live column of `indices` lowest in distance from the pass's start, plus how much lower its figure lies than the start's, plus twice its distance from the last column struck; dead ones are dropped from the frontier when `prune`. */
+  private nearest(indices: Iterable<number>, prune: boolean): Column | null {
+    const { start, last } = this;
+    if (start === null || last === null) return null;
+    let best: Column | null = null;
+    let bestKey = Number.POSITIVE_INFINITY;
+    for (const index of indices) {
       const column = this.model.columns[index];
       if (column === undefined || !this.live(column)) {
-        this.frontier.delete(index);
+        if (prune) this.frontier.delete(index);
         continue;
       }
-      if (best === null || this.before(column, best)) best = column;
-    }
-    if (best === null) {
-      for (const column of candidates) {
-        if (this.live(column) && (best === null || this.before(column, best))) best = column;
+      const key = Math.hypot(column.u - start.u, column.v - start.v) + (column.stop - start.stop) + 2 * Math.hypot(column.u - last.u, column.v - last.v);
+      if (key < bestKey - 1e-12 || (Math.abs(key - bestKey) <= 1e-12 && best !== null && higher(column, best))) {
+        best = column;
+        bestKey = key;
       }
     }
-    if (best !== null) this.frontier.delete(best.index);
     return best;
   }
 
-  private before(a: Column, b: Column): boolean {
-    const la = this.layer(a);
-    const lb = this.layer(b);
-    if (la !== lb) return la < lb;
-    return a.stop < b.stop - 1e-9 || (Math.abs(a.stop - b.stop) <= 1e-9 && (a.r > b.r || (a.r === b.r && a.c < b.c)));
+  /** The shallowest live column within the footprint of `column` whose stone stands in a shallower layer, the highest among equals; null when there is none. */
+  private pillarUnder(column: Column): Column | null {
+    let pillar: Column | null = null;
+    let pillarLayer = this.layer(column);
+    const cells = this.footprint;
+    for (let rr = column.r - cells; rr <= column.r + cells; rr += 1) {
+      for (let cc = column.c - cells; cc <= column.c + cells; cc += 1) {
+        const other = this.model.at(rr, cc);
+        if (other === undefined || other === column || !this.live(other)) continue;
+        const layer = this.layer(other);
+        if (layer < pillarLayer || (pillar !== null && layer === pillarLayer && higher(other, pillar))) {
+          pillar = other;
+          pillarLayer = layer;
+        }
+      }
+    }
+    return pillar;
   }
+}
+
+/** Whether column `a`'s figure lies higher than `b`'s (its stop nearer the face), lower rows first in a tie, then from the row's start. */
+function higher(a: Column, b: Column): boolean {
+  return a.stop < b.stop - 1e-9 || (Math.abs(a.stop - b.stop) <= 1e-9 && (a.r > b.r || (a.r === b.r && a.c < b.c)));
 }
 
 /** Plans one phase's blows over a face model; `strokeBase` numbers the strokes across phases and the count after is returned. */
@@ -136,7 +179,8 @@ function planPhase(ctx: PlanContext, scratch: ScratchStock, model: FaceModel, op
     const live = (column: Column): boolean => column.covered !== pass && proud(column, cell) && model.inBox(column, region) && model.wanted(column, region, options.keep);
     const candidates = model.columns.filter(live);
     if (candidates.length === 0) break;
-    const spread = new Spread(model, live, (column) => Math.floor((column.entry ?? 0) / (options.size / 2)));
+    const footprint = Math.ceil((bulk ? BULK_RADIUS_RATIO * options.size * (1 + jitter) : (options.rowPitch ?? raster) / 2) / raster);
+    const spread = new Spread(model, live, (column) => Math.floor((column.entry ?? 0) / (options.size / 2)), footprint);
     let struck = 0;
     for (;;) {
       const column = spread.next(candidates);
