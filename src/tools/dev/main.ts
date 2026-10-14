@@ -1,5 +1,5 @@
 /**
- * Boot of the tool gallery (tools.html): the page's viewer under the capture contract (docs/design/spec.md, Query contract), the yard without the placeholder block, the gallery, the bench and the strike demonstration.
+ * Boot of the tool gallery (tools.html): the page's viewer and yard under the capture contract (docs/design/spec.md, Query contract), the gallery standing in the yard, the bench and the strike demonstration.
  * `shot=1` and `autoplay=0` hold the demo still at a strike with chips in flight; `cam=` frames whatever the capture asks for, else the camera takes in the whole gallery.
  */
 import { BoxGeometry, Mesh } from 'three';
@@ -41,6 +41,15 @@ if (!still) {
 }
 
 viewer.start();
+
+// Capture contract: the viewer counts frames and the page raises the flag; five frames at the requested state are enough here, there are no chunks to mesh.
+if (query.shot) {
+  const ready = (): void => {
+    if (viewer.frames >= 5) window.__shotReady = true;
+    else requestAnimationFrame(ready);
+  };
+  requestAnimationFrame(ready);
+}
 
 /** The page's scene carries a placeholder block at the origin; the gallery stands there instead. */
 function removePlaceholderBlock(scene: Scene): void {

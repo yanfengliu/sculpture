@@ -4,7 +4,7 @@ The step list the page plays, derived from `docs/research/technique.md` (the sta
 
 ## Calendar
 
-The two documented anchors are the start on 13 September 1501 and the half-done report of 28 February 1502 (168 days), and "nearly finished" on 25 January 1504 (697 days more). The technique note's inferred shares of time are scaled inside each span so the anchors hold: before the report, roughing takes 12/19 of the span and the coarse claw 7/19; after it, the fine claw 37/72, drilling 8/72, rasps 12/72 and polishing 15/72. The nodo blows of 9 September 1501 open the calendar; the public showing of 23 June 1503 falls in the rasping stage; the on-site stage runs from the move of 14 May 1504 to the unveiling of 8 September 1504. The label shows the day count from 13 September 1501.
+The two documented anchors are the start on 13 September 1501 and the half-done report of 28 February 1502 (168 days), and "nearly finished" on 25 January 1504 (696 days more). The technique note's inferred shares of time are scaled inside each span so the anchors hold: before the report, roughing takes 12/19 of the span and the coarse claw 7/19 (the coarse claw's 55 days below are the whole report-to-report remainder after the setup and layout days); after it, the fine claw 37/72, drilling 8/72, rasps 12/72 and polishing 15/72. The knot blows of 9 September 1501 open the calendar and the label counts days from them (Day 1; the formal start of 13 September is Day 5); the public showing of 23 June 1503 falls in the rasping stage; the statue leaves the Opera on 14 May 1504, and the on-site steps run from the ringhiera of 8 June 1504 to the unveiling of 8 September 1504.
 
 | Stage | From | To | Share |
 |---|---|---|---|
@@ -16,11 +16,11 @@ The two documented anchors are the start on 13 September 1501 and the half-done 
 | drilling | 1503-02-21 | 1503-05-09 | 8/72 |
 | rasping | 1503-05-09 | 1503-09-02 | 12/72; the door opened on 23 June 1503 |
 | polishing | 1503-09-02 | 1504-01-25 | 15/72, to "nearly finished" |
-| on-site | 1504-05-14 | 1504-09-08 | the move, the base, the touches, the gilding |
+| on-site | 1504-06-08 | 1504-09-08 | on the ringhiera after the move of 14 to 18 May: the touches, the gilding |
 
 ## Regions
 
-Regions are boxes in world metres on the figure as placed by `src/david/frame.ts` (y from 0 at the bottom of the rock base), with a predicate on the figure's outward normal where a face matters. The bands below are fractions of the statue's 5.17 m, read off the reference photographs (inferred; the pipeline's silhouettes and the captures check them, and `src/choreography/regions.ts` holds the numbers).
+Regions are boxes in world metres on the figure as placed by `src/david/frame.ts` (y from 0 at the bottom of the rock base), with a predicate on the figure's outward normal where a face matters; `src/choreography/regions.ts` holds the numbers, which govern where the table below and the code differ (the code's boxes reach the block's top, 5.25 m, so the stone above the head is cut; the hands, face and hair bands were refined from the pipeline's silhouettes). The bands were read off the reference photographs (inferred). Review found the sling and stump boxes swallow the shoulder, the upper back and the calf (gold landed on flesh), so those two regions become masks derived from the figure, a tube along the strap and the component behind the right leg, in the round after review 0.
 
 | Region | Box (y in m) | Predicate | Note |
 |---|---|---|---|
@@ -47,7 +47,7 @@ Margins are the stone left above the final surface at the end of the step, in mi
 | # | Stage | Step id | Tool | Region | Margin | Blows (shown) | Weight | Source |
 |---|---|---|---|---|---|---|---|---|
 | 1 | setup | nodo | point | a 0.2 m box at the chest, front | 30 | 1 | 0.5 | technique.md stage 0; the 9 September entry |
-| 2 | layout | principal-view | charcoal | front face of the block | 0 | 348 | 0.6 | technique.md stage 1; Cellini on drawing the principal view |
+| 2 | layout | principal-view | charcoal | front face of the block | 0 (removes nothing) | 348 | 0.6 | technique.md stage 1; Cellini on drawing the principal view |
 | 3 | roughing | high-points | point | high-points, front relief | 30 | 680 | 0.85 | technique.md stage 2; Vasari's water rule, St Matthew's knee and hand |
 | 4 | roughing | chest-and-face | point | chest-and-face, front relief | 30 | 682 | 0.85 | technique.md stage 2 |
 | 5 | roughing | front-furrows | point | front relief | 20 | 1,964 | 2.5 | technique.md stage 2; the legs and base, then the sculptor's 45° stroke |
@@ -65,7 +65,7 @@ Margins are the stone left above the final surface at the end of the step, in mi
 | 17 | rasping | file-details | file | face, left-hand, right-hand | 0.2 | 303 | 0.5 | technique.md stage 6 |
 | 18 | polishing | pumice-flesh | pumice | flesh | 0 | 1,071 | 1.3 | technique.md stage 7; Cellini's white pumice |
 | 19 | polishing | tripoli-straw-leather | polish | flesh | 0 | 752 | 0.95 | technique.md stage 7; Vasari's straw bunches |
-| 20 | on-site | last-touches | fine-claw | face, hair | 1 | 16 | 0.3 | technique.md stage 8; Soderini and the nose |
+| 20 | on-site | last-touches | file | face, hair | 1 | 16 | 0.3 | technique.md stage 8; Soderini and the nose (a file, since a toothed chisel on the polished face would leave claw marks over the polish) |
 | 21 | on-site | gilding | gilding | sling, stump | 0 | 1,007 | 1.3 | technique.md stage 8; the gilded broncone and sling |
 
 About 19,000 shown blows, under the plan budget of 60,000 and near the 20,000 the decisions note sizes the time-lapse on. Weights sum to about 23, so at `BASE_SECONDS` of 12 the making plays in about four and a half minutes at 1×. The hollows and the drilled gaps plan few blows on the synthetic mannequin, which has few creases; the David grid gives the roundel and the drill more to do.

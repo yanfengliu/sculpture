@@ -95,4 +95,4 @@ Port: the dev server, the e2e suite and the capture script use `SCULPTURE_PORT` 
 
 ## Conventions
 
-- One line per paragraph, no hard wrapping. Files under 500 lines.
+- One line per paragraph, no hard wrapping. Files under 500 lines, except a review record under `docs/work/` that embeds the reviewers' authored reports, which are kept whole.
