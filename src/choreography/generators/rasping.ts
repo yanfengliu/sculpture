@@ -1,9 +1,13 @@
 /**
- * Rasps, files, pumice and polish (docs/research/technique.md, Stage 6 and 7; tools.md, Raspe e lime, Abrasives and polish): strokes crossing over the surface, the tool lying along it, each pass lowering the skin by the step's margin step and painting its finish.
+ * Rasps, files, pumice and polish (docs/research/technique.md, Stage 6 and 7; tools.md, Raspe e lime, Abrasives and polish): strokes crossing over the surface, the tool lying along it, each pass lowering the skin toward the step's margin and painting its finish.
+ * The first pass goes over the whole region, leaving the tool's mark everywhere; the passes after it are driven by the allowance left, as ./combing.ts: each strikes the scratch stock where it still stands above the margin by more than a quarter cell, crossing the pass before, until nothing is left to take or MAX_PASSES is reached. A tool that removes nothing (the polish) runs its listed passes over the whole region, since it has no allowance to chase.
  * `rasping` is the rasp and file passes; `abrading` the pumice, tripoli, straw and leather passes, which differ only in tool, angle and depth.
  */
 import type { Blow, PlanContext, ToolId } from '../../contracts/making';
+import { TOOL_VOLUMES } from '../../stock/tool-volumes';
 import { type BandOrientation, bandBlows } from './bands';
+import { MAX_PASSES, orientationOf } from './combing';
+import { ScratchStock, scratchContext } from './scratch';
 
 export interface StrokingOptions {
   readonly tool: ToolId;
@@ -20,26 +24,31 @@ export interface StrokingOptions {
 
 function stroking(ctx: PlanContext, options: StrokingOptions): Blow[] {
   const blows: Blow[] = [];
-  options.passes.forEach((orientation, pass) => {
+  const removes = TOOL_VOLUMES[options.tool].removes;
+  const scratch = removes ? new ScratchStock(ctx) : undefined;
+  const sctx = scratch === undefined ? ctx : scratchContext(ctx, scratch);
+  const passes = removes ? MAX_PASSES : options.passes.length;
+  for (let pass = 0; pass < passes; pass += 1) {
     const strokeBase = blows.length === 0 ? 0 : (blows[blows.length - 1]?.stroke ?? 0) + 1;
-    blows.push(
-      ...bandBlows(
-        ctx,
-        {
-          tool: options.tool,
-          pitch: options.pitch,
-          stride: options.stride,
-          size: options.size,
-          angle: options.angle,
-          orientation,
-          strokeLength: options.strokeLength ?? 0.3,
-          floor: pass === 0 ? 'stock' : 'margin',
-          onlyWhereStockAbove: false,
-        },
-        strokeBase,
-      ),
+    const planned = bandBlows(
+      sctx,
+      {
+        tool: options.tool,
+        pitch: options.pitch,
+        stride: options.stride,
+        size: options.size,
+        angle: options.angle,
+        orientation: orientationOf(options.passes, pass),
+        strokeLength: options.strokeLength ?? 0.3,
+        floor: 'stock',
+        onlyWhereStockAbove: removes && pass > 0,
+      },
+      strokeBase,
+      scratch,
     );
-  });
+    if (planned.length === 0) break;
+    blows.push(...planned);
+  }
   return blows;
 }
 

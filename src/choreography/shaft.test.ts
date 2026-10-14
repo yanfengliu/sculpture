@@ -6,9 +6,11 @@
  */
 import { describe, expect, it } from 'vitest';
 
-/** Bounds, from the residuals measured on 2026-10-11 after the planner rewrite (8 tips in stone, 1,780 tips in the air and 165 shafts through stone of 14,934 blows): the bulk craters' surface model misses where a neighbouring crater's rim undercuts a column, and the flat-lying tools' shafts graze the neighbouring form in the tightest hollows. A rise above these is a regression. */
-const IN_STONE_ALLOWED = 12;
-const AIR_FRACTION_ALLOWED = 0.15;
+/**
+ * Bounds, from the residuals measured on 2026-10-13 with the generators planning against a scratch stock (src/choreography/generators/scratch.ts): no tip in stone, 141 tips in the air of 3,234 point blows (a stroke's cone or a crater placed from a column whose half-cell march missed a sub-cell sheet, so the tip sits a cell or two above it), 2 point shafts through stone of 3,234, and 219 rubbing-tool shafts of about 12,000 (the rasp and the pumice lying flat in the hollows between the head and the shoulder, where the neighbouring form is 12 to 16 cm along the shaft: the tools' approach, not the planner's placement). Before the scratch stock the same run had 8 tips in stone, 1,772 tips in the air and 60 point shafts of 4,771 point blows. A rise above these is a regression.
+ */
+const IN_STONE_ALLOWED = 2;
+const AIR_FRACTION_ALLOWED = 0.02;
 const SHAFT_FRACTION_ALLOWED = 0.02;
 import * as THREE from 'three';
 

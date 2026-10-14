@@ -11,12 +11,16 @@ import { gild } from './generators/gild';
 import { holes } from './generators/holes';
 import { abrading, rasping } from './generators/rasping';
 import { scoop } from './generators/scoop';
-import { BACK, CHEST_AND_FACE, CROWN, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HIGH_POINTS, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE, WHOLE_BUT_CROWN, relief, union } from './regions';
+import { BACK, CROWN, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HAIR_BUT_CROWN, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, relief, union } from './regions';
 
 /** The bulk cuts of the heavy point: one shown blow stands for a field of real pits, so its crater is flat-floored (src/stock/tool-volumes.ts); the pitch keeps neighbouring craters overlapping. */
 const BULK = { pitch: 0.2, size: 0.15, angle: 85 } as const;
-/** The sculptor's stroke: the point at 45 degrees, not lifted between blows (tools.md, Subbia). */
+/** The sculptor's stroke: the point at 45 degrees, not lifted between blows (tools.md, Subbia); furrows 12 cm apart, each a run along the form. */
 const STROKE = { pitch: 0.04, rowPitch: 0.12, size: 0.035, angle: 45, maxPasses: 1 } as const;
+/** The bulk craters of a furrowed step stop a stroke's depth short of the step's margin, so the furrows are what finishes the layer. */
+const furrowed = (margin: number) => margin + STROKE.size;
+/** The front of the block as a half relief: the three roughing steps take layers off the whole front, the knee and the hand emerging in the first, the chest and the face in the second, the legs and the base in the last (technique.md, Stage 2: Vasari's water rule). */
+const FRONT_RELIEF = relief(FRONT, 'front');
 
 /** Real blows one shown blow stands for: `days` of work at five hours a day and `rate` blows a second, over `shown` planned blows. */
 function ratio(days: number, rate: number, shown: number): number {
@@ -142,14 +146,14 @@ export const DAVID_STEPS: readonly StepDef[] = [
     title: 'The knee and the hand come out first',
     detail: 'Subbia (point) and iron mallet: the highest points of the front first, the left knee and the right hand, by Vasari\'s water rule; one shown blow for many real ones (technique.md, stage 2).',
     tool: 'point',
-    region: relief(HIGH_POINTS, 'front'),
+    region: FRONT_RELIEF,
     margin: 0.03,
     weight: 0.85,
     from: '1501-09-20',
     to: '1501-10-22',
     shown: 1500,
     focus: { kind: 'tip', distance: 2.2 },
-    plan: (ctx) => furrows(ctx, { faces: ['front'], ...BULK }),
+    plan: (ctx) => furrows(ctx, { faces: ['front'], ...BULK, maxPasses: 2 }),
   }),
   step({
     id: 'chest-and-face',
@@ -157,14 +161,14 @@ export const DAVID_STEPS: readonly StepDef[] = [
     title: 'The chest and the face',
     detail: 'Subbia (point): the chest where the knot stood and the face, the front worked as a half relief toward the back; one shown blow for many real ones (technique.md, stage 2).',
     tool: 'point',
-    region: relief(CHEST_AND_FACE, 'front'),
+    region: FRONT_RELIEF,
     margin: 0.03,
     weight: 0.85,
     from: '1501-10-22',
     to: '1501-11-23',
     shown: 1500,
     focus: { kind: 'tip', distance: 2.2 },
-    plan: (ctx) => furrows(ctx, { faces: ['front'], ...BULK }),
+    plan: (ctx) => furrows(ctx, { faces: ['front'], ...BULK, maxPasses: 2 }),
   }),
   step({
     id: 'front-furrows',
@@ -172,7 +176,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     title: "The sculptor's stroke over the front",
     detail: 'Subbia (point): the legs and base taken down, then the point at 45 degrees cutting parallel furrows over the whole front to a finger of the skin; one shown blow for many (technique.md, stage 2).',
     tool: 'point',
-    region: relief(FRONT, 'front'),
+    region: FRONT_RELIEF,
     margin: 0.02,
     weight: 2.5,
     from: '1501-11-23',
@@ -180,7 +184,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     shown: 3000,
     plan: (ctx) =>
       furrowsPhases(ctx, [
-        { region: relief({ ...WHOLE, min: [WHOLE.min[0], 0, WHOLE.min[2]], max: [WHOLE.max[0], 1.3, WHOLE.max[2]], label: 'legs-and-base' }, 'front'), options: { faces: ['front'], ...BULK } },
+        { options: { faces: ['front'], ...BULK, margin: furrowed(ctx.margin) } },
         { options: { faces: ['front'], ...STROKE } },
       ]),
   }),
@@ -196,7 +200,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1502-01-04',
     to: '1502-01-31',
     shown: 1200,
-    plan: (ctx) => combing(ctx, { tool: 'two-tooth', pitch: 0.1, stride: 0.08, size: 0.012, angle: 45, passes: ['horizontal'] }),
+    plan: (ctx) => combing(ctx, { tool: 'two-tooth', pitch: 0.1, stride: 0.08, size: 0.012, angle: 45, passes: ['horizontal'], untilCovered: false }),
   }),
   step({
     id: 'claw-front',
@@ -210,7 +214,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1502-01-31',
     to: '1502-02-28',
     shown: 1200,
-    plan: (ctx) => combing(ctx, { tool: 'claw', pitch: 0.1, stride: 0.08, size: 0.008, angle: 45, passes: ['diagonal'] }),
+    plan: (ctx) => combing(ctx, { tool: 'claw', pitch: 0.1, stride: 0.08, size: 0.008, angle: 45, passes: ['diagonal'], untilCovered: false }),
   }),
   step({
     id: 'sides-point',
@@ -226,7 +230,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     shown: 1500,
     plan: (ctx) =>
       furrowsPhases(ctx, [
-        { options: { faces: ['left', 'right', 'top'], ...BULK, keep: CROWN } },
+        { options: { faces: ['left', 'right', 'top'], ...BULK, keep: CROWN, margin: furrowed(ctx.margin) } },
         { options: { faces: ['left', 'right'], ...STROKE, pitch: 0.06, rowPitch: 0.2 } },
       ]),
   }),
@@ -244,7 +248,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     shown: 1200,
     plan: (ctx) =>
       furrowsPhases(ctx, [
-        { options: { faces: ['back'], ...BULK } },
+        { options: { faces: ['back'], ...BULK, margin: furrowed(ctx.margin) } },
         { options: { faces: ['back'], ...STROKE } },
       ]),
   }),
@@ -260,7 +264,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1502-07-11',
     to: '1502-09-19',
     shown: 1500,
-    plan: (ctx) => combing(ctx, { tool: 'claw', pitch: 0.1, stride: 0.08, size: 0.008, angle: 45, passes: ['diagonal'] }),
+    plan: (ctx) => combing(ctx, { tool: 'claw', pitch: 0.1, stride: 0.08, size: 0.008, angle: 45, passes: ['diagonal'], untilCovered: false }),
   }),
   step({
     id: 'fine-claw-all',
@@ -402,7 +406,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     title: 'Last touches on the nose and the hair',
     detail: 'Lima (file) and rifflers: on the ringhiera from 8 June 1504, the scaffold still up when Soderini spoke of the nose, last touches on the finished face and hair with the file (technique.md, stage 8).',
     tool: 'file',
-    region: union('face-and-hair', FACE, HAIR),
+    region: union('face-and-hair', FACE, HAIR_BUT_CROWN),
     margin: 0.001,
     weight: 0.3,
     from: '1504-06-08',
