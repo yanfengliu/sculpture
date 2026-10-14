@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { CALENDAR_END, CALENDAR_START, TIME_LAPSE_STATEMENT, dateAt, dayNumber, daysBetween, formatDate, formatDetail, formatLabel } from './label';
+import { CALENDAR_END, CALENDAR_START, TIME_LAPSE_STATEMENT, dateAt, dayNumber, daysBetween, formatDate, formatDetail, formatLabel, formatYears } from './label';
 
 const STEP = { title: 'Roughing the front with the point', detail: 'The point opens the front face (technique.md, stage 2).', calendar: { from: '1501-09-18', to: '1502-01-08' }, blowsPerShown: 40 };
 
@@ -20,7 +20,6 @@ describe('calendar arithmetic', () => {
   });
 
   it('numbers 9 September 1501 as day 1, the formal start of 13 September as day 5 and the unveiling as day 1096', () => {
-    expect(CALENDAR_START).toBe('1501-09-09');
     expect(dayNumber(CALENDAR_START)).toBe(1);
     expect(dayNumber('1501-09-13')).toBe(5);
     expect(dayNumber(CALENDAR_END)).toBe(1096);
@@ -46,6 +45,15 @@ describe('label and detail', () => {
   it('writes Day d · date · stage — title', () => {
     expect(formatLabel(STEP, 'Roughing', 0)).toBe('Day 10 · 18 September 1501 · Roughing — Roughing the front with the point');
     expect(formatLabel(STEP, 'Roughing', 1)).toBe('Day 122 · 8 January 1502 · Roughing — Roughing the front with the point');
+  });
+
+  it('writes the years instead of a day count for a step that starts before the calendar start, at any progress', () => {
+    const agostino = { title: "Agostino's roughing of the legs", calendar: { from: '1464-08-18', to: '1466-04-02' } };
+    for (const f of [0, 0.5, 1]) expect(formatLabel(agostino, 'The stock and its support', f)).toBe("1464–1466 · The stock and its support — Agostino's roughing of the legs");
+    expect(formatYears({ from: '1464-01-01', to: '1464-12-31' })).toBe('1464');
+    // The day before the calendar start has no day number either; the start itself is Day 1.
+    expect(formatLabel({ ...agostino, calendar: { from: '1501-09-08', to: '1501-09-08' } }, 'Setup', 0)).toBe("1501 · Setup — Agostino's roughing of the legs");
+    expect(formatLabel({ ...agostino, calendar: { from: CALENDAR_START, to: '1501-09-13' } }, 'Setup', 0)).toBe("Day 1 · 9 September 1501 · Setup — Agostino's roughing of the legs");
   });
 
   it('writes the detail with the tool names and the blows per shown blow first, singular and plural, then the step detail', () => {

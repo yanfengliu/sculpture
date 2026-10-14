@@ -6,6 +6,7 @@ import type { Object3D } from 'three';
 
 import type { GridSource } from '../contracts/grid';
 import type { Blow, BlowCycle, Making, ToolId } from '../contracts/making';
+import type { StrikeLog } from '../tools/dust';
 
 export type RenderedTool = ToolId | 'mallet';
 
@@ -26,4 +27,6 @@ export interface MakingBundle {
   readonly toolNames: (tool: RenderedTool) => ToolNames;
   /** The figure grid's attribution from its header, for the footer; null when no grid is loaded. */
   readonly source: GridSource | null;
+  /** The strikes the Making asked chips for, kept for the dust puffs (src/tools/dust.ts); absent, no dust. */
+  readonly strikes?: StrikeLog;
 }

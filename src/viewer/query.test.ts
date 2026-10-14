@@ -21,7 +21,7 @@ describe('parseViewerQuery', () => {
       step: null,
       problems: [],
     });
-    expect(DEFAULT_MODEL).toBe('david');
+    expect(parseViewerQuery('').model).toBe(DEFAULT_MODEL);
   });
 
   it('reads the flags, with and without the leading question mark', () => {

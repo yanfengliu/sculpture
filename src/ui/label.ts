@@ -58,8 +58,16 @@ export function formatDate(iso: string): string {
   return `${String(day)} ${MONTHS[month - 1] ?? '?'} ${String(year)}`;
 }
 
-/** `Day d · <date> · <stage> — <title>`. */
+/** `1464–1466`: the years a calendar span covers, one year when it starts and ends in the same one. */
+export function formatYears(calendar: StepInfo['calendar']): string {
+  const from = parseIso(calendar.from).year;
+  const to = parseIso(calendar.to).year;
+  return from === to ? String(from) : `${String(from)}–${String(to)}`;
+}
+
+/** `Day d · <date> · <stage> — <title>`; a step whose calendar starts before CALENDAR_START (Agostino di Duccio's roughing of 1464 to 1466, docs/research/david-history.md, The 1464 commission) has no day in Michelangelo's count and shows its years: `1464–1466 · <stage> — <title>`. */
 export function formatLabel(step: Pick<StepInfo, 'title' | 'calendar'>, stageTitle: string, f: number): string {
+  if (daysBetween(CALENDAR_START, step.calendar.from) < 0) return `${formatYears(step.calendar)} · ${stageTitle} — ${step.title}`;
   const date = dateAt(step.calendar, f);
   return `Day ${String(dayNumber(date))} · ${formatDate(date)} · ${stageTitle} — ${step.title}`;
 }
