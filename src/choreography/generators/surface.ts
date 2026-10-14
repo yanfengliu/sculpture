@@ -3,6 +3,7 @@
  * Every function is pure in its arguments, so a generator is deterministic in its PlanContext and seed.
  */
 import type { Blow, PlanContext, RegionDef, SdfSampler, ToolId, Vec3 } from '../../contracts/making';
+import { Grid } from '../../stock/grid';
 
 /** mulberry32: a small seeded generator in [0, 1). */
 export function mulberry32(seed: number): () => number {
@@ -88,6 +89,41 @@ export function projectToFigure(figure: SdfSampler, q: Vec3, rounds = 3): Vec3 {
   return p;
 }
 
+/**
+ * The point of the figure's surface nearest `target` within `radius`, or null when the surface comes no nearer: the ball is scanned on a lattice at `spacing`, the candidates within `spacing` of the surface kept, the one with the least `|candidate − target| + |value|` (the triangle bound on the distance to the surface through it) taken and moved onto the surface by Newton steps; a target already within `spacing` of the surface skips the scan.
+ * Wider than `projectToFigure`, which cannot move a point where the figure grid is clamped to its band (16 cells, 128 mm at 8 mm) and the gradient is flat (Codex review of 81acb40, item 16). About 15,000 samples at a 15 cm radius and 1 cm spacing; deterministic in its arguments.
+ */
+export function nearestOnFigure(figure: SdfSampler, target: Vec3, radius: number, spacing: number): Vec3 | null {
+  if (Math.abs(figure.sample(target[0], target[1], target[2])) <= spacing) return settled(figure, projectToFigure(figure, target, 6), spacing);
+  const reach = Math.floor(radius / spacing + 1e-9);
+  let best: Vec3 | null = null;
+  let bestScore = Infinity;
+  for (let k = -reach; k <= reach; k += 1) {
+    for (let j = -reach; j <= reach; j += 1) {
+      for (let i = -reach; i <= reach; i += 1) {
+        const offset = Math.hypot(i, j, k) * spacing;
+        if (offset > radius) continue;
+        const x = target[0] + i * spacing;
+        const y = target[1] + j * spacing;
+        const z = target[2] + k * spacing;
+        const value = Math.abs(figure.sample(x, y, z));
+        if (value > spacing) continue;
+        const score = offset + value;
+        if (score < bestScore) {
+          bestScore = score;
+          best = [x, y, z];
+        }
+      }
+    }
+  }
+  return best === null ? null : settled(figure, projectToFigure(figure, best, 6), spacing);
+}
+
+/** `p` when the Newton steps left it within `tolerance` of the surface, else null: a point that would not converge is not drilled. */
+function settled(figure: SdfSampler, p: Vec3, tolerance: number): Vec3 | null {
+  return Math.abs(figure.sample(p[0], p[1], p[2])) <= tolerance ? p : null;
+}
+
 /** From a point on or near the figure, the point where the stock surface lies outward along the figure's normal, or null when the stock is already cut away there, the normal leaves the stock within `maxDistance`, or the surface found is the block's bottom face. */
 export function stockAbove(ctx: PlanContext, q: Vec3, maxDistance: number): { point: Vec3; depth: number } | null {
   const n = ctx.figure.gradient(q[0], q[1], q[2]);
@@ -109,15 +145,30 @@ export function inRegion(region: RegionDef, point: Vec3, normal: Vec3): boolean 
   return region.contains === undefined ? true : region.contains(point, normal);
 }
 
-/** Points on the figure's surface inside the region, about `spacing` apart, found by scanning the region's box at half that spacing and projecting the near-surface samples; each cell of a `spacing` lattice keeps one point, in scan order. */
-export function figureSurfacePoints(ctx: PlanContext, spacing: number): Vec3[] {
+/** Cells of slack in the scan's one-read rejection (see `figureSurfacePoints`): √3 for the trilinear sample's reach from the nearest cell, the same again for a figure whose field is a distance bound rather than a distance (the synthetic mannequin's ellipsoids), and the fixed point's rounding. */
+const SCAN_SLACK_CELLS = 2 * Math.sqrt(3) + 1 / 256;
+
+/**
+ * Points on the figure's surface inside the region, about `spacing` apart, found by scanning the region's box at half that spacing and projecting the near-surface samples; each cell of a `spacing` lattice keeps one point, in scan order.
+ * On a figure grid a sample is first judged by one read of its nearest cell: the grid's values are a distance clamped to its band, 1-Lipschitz, and the trilinear sample lies within SCAN_SLACK_CELLS of that cell's value, so a cell farther from the surface than `step` plus that slack cannot yield a point and the trilinear sample is skipped (the scan was the whole cost of a step over a small region in a tall box, the files over the face and the hands: 3.7 s of 4.7 at 8 mm, 2026-10-13). The points are the same with or without the read (surface.test.ts).
+ */
+export function figureSurfacePoints(ctx: PlanContext, spacing: number, options: { readonly prefilter?: boolean } = {}): Vec3[] {
   const { region, figure } = ctx;
   const points: Vec3[] = [];
   const taken = new Set<string>();
   const step = spacing / 2;
+  const grid = options.prefilter === false || !(figure instanceof Grid) ? null : figure;
+  const values = grid?.values ?? null;
+  const reach = grid === null ? 0 : (step / grid.cell + SCAN_SLACK_CELLS) * 256;
   for (let y = region.max[1]; y >= region.min[1]; y -= step) {
+    const j = grid === null ? 0 : Math.min(grid.ny - 1, Math.max(0, Math.round((y - grid.spec.origin[1]) / grid.cell)));
     for (let z = region.min[2]; z <= region.max[2]; z += step) {
+      const rowAt = grid === null ? 0 : grid.nx * (j + grid.ny * Math.min(grid.nz - 1, Math.max(0, Math.round((z - grid.spec.origin[2]) / grid.cell))));
       for (let x = region.min[0]; x <= region.max[0]; x += step) {
+        if (grid !== null && values !== null) {
+          const i = Math.min(grid.nx - 1, Math.max(0, Math.round((x - grid.spec.origin[0]) / grid.cell)));
+          if (Math.abs(values[rowAt + i] ?? 0) > reach) continue;
+        }
         const d = figure.sample(x, y, z);
         if (Math.abs(d) > step) continue;
         const p = projectToFigure(figure, [x, y, z]);

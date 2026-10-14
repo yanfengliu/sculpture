@@ -4,13 +4,18 @@
  *   2. Trilinear `sample` reproduces an analytic sphere field between cell centres to within a cell's curvature, `gradient` of a plane is its unit normal, and both are continuous across the lattice's edge.
  *   3. `blockGrid` is negative inside the block, positive outside and clamped to STOCK_BAND_CELLS.
  *   4. `loadFigureGrid` reads a fixture written here per the format of src/contracts/grid.ts (header JSON, gzip of little-endian Int16, SHA-256), reads the same bytes when the server has already inflated them, and rejects a wrong digest, a wrong size and a bad header with a message naming the problem.
- * Bounds: the fixture is this test's own writing of the format; the pipeline's real file is checked at integration. No network: `fetch` is a fake serving the fixture.
+ *   5. Round trip: a 4×5×6 grid the pipeline's real writer, scripts/lib/model/grid-writer.mjs, writes into a temporary directory loads back through `loadFigureGrid` with the same values (the band's clamp included), size, origin, cell, band and source, and the header's SHA-256 is the digest of the raw little-endian bytes this test computes itself. This is the reader's half of the promise in src/contracts/grid.ts that each side is tested against the other's output; the writer's half is scripts/lib/model/grid-writer.test.ts.
+ * Bounds: the fixtures of 4 are this test's own writing of the format; the round trip of 5 reads the writer's two files from disk through a fake `fetch`, so the file names, the gzip and the digest are the writer's, while a server's `Content-Encoding` handling is exercised only by the inflated-body case of 4. No network.
  */
 import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
+import { gridSource, writeGrid } from '../../scripts/lib/model/grid-writer.mjs';
 import { DEFAULT_BAND_CELLS, FIXED_POINT, type GridHeader } from '../contracts/grid';
 import { BLOCK_M, GRID_MARGIN_CELLS, STOCK_BAND_CELLS } from '../david/frame';
 import { blockGrid, blockLattice, frameBlockBox, fromFixed, Grid, latticeBlockBox, loadFigureGrid, toFixed } from './grid';
@@ -147,5 +152,49 @@ describe('figure grid loader', () => {
     await expect(loadFigureGrid('model/c.json', serve({ 'model/c.json': badHeader }))).rejects.toThrow(/format "other".*band must be/);
     await expect(loadFigureGrid('model/d.json', serve({ 'model/d.json': 500 }))).rejects.toThrow(/answered 500/);
     await expect(loadFigureGrid('model/e.bin', serve({}))).rejects.toThrow(/must end in \.json/);
+  });
+});
+
+describe('round trip through the pipeline writer', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'sculpture-grid-trip-'));
+  afterAll(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  /** Serves the writer's files from disk as the page's fetch would: the url is the file's path, a missing file is a 404. */
+  const serveDisk: typeof fetch = (input) => {
+    const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    try {
+      return Promise.resolve(new Response(new Uint8Array(readFileSync(path)).buffer, { status: 200 }));
+    } catch {
+      return Promise.resolve(new Response(null, { status: 404 }));
+    }
+  };
+
+  it('reads back exactly what scripts/lib/model/grid-writer.mjs wrote', async () => {
+    const lattice = { cell: 0.03, size: [4, 5, 6], origin: [-0.35, 0.1, -0.2], band: 7 };
+    const limit = lattice.band * FIXED_POINT;
+    // Distances in cells from -9 to about 4.3, so some cells clamp at the band and the rest round to 1/256 cell.
+    const cells = new Float64Array(4 * 5 * 6);
+    for (let n = 0; n < cells.length; n += 1) cells[n] = ((n * 53) % 41) / 3 - 9;
+    const record = { title: 'trip', author: 'test', url: 'about:trip', licence: 'CC0', licenceUrl: 'about:cc0', sha1: '1', attribution: 'trip', fetchedAt: '2026-10-11' };
+    const written = writeGrid(directory, 'trip', lattice, cells, gridSource(record));
+    const expected = new Int16Array(cells.length);
+    for (let n = 0; n < cells.length; n += 1) expected[n] = Math.max(-limit, Math.min(limit, Math.round((cells[n] ?? 0) * FIXED_POINT)));
+    const raw = new Uint8Array(expected.length * 2);
+    for (let n = 0; n < expected.length; n += 1) new DataView(raw.buffer).setInt16(n * 2, expected[n] ?? 0, true);
+    expect(Math.min(...expected)).toBe(-limit);
+    expect(Math.max(...expected)).toBeLessThan(limit);
+
+    const loaded = await loadFigureGrid(join(directory, written.files.header), serveDisk);
+    expect(loaded.grid.values).toEqual(expected);
+    expect([...loaded.grid.spec.size]).toEqual(lattice.size);
+    expect([...loaded.grid.spec.origin]).toEqual(lattice.origin);
+    expect(loaded.grid.spec.cell).toBe(lattice.cell);
+    expect(loaded.grid.spec.band).toBe(lattice.band);
+    expect(loaded.header.sha256).toBe(createHash('sha256').update(raw).digest('hex'));
+    expect(loaded.header.sha256).toBe(written.header.sha256);
+    expect(loaded.header.source?.title).toBe('trip');
+    expect(loaded.grid.sample(lattice.origin[0] ?? 0, lattice.origin[1] ?? 0, lattice.origin[2] ?? 0)).toBeCloseTo(fromFixed(expected[0] ?? 0, lattice.cell), 9);
   });
 });

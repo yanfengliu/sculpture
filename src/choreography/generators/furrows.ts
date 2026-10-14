@@ -1,17 +1,21 @@
 /**
- * The point's furrows (docs/research/technique.md, Stage 2; tools.md, Subbia): layers taken off a face of the stock toward the figure, "as one would lift a wax figure out of a pail of water", the highest points of the figure appearing first.
- * A face is scanned in columns from outside the block inward; each column is struck in passes, one bite deeper each time, until the blow point reaches the figure plus the step's margin or the region's far side, skipping depths where the step's starting stock holds no stone within a bite. Passes come first, then rows top to bottom, then the columns of a row back and forth, so one row of one pass is a furrow and a stroke.
- * Blows at or above the tools' bulk size are the steep bulk cuts (60 to 90 degrees); smaller ones are the sculptor's stroke at the documented 45 degrees, leaning along the furrow.
+ * The point's work on a face of the stock (docs/research/technique.md, Stage 2; tools.md, Subbia): layers taken off toward the figure "as one would lift a wax figure out of a pail of water", the highest points of the figure appearing first.
+ * A face carries a raster of columns running inward. Each column knows where the figure plus the step's margin stops it (or where its run ends when it meets no figure: the relief plane from the front or the back, the block's middle from a side, nowhere from the top, which only clears what stands over the figure) and whether its stop point is in the phase's region (the region's `contains` predicate on the figure's normal there; a column that meets no figure is kept) and outside `keep` (the crown's crust). Where its stone begins is read, before every blow, from a scratch copy of the stock (./scratch.ts) that the planner carves with each blow it plans, so each blow lands on the surface the blows before it left, its normal is that surface's gradient, and a blow that would meet air is left out.
+ * The scratch is a 2 cm lattice (ROUGHING_SCRATCH_CELL) whatever the stock's own cell: a crater is 36 cm wide and a furrow 10 to 30 cm long, so the point's work needs no finer surface, and at the page's 8 mm the full-resolution copy cost each roughing step 2 to 4 s to plan (2026-10-13, docs/devlog/summary.md). The columns march and the entries are read at half that cell. The finishing passes (./combing.ts, ./rasping.ts) keep the full-resolution scratch, since they chase the allowance to within a cell.
+ * Passes are the outer loop: a pass takes one layer off every column that still stands proud, so the whole face comes down together and the figure emerges evenly. Within a pass the order is Vasari's: the first blow falls on the column whose stop is nearest the face (the knee, the hand, the chest), and the work spreads from there over the raster's neighbours, always to the neighbour whose figure lies highest, lower rows before higher in a tie, so the cut grows outward and downward from the high points and never hops across the face.
+ * Bulk cuts (blows at or above the tools' bulk size, struck steeply) are craters sized and placed with seeded irregularity, each covering its neighbours for the pass so no pillar or sliver stands between them. The sculptor's stroke (the 45-degree point) runs in furrows along the form: the furrow follows the contour of the figure under it (around a mass, along a limb), turned a little one way or the other in alternation between neighbouring runs so the field reads as crossing diagonals, as on the Prisoners; each run is one stroke of 10 to 30 cm, and the shaft is kept clear of the stone.
  */
-import type { Blow, PlanContext, Vec3 } from '../../contracts/making';
-import { blowAt, firstEntry, mulberry32 } from './surface';
+import type { Blow, PlanContext, RegionDef, Vec3 } from '../../contracts/making';
+import { BULK_CUT_SIZE_M, BULK_RADIUS_RATIO } from '../../stock/tool-volumes';
+import { ScratchStock } from './scratch';
+import { blowAt, dot, firstEntry, firstExit, inRegion, mulberry32, normalize } from './surface';
 
 export type Face = 'front' | 'back' | 'left' | 'right' | 'top';
 
 export interface FurrowsOptions {
   /** Faces to work, in this order. */
   readonly faces: readonly Face[];
-  /** Spacing between the blows along a furrow, metres. */
+  /** Spacing between blows along a furrow, metres; for bulk craters the nominal spacing of the craters. */
   readonly pitch: number;
   /** Spacing between furrows (rows), metres; `pitch` when absent. */
   readonly rowPitch?: number;
@@ -19,17 +23,29 @@ export interface FurrowsOptions {
   readonly size: number;
   /** Tool axis angle to the surface, degrees. */
   readonly angle: number;
-  /** Fraction of `size` each pass descends, so successive bites overlap. */
-  readonly overlap?: number;
-  /** Most passes per face, a guard against a region deeper than the stage should cut. */
+  /** Most passes per face: how many layers this step takes, a guard against a region deeper than the stage should cut. */
   readonly maxPasses?: number;
+  /** Spacing of the surface raster, metres; a quarter of the pitch for bulk craters and the pitch for strokes when absent. */
+  readonly raster?: number;
+  /** Seeded irregularity of the bulk craters as a fraction of their size and spacing; a quarter when absent, none for strokes. */
+  readonly jitter?: number;
+  /** A region whose figure points are left untouched: columns stopping on it are not struck (the crown keeps its crust). */
+  readonly keep?: RegionDef;
+  /** The allowance this phase stops at, metres, when it is not the step's: the bulk craters of a furrowed step stop a stroke's depth short, so the furrows are what finishes the layer. */
+  readonly margin?: number;
+}
+
+/** One phase of a step's point work: its options and, when it works a smaller region than the step's, that region. */
+export interface FurrowsPhase {
+  readonly options: FurrowsOptions;
+  readonly region?: RegionDef;
 }
 
 interface FaceFrame {
   /** Inward direction. */
   readonly inward: Vec3;
   readonly outwardNormal: Vec3;
-  /** Row axis (furrow direction) and column axis (rows stack along it, top first). */
+  /** Row axis (across the face) and column axis (rows stack along it, top first). */
   readonly row: Vec3;
   readonly column: Vec3;
 }
@@ -42,84 +58,422 @@ const FACES: Readonly<Record<Face, FaceFrame>> = {
   top: { inward: [0, -1, 0], outwardNormal: [0, 1, 0], row: [1, 0, 0], column: [0, 0, -1] },
 };
 
+/** How far back along the shaft the stone must be clear, metres (the handle end of a 25 cm point). */
+const SHAFT_CLEARANCE = 0.16;
+/** The turn of a stroke furrow off the figure's contour, radians, one way then the other between neighbouring runs (the crossing diagonals of the Prisoners' furrows). */
+const FURROW_TURN = (30 * Math.PI) / 180;
+/** Longest run of one stroke, metres (tools.md, Subbia, The mark: bands 10 to 30 cm long). */
+const RUN_LENGTH = 0.3;
+/** Cell size of the scratch the point's work is planned on, metres, where the stock's own is finer (see the header). */
+export const ROUGHING_SCRATCH_CELL = 0.02;
+/** A blow whose stock normal leans more than about 25 degrees from the face's own (cosine below this) is struck along the face's normal instead: the point works into the face, never sideways into a crater's rim, which would tunnel under the stone beside it and set it adrift (src/stock/connectivity.test.ts). */
+const WALL_COSINE = 0.9;
+
 function axisIndex(v: Vec3): number {
   return v[0] !== 0 ? 0 : v[1] !== 0 ? 1 : 2;
 }
 
-/** The column's start on the region's outer face and its length through the region. */
-function columnStart(ctx: PlanContext, frame: FaceFrame, u: number, v: number): { start: Vec3; length: number } {
-  const start: [number, number, number] = [0, 0, 0];
-  const ri = axisIndex(frame.row);
-  const ci = axisIndex(frame.column);
-  const ii = axisIndex(frame.inward);
-  start[ri] = u;
-  start[ci] = v;
-  const into = frame.inward[ii] ?? 1;
-  start[ii] = into < 0 ? ctx.region.max[ii] ?? 0 : ctx.region.min[ii] ?? 0;
-  return { start, length: (ctx.region.max[ii] ?? 0) - (ctx.region.min[ii] ?? 0) };
+/** One column of the raster. */
+interface Column {
+  readonly index: number;
+  readonly r: number;
+  readonly c: number;
+  readonly u: number;
+  readonly v: number;
+  /** Depth along the column where the figure plus margin stops it, or where its run ends when it meets no figure. */
+  readonly stop: number;
+  readonly stopPoint: Vec3;
+  /** The figure's outward normal at the stop point, or null when the column meets no figure. */
+  readonly stopNormal: Vec3 | null;
+  /** Depth where the scratch stock begins, or null when the column holds no stone; refreshed after every nearby blow. */
+  entry: number | null;
+  /** The pass in which a crater covered this column or a furrow ran through it, so it is not struck again that pass. */
+  covered: number;
 }
 
-export function furrows(ctx: PlanContext, options: FurrowsOptions): Blow[] {
-  const random = mulberry32(ctx.seed);
-  const overlap = options.overlap ?? 0.75;
-  const bite = Math.max(options.size * overlap, ctx.cell);
-  const maxPasses = options.maxPasses ?? 64;
-  const rowPitch = options.rowPitch ?? options.pitch;
-  const blows: Blow[] = [];
-  let stroke = 0;
-  const marginField = { sample: (x: number, y: number, z: number) => ctx.figure.sample(x, y, z) - ctx.margin, gradient: ctx.figure.gradient.bind(ctx.figure) };
-  for (const face of options.faces) {
-    const frame = FACES[face];
-    const ri = axisIndex(frame.row);
-    const ci = axisIndex(frame.column);
-    const rows: number[] = [];
-    const columns: number[] = [];
-    const rowSign = frame.column[ci] ?? -1;
-    for (let v = rowSign < 0 ? (ctx.region.max[ci] ?? 0) - rowPitch / 2 : (ctx.region.min[ci] ?? 0) + rowPitch / 2; v >= (ctx.region.min[ci] ?? 0) && v <= (ctx.region.max[ci] ?? 0); v += rowSign * rowPitch) rows.push(v);
-    for (let u = (ctx.region.min[ri] ?? 0) + options.pitch / 2; u <= (ctx.region.max[ri] ?? 0); u += options.pitch) columns.push(u);
-    // Each column's stock entry and stop depth along the inward direction, found once; null when the column holds no stock.
-    const entries: (number | null)[][] = rows.map((v) =>
-      columns.map((u) => {
-        const { start, length } = columnStart(ctx, frame, u + (random() - 0.5) * 0.3 * options.pitch, v);
-        const entry = firstEntry(ctx.stock, start, frame.inward, length, ctx.cell * 0.5);
-        return entry;
-      }),
-    );
-    const stops: number[][] = rows.map((v, r) =>
-      columns.map((u, c) => {
-        const entry = entries[r]?.[c];
-        if (entry === null || entry === undefined) return 0;
-        const { start, length } = columnStart(ctx, frame, u, v);
-        const stop = firstEntry(marginField, start, frame.inward, length, ctx.cell * 0.5);
-        return stop ?? length;
-      }),
-    );
-    for (let pass = 0; pass < maxPasses; pass += 1) {
-      let struck = 0;
-      for (let r = 0; r < rows.length; r += 1) {
-        const v = rows[r] ?? 0;
-        const reversed = (pass + r) % 2 === 1;
-        let rowStruck = 0;
-        for (let n = 0; n < columns.length; n += 1) {
-          const c = reversed ? columns.length - 1 - n : n;
-          const entry = entries[r]?.[c];
-          const stop = stops[r]?.[c] ?? 0;
-          if (entry === null || entry === undefined) continue;
-          const depth = entry + pass * bite;
-          if (depth >= stop - ctx.cell * 0.25) continue;
-          const { start } = columnStart(ctx, frame, columns[c] ?? 0, v);
-          const point: Vec3 = [start[0] + frame.inward[0] * depth, start[1] + frame.inward[1] * depth, start[2] + frame.inward[2] * depth];
-          // No stone within a bite ahead of the point in the step's starting stock: the blow would strike air, so it is not planned.
-          if (pass > 0 && firstEntry(ctx.stock, point, frame.inward, options.size, ctx.cell * 0.5) === null) continue;
-          const along: Vec3 = reversed ? [-frame.row[0], -frame.row[1], -frame.row[2]] : frame.row;
-          blows.push(blowAt('point', point, frame.outwardNormal, along, options.angle, options.size, stroke));
-          rowStruck += 1;
-        }
-        if (rowStruck > 0) stroke += 1;
-        struck += rowStruck;
+/** Marches one column through the figure at `step` metres: the margin stop and the figure's normal there, or the run's limit when it meets no figure. */
+function marchFigure(ctx: PlanContext, frame: FaceFrame, start: Vec3, length: number, limit: number, step: number): { stop: number; stopNormal: Vec3 | null } {
+  for (let s = 0; s <= length + 1e-9; s += step) {
+    const p: Vec3 = [start[0] + frame.inward[0] * s, start[1] + frame.inward[1] * s, start[2] + frame.inward[2] * s];
+    if (ctx.figure.sample(p[0], p[1], p[2]) - ctx.margin <= 0) {
+      const back = Math.max(0, s - step);
+      const q: Vec3 = [start[0] + frame.inward[0] * back, start[1] + frame.inward[1] * back, start[2] + frame.inward[2] * back];
+      return { stop: back, stopNormal: ctx.figure.gradient(q[0], q[1], q[2]) };
+    }
+  }
+  return { stop: limit, stopNormal: null };
+}
+
+/** How far a column that meets no figure may run: a side face stops at the block's middle (the other side takes the rest), the top face leaves such columns to the sides, the front and back faces run to their relief plane. */
+function throughLimit(face: Face, length: number): number {
+  if (face === 'top') return 0;
+  return face === 'left' || face === 'right' ? length / 2 : length;
+}
+
+/** The columns of one face over `box`, read against the scratch. */
+class FaceModel {
+  readonly columns: Column[] = [];
+  readonly rows: number;
+  readonly cols: number;
+  readonly frame: FaceFrame;
+  readonly length: number;
+  private readonly ri: number;
+  private readonly ci: number;
+  private readonly ii: number;
+  private readonly faceAt: number;
+  private readonly uMin: number;
+  private readonly vMin: number;
+  private readonly vMax: number;
+  private readonly du: number;
+  private readonly dv: number;
+  /** True when rows count down the face (v falls as r rises). */
+  private readonly down: boolean;
+
+  constructor(
+    ctx: PlanContext,
+    face: Face,
+    box: RegionDef,
+    readonly raster: number,
+    readonly margin: number,
+    private readonly scratch: ScratchStock,
+  ) {
+    this.frame = FACES[face];
+    const frame = this.frame;
+    this.ri = axisIndex(frame.row);
+    this.ci = axisIndex(frame.column);
+    this.ii = axisIndex(frame.inward);
+    this.uMin = box.min[this.ri] ?? 0;
+    const uMax = box.max[this.ri] ?? 0;
+    this.vMin = box.min[this.ci] ?? 0;
+    this.vMax = box.max[this.ci] ?? 0;
+    this.cols = Math.max(1, Math.round((uMax - this.uMin) / raster));
+    this.rows = Math.max(1, Math.round((this.vMax - this.vMin) / raster));
+    this.du = (uMax - this.uMin) / this.cols;
+    this.dv = (this.vMax - this.vMin) / this.rows;
+    this.down = (frame.column[this.ci] ?? -1) < 0;
+    const into = frame.inward[this.ii] ?? 1;
+    this.faceAt = into < 0 ? (box.max[this.ii] ?? 0) : (box.min[this.ii] ?? 0);
+    this.length = (box.max[this.ii] ?? 0) - (box.min[this.ii] ?? 0);
+    const limit = throughLimit(face, this.length);
+    // Rows run from the top of the face down; the raster is centred so its first and last cells lie within half a spacing of the box's edges.
+    for (let r = 0; r < this.rows; r += 1) {
+      const v = this.down ? this.vMax - (r + 0.5) * this.dv : this.vMin + (r + 0.5) * this.dv;
+      for (let c = 0; c < this.cols; c += 1) {
+        const u = this.uMin + (c + 0.5) * this.du;
+        const start = this.pointAt(u, v, 0);
+        const { stop, stopNormal } = marchFigure({ ...ctx, margin }, frame, start, this.length, limit, scratch.cell * 0.5);
+        const column: Column = { index: r * this.cols + c, r, c, u, v, stop, stopPoint: this.pointAt(u, v, stop), stopNormal, entry: null, covered: -1 };
+        this.refresh(column, 0);
+        this.columns.push(column);
       }
-      if (struck === 0) break;
+    }
+  }
+
+  at(r: number, c: number): Column | undefined {
+    return r < 0 || c < 0 || r >= this.rows || c >= this.cols ? undefined : this.columns[r * this.cols + c];
+  }
+
+  /** The column whose raster cell holds `(u, v)`, or undefined off the face. */
+  columnAt(u: number, v: number): Column | undefined {
+    const c = Math.floor((u - this.uMin) / this.du);
+    const r = Math.floor(this.down ? (this.vMax - v) / this.dv : (v - this.vMin) / this.dv);
+    return this.at(r, c);
+  }
+
+  /** The world point `depth` along the column through `(u, v)` of the face. */
+  pointAt(u: number, v: number, depth: number): Vec3 {
+    const p: [number, number, number] = [0, 0, 0];
+    p[this.ri] = u;
+    p[this.ci] = v;
+    p[this.ii] = this.faceAt;
+    const { inward } = this.frame;
+    return [p[0] + inward[0] * depth, p[1] + inward[1] * depth, p[2] + inward[2] * depth];
+  }
+
+  /** The first stone along `(u, v)` near depth `from`, read from the scratch: inward from there, or back outward when `from` is already inside stone; null when the column holds no stone within its run. */
+  entryAt(u: number, v: number, from: number): number | null {
+    const at = Math.min(Math.max(0, from), this.length);
+    const p = this.pointAt(u, v, at);
+    const step = this.scratch.cell * 0.5;
+    if (this.scratch.sample(p[0], p[1], p[2]) <= 0) {
+      const { inward } = this.frame;
+      const out = firstExit(this.scratch, p, [-inward[0], -inward[1], -inward[2]], at, step);
+      return out === null ? 0 : at - out;
+    }
+    const hit = firstEntry(this.scratch, p, this.frame.inward, this.length - at, step);
+    return hit === null ? null : at + hit;
+  }
+
+  /** Re-reads where the column's stone begins, from `from`. */
+  refresh(column: Column, from: number): void {
+    column.entry = this.entryAt(column.u, column.v, from);
+  }
+
+  /** Refreshes every column within `reach` metres of `(u, v)` after a blow there. */
+  refreshAround(u: number, v: number, reach: number): void {
+    const centre = this.columnAt(u, v);
+    if (centre === undefined) return;
+    const cells = Math.ceil(reach / this.raster);
+    for (let rr = centre.r - cells; rr <= centre.r + cells; rr += 1) {
+      for (let cc = centre.c - cells; cc <= centre.c + cells; cc += 1) {
+        const column = this.at(rr, cc);
+        if (column === undefined || column.entry === null || Math.hypot(column.u - u, column.v - v) > reach) continue;
+        this.refresh(column, column.entry - this.scratch.cell);
+      }
+    }
+  }
+
+  /** Whether the column lies in the phase's region box on the face. */
+  inBox(column: Column, box: RegionDef): boolean {
+    return column.u >= (box.min[this.ri] ?? 0) && column.u <= (box.max[this.ri] ?? 0) && column.v >= (box.min[this.ci] ?? 0) && column.v <= (box.max[this.ci] ?? 0);
+  }
+
+  /** Whether the column's stop point is the phase's to cut: in the region (by the figure's normal there) and outside the kept one; a column meeting no figure is wanted. */
+  wanted(column: Column, region: RegionDef, keep: RegionDef | undefined): boolean {
+    if (column.stopNormal === null) return true;
+    return inRegion(region, column.stopPoint, column.stopNormal) && (keep === undefined || !inRegion(keep, column.stopPoint, column.stopNormal));
+  }
+
+  /** The in-face direction of the figure's contour under the column (perpendicular to the figure normal's part in the face), or the face's diagonal where the figure faces the column squarely or is absent. */
+  contourOf(column: Column): Vec3 {
+    const { frame } = this;
+    const n = column.stopNormal;
+    if (n !== null) {
+      const nu = dot(n, frame.row);
+      const nv = dot(n, frame.column);
+      if (Math.hypot(nu, nv) > 0.15) {
+        const along = normalize([nu, nv, 0]);
+        return [frame.row[0] * -along[1] + frame.column[0] * along[0], frame.row[1] * -along[1] + frame.column[1] * along[0], frame.row[2] * -along[1] + frame.column[2] * along[0]];
+      }
+    }
+    return [(frame.row[0] + frame.column[0]) * Math.SQRT1_2, (frame.row[1] + frame.column[1]) * Math.SQRT1_2, (frame.row[2] + frame.column[2]) * Math.SQRT1_2];
+  }
+
+  /** `along` turned by `angle` within the face. */
+  turn(along: Vec3, angle: number): Vec3 {
+    const { frame } = this;
+    const au = dot(along, frame.row);
+    const av = dot(along, frame.column);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const tu = au * cos - av * sin;
+    const tv = au * sin + av * cos;
+    return [frame.row[0] * tu + frame.column[0] * tv, frame.row[1] * tu + frame.column[1] * tv, frame.row[2] * tu + frame.column[2] * tv];
+  }
+
+  /** A stroke's normal: the scratch surface's gradient at the point, or the face's normal where the gradient turns into a wall. */
+  normalAt(point: Vec3): Vec3 {
+    const gradient = this.scratch.normalAt(point);
+    return dot(gradient, this.frame.outwardNormal) < WALL_COSINE ? this.frame.outwardNormal : gradient;
+  }
+}
+
+/** Whether the column still has stone to take above its stop. */
+function proud(column: Column, cell: number): boolean {
+  return column.entry !== null && column.entry < column.stop - cell * 0.25;
+}
+
+/** The stroke blow whose shaft stays out of the stock: the run's direction first, then its reverse, each at the documented angle and then at a steeper lean within the point's range; failing all, the clearest. */
+function clearStroke(scratch: ScratchStock, point: Vec3, normal: Vec3, along: Vec3, angle: number, size: number, stroke: number): Blow {
+  const back: Vec3 = [-along[0], -along[1], -along[2]];
+  let best: Blow | null = null;
+  let bestClear = -1;
+  for (const lean of [angle, 50]) {
+    for (const dir of [along, back]) {
+      const blow = blowAt('point', point, normal, dir, lean, size, stroke);
+      const shaft: Vec3 = [-blow.direction[0], -blow.direction[1], -blow.direction[2]];
+      const from: Vec3 = [point[0] + shaft[0] * scratch.cell, point[1] + shaft[1] * scratch.cell, point[2] + shaft[2] * scratch.cell];
+      const hit = firstEntry(scratch, from, shaft, SHAFT_CLEARANCE, scratch.cell * 0.5);
+      if (hit === null) return blow;
+      if (hit > bestClear) {
+        bestClear = hit;
+        best = blow;
+      }
+    }
+  }
+  return best ?? blowAt('point', point, normal, along, angle, size, stroke);
+}
+
+/** The order of a pass: the work spreads from the column whose figure lies highest over the raster's neighbours, to the highest of them each time, lower rows first in a tie; when the spread has nowhere to go it starts again at the highest column left. Before all that, a column whose stone stands a layer shallower than its neighbours' (a pillar the last pass left between its craters) is struck first, so no crater beside it cuts the floor from under it and sets it adrift (src/stock/connectivity.test.ts). */
+class Spread {
+  private readonly frontier = new Set<number>();
+
+  constructor(
+    private readonly model: FaceModel,
+    private readonly live: (column: Column) => boolean,
+    /** The layer a column's stone stands in: its entry in units of half a cut. */
+    private readonly layer: (column: Column) => number,
+  ) {}
+
+  /** Adds the live columns within `cells` raster cells of `column` to the frontier. */
+  reach(column: Column, cells: number): void {
+    for (let rr = column.r - cells; rr <= column.r + cells; rr += 1) {
+      for (let cc = column.c - cells; cc <= column.c + cells; cc += 1) {
+        const other = this.model.at(rr, cc);
+        if (other !== undefined && other !== column && this.live(other)) this.frontier.add(other.index);
+      }
+    }
+  }
+
+  /** The next column to strike, or null when none is left. */
+  next(candidates: readonly Column[]): Column | null {
+    let best: Column | null = null;
+    for (const index of this.frontier) {
+      const column = this.model.columns[index];
+      if (column === undefined || !this.live(column)) {
+        this.frontier.delete(index);
+        continue;
+      }
+      if (best === null || this.before(column, best)) best = column;
+    }
+    if (best === null) {
+      for (const column of candidates) {
+        if (this.live(column) && (best === null || this.before(column, best))) best = column;
+      }
+    }
+    if (best !== null) this.frontier.delete(best.index);
+    return best;
+  }
+
+  private before(a: Column, b: Column): boolean {
+    const la = this.layer(a);
+    const lb = this.layer(b);
+    if (la !== lb) return la < lb;
+    return a.stop < b.stop - 1e-9 || (Math.abs(a.stop - b.stop) <= 1e-9 && (a.r > b.r || (a.r === b.r && a.c < b.c)));
+  }
+}
+
+/** Plans one phase's blows over a face model; `strokeBase` numbers the strokes across phases and the count after is returned. */
+function planPhase(ctx: PlanContext, scratch: ScratchStock, model: FaceModel, options: FurrowsOptions, region: RegionDef, random: () => number, blows: Blow[], strokeBase: number): number {
+  const { frame, raster } = model;
+  const cell = scratch.cell;
+  const margin = options.margin ?? ctx.margin;
+  const bulk = options.size >= BULK_CUT_SIZE_M;
+  const jitter = options.jitter ?? (bulk ? 0.25 : 0);
+  const maxPasses = options.maxPasses ?? 64;
+  let stroke = strokeBase;
+  let turnSign = 1;
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    const live = (column: Column): boolean => column.covered !== pass && proud(column, cell) && model.inBox(column, region) && model.wanted(column, region, options.keep);
+    const candidates = model.columns.filter(live);
+    if (candidates.length === 0) break;
+    const spread = new Spread(model, live, (column) => Math.floor((column.entry ?? 0) / (options.size / 2)));
+    let struck = 0;
+    for (;;) {
+      const column = spread.next(candidates);
+      if (column === null) break;
+      if (bulk) {
+        const size = options.size * (1 + jitter * (random() * 2 - 1));
+        const u = column.u + jitter * raster * (random() * 2 - 1);
+        const v = column.v + jitter * raster * (random() * 2 - 1);
+        const depth = model.entryAt(u, v, (column.entry ?? 0) - 2 * cell) ?? column.entry ?? 0;
+        const point = model.pointAt(u, v, depth);
+        const lean = random() < 0.5 ? frame.row : ([-frame.row[0], -frame.row[1], -frame.row[2]] as const);
+        // A crater is driven into the face along its normal: one shown bulk blow stands for a field of pits struck into the face, and a crater tilted to a rim's gradient would tunnel under the stone beside it.
+        const blow = blowAt('point', point, frame.outwardNormal, lean, options.angle, size, stroke);
+        const removed = scratch.carve(blow, margin);
+        const radius = BULK_RADIUS_RATIO * size;
+        column.covered = pass;
+        // The crater covers its neighbours for this pass: a column inside it by half a raster cell or more is not struck again, so the stone between raster cells is always under some crater.
+        const cells = Math.ceil((radius + Math.abs(u - column.u) + Math.abs(v - column.v)) / raster);
+        for (let rr = column.r - cells; rr <= column.r + cells; rr += 1) {
+          for (let cc = column.c - cells; cc <= column.c + cells; cc += 1) {
+            const other = model.at(rr, cc);
+            if (other !== undefined && Math.hypot(other.u - u, other.v - v) <= radius - raster * Math.SQRT1_2) other.covered = pass;
+          }
+        }
+        if (!scratch.struckStone(removed)) continue;
+        blows.push(blow);
+        stroke += 1;
+        struck += 1;
+        model.refreshAround(u, v, radius + raster);
+        spread.reach(column, cells + 1);
+      } else {
+        // A stroke: a furrow along the figure's contour, turned one way then the other between runs, each run one stroke.
+        const along = model.turn(model.contourOf(column), turnSign * FURROW_TURN);
+        turnSign = -turnSign;
+        const stepU = dot(along, frame.row) * raster;
+        const stepV = dot(along, frame.column) * raster;
+        const halfRow = (options.rowPitch ?? raster) / 2;
+        const sideCells = Math.ceil(halfRow / raster);
+        let u = column.u;
+        let v = column.v;
+        let runLength = 0;
+        let here: Column | undefined = column;
+        while (here !== undefined && live(here) && runLength < RUN_LENGTH) {
+          // The run covers a band `rowPitch` wide, so the next furrow runs that far off.
+          for (let rr = here.r - sideCells; rr <= here.r + sideCells; rr += 1) {
+            for (let cc = here.c - sideCells; cc <= here.c + sideCells; cc += 1) {
+              const other = model.at(rr, cc);
+              if (other !== undefined && Math.hypot(other.u - u, other.v - v) < halfRow) other.covered = pass;
+            }
+          }
+          here.covered = pass;
+          const depth = model.entryAt(u, v, (here.entry ?? 0) - 2 * cell);
+          if (depth !== null) {
+            const point = model.pointAt(u, v, depth);
+            const blow = clearStroke(scratch, point, model.normalAt(point), along, options.angle, options.size, stroke);
+            const removed = scratch.carve(blow, margin);
+            if (scratch.struckStone(removed)) {
+              blows.push(blow);
+              struck += 1;
+              model.refreshAround(u, v, options.size * 2 + raster);
+            }
+          }
+          spread.reach(here, sideCells + 1);
+          u += stepU;
+          v += stepV;
+          runLength += raster;
+          here = model.columnAt(u, v);
+        }
+        stroke += 1;
+      }
+    }
+    if (struck === 0) break;
+  }
+  return stroke;
+}
+
+/** The box holding every phase's region. */
+function unionBox(ctx: PlanContext, phases: readonly FurrowsPhase[]): RegionDef {
+  const min: [number, number, number] = [...ctx.region.min];
+  const max: [number, number, number] = [...ctx.region.max];
+  for (const phase of phases) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      min[axis] = Math.min(min[axis] ?? 0, phase.region?.min[axis] ?? min[axis] ?? 0);
+      max[axis] = Math.max(max[axis] ?? 0, phase.region?.max[axis] ?? max[axis] ?? 0);
+    }
+  }
+  return { label: ctx.region.label, min, max };
+}
+
+/** Plans the phases in order over one scratch stock and one column model per face, so each lands on what the earlier ones cut; the step's region bounds a phase without one of its own. */
+export function furrowsPhases(ctx: PlanContext, phases: readonly FurrowsPhase[]): Blow[] {
+  const random = mulberry32(ctx.seed);
+  const blows: Blow[] = [];
+  const scratch = new ScratchStock(ctx, { cell: Math.max(ctx.cell, ROUGHING_SCRATCH_CELL) });
+  const box = unionBox(ctx, phases);
+  const raster = Math.min(...phases.map((phase) => phase.options.raster ?? (phase.options.size >= BULK_CUT_SIZE_M ? phase.options.pitch / 4 : phase.options.pitch)));
+  const models = new Map<string, FaceModel>();
+  let stroke = 0;
+  for (const phase of phases) {
+    const margin = phase.options.margin ?? ctx.margin;
+    for (const face of phase.options.faces) {
+      const key = `${face}:${String(margin)}`;
+      let model = models.get(key);
+      if (model === undefined) {
+        model = new FaceModel(ctx, face, box, raster, margin, scratch);
+        models.set(key, model);
+      } else {
+        // Another face or phase has cut since this model last read the scratch.
+        for (const column of model.columns) if (column.entry !== null) model.refresh(column, column.entry - scratch.cell);
+      }
+      stroke = planPhase(ctx, scratch, model, phase.options, phase.region ?? ctx.region, random, blows, stroke);
     }
   }
   return blows;
+}
+
+export function furrows(ctx: PlanContext, options: FurrowsOptions): Blow[] {
+  return furrowsPhases(ctx, [{ options }]);
 }

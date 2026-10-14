@@ -3,17 +3,22 @@
  *   1. On 80 seeded random blows of every tool over a 4 cm synthetic grid the rule is monotone (no stock value falls), never passes the figure plus margin (`stock' <= max(stock, figure - margin)` in every cell), never turns a figure cell to air, and the stock bytes after the blows are the same for three random orders. The finish bytes are order-dependent by design (the last tool wins) and are not compared.
  *   2. Each removing tool struck straight into a flat face removes the volume its closed form says, within 15 percent, on a local grid fine enough for the tool (1 mm for the small tools, 4 mm for the bulk crater, 2 mm for the sculptor's cone); the painting tools remove nothing and paint their finish on the face.
  *   3. Undoing the recorded boxes in reverse restores the stock and finish bytes exactly, and the undo and the result name the same dirty chunks.
- * Bounds: the closed forms are the ones in src/stock/tool-volumes.ts, so this checks the carved shape against the stated geometry, not against a real chisel mark; the 45-degree strokes of the plan are exercised only by the random blows.
+ *   4. The gilding leaf paints over tooth texture (claw, fine claw, roundel, drill) and never over polished, rasped or untouched stone (TOOL_PAINT_OVER); the other painting tools mark whatever they touch.
+ *   5. Every tool volume's box is a bound of its shape at a slanted axis: with the tool axis 45 degrees off the normal and along the cube diagonal, the distance sampled on a lattice (at most 2 mm, no coarser than a hundredth of the box) over the box dilated by 5 cm is never negative outside the box, and is negative somewhere inside it (the reviewed revision's cube of the crater's reach was 36 mm short at 45 degrees; docs/work/0_making-of/reviews/0_integration.md, Bulk-crater bounds).
+ *   6. A rasp blow on one face of a 7 cm hollow between two figure slabs, where the figure is near enough that the slab follows its level sets, leaves everything beyond the slab's reach above the point (its cut depth, the larger of SLAB_TOP and the size, plus the stock band the kernel updates) and the facing slab untouched (stock and finish), while it cuts the face it struck.
+ *   7. The row form of a volume's distance (`distances`, the carving loop's per-row path) gives every cell the float of the per-cell `distance` over 40 random frames and rows with random figure values: bit for bit for the rubbing slab on both its paths (it keeps the per-cell order of sums), and within a few ulps for the bulk crater and the cone, whose row forms hoist the y and z products into one sum. The bytes cannot depend on the path either way: the carving loop evaluates every cell through the row form on the serial and the chunked path alike and uses the per-cell form only at block centres, where its reading decides a skip with margin to spare.
+ * Bounds: the closed forms are the ones in src/stock/tool-volumes.ts, so this checks the carved shape against the stated geometry, not against a real chisel mark; the 45-degree strokes of the plan are exercised only by the random blows; the bound check samples a lattice, so a shape poking out of its box by less than the lattice step between samples would pass; the hollow is flat-faced, so a curved hollow's reach is not measured.
  */
 import { describe, expect, it } from 'vitest';
 
 import { FINISH, FIXED_POINT } from '../contracts/grid';
-import type { Blow, ToolId } from '../contracts/making';
+import type { Blow, ToolId, Vec3 } from '../contracts/making';
+import { STOCK_BAND_CELLS } from '../david/frame';
 import { syntheticFigure } from '../david/synthetic';
-import { applyBlow, type CarveState, TOOL_FINISH, undoBlow } from './carve';
+import { applyBlow, type CarveState, TOOL_FINISH, TOOL_PAINT_OVER, undoBlow } from './carve';
 import { chunkLayout } from './chunks';
 import { blockGrid, createFinishGrid, frameBlockBox, Grid } from './grid';
-import { closedFormVolume, TOOL_VOLUMES } from './tool-volumes';
+import { closedFormVolume, TOOL_VOLUMES, toolVolume } from './tool-volumes';
 
 const TOOLS: readonly ToolId[] = ['charcoal', 'point', 'two-tooth', 'claw', 'fine-claw', 'roundel', 'flat', 'drill', 'rasp', 'file', 'pumice', 'polish', 'gilding'];
 
@@ -115,9 +120,16 @@ describe('carving rule on random blows', () => {
       const result = results[n];
       if (result === undefined) continue;
       expect(undoBlow(state, result.undo)).toEqual(result.dirty);
-      let inRuns = 0;
-      for (let r = 1; r < result.undo.runs.length; r += 2) inRuns += result.undo.runs[r] ?? 0;
-      expect(result.undo.indices.length + inRuns).toBe(result.changed);
+      let recorded = 0;
+      for (const part of result.undo.parts) {
+        let segmentCells = 0;
+        for (let r = 1; r < part.indices.length; r += 2) segmentCells += part.indices[r] ?? 0;
+        expect(part.stock.length).toBe(segmentCells);
+        expect(part.finish.length).toBe(segmentCells);
+        recorded += segmentCells;
+        for (let r = 1; r < part.runs.length; r += 2) recorded += part.runs[r] ?? 0;
+      }
+      expect(recorded).toBe(result.changed);
     }
     expect(state.stock.values).toEqual(stock0);
     expect(state.finish).toEqual(finish0);
@@ -167,6 +179,8 @@ describe('tool volumes on a flat face', () => {
   for (const tool of ['charcoal', 'polish', 'gilding'] as const) {
     it(`${tool} removes nothing and paints its finish`, () => {
       const { state, figure } = flatFace(0.002, 0.08, 0.01);
+      // The leaf bonds to tooth texture, so the face carries the fine claw's finish before the brush.
+      if (tool === 'gilding') state.finish.fill(FINISH.fineClaw);
       const before = state.stock.values.slice();
       const result = applyBlow(state, figure, { tool, point: [0, 0.01, 0], normal: [0, 1, 0], direction: [0, -1, 0], size: 0, stroke: 0 }, 0);
       expect(result.removed).toBe(0);
@@ -174,6 +188,166 @@ describe('tool volumes on a flat face', () => {
       expect(result.changed).toBeGreaterThan(0);
       expect(state.finish[state.stock.index(20, 20, 20)]).toBe(TOOL_FINISH[tool]);
       expect(TOOL_FINISH[tool]).not.toBe(FINISH.block);
+    });
+  }
+
+  it('gilding paints over tooth texture only, never over polished or rasped skin', () => {
+    const { state, figure } = flatFace(0.002, 0.08, 0.01);
+    state.finish.fill(FINISH.polish);
+    const polished = applyBlow(state, figure, { tool: 'gilding', point: [0, 0.01, 0], normal: [0, 1, 0], direction: [0, -1, 0], size: 0, stroke: 0 }, 0);
+    expect(polished.changed).toBe(0);
+    expect(state.finish.every((code) => code === FINISH.polish)).toBe(true);
+    expect(TOOL_PAINT_OVER.gilding & (1 << FINISH.rasp)).toBe(0);
+    expect(TOOL_PAINT_OVER.gilding & (1 << FINISH.block)).toBe(0);
+    for (const code of [FINISH.claw, FINISH.fineClaw, FINISH.roundel, FINISH.drill]) expect(TOOL_PAINT_OVER.gilding & (1 << code)).not.toBe(0);
+  });
+});
+
+describe('tool volume bounds at a slanted axis', () => {
+  const normal: Vec3 = [0, 1, 0];
+  const axes: ReadonlyArray<{ name: string; direction: Vec3 }> = [
+    { name: '45 degrees off the normal', direction: unit(1, -1, 0) },
+    { name: 'the cube diagonal', direction: unit(1, -1, 1) },
+  ];
+  // One blow per shape of src/stock/tool-volumes.ts: the bulk crater, the sculptor's cone, the wedges, the combing patch, the scoop, the drill, the rubbing slabs and the paint footprints.
+  const shapes: ReadonlyArray<{ tool: ToolId; size: number }> = [
+    { tool: 'point', size: 0.06 },
+    { tool: 'point', size: 0.03 },
+    { tool: 'two-tooth', size: 0.012 },
+    { tool: 'claw', size: 0.008 },
+    { tool: 'fine-claw', size: 0.004 },
+    { tool: 'fine-claw', size: 0.04 },
+    { tool: 'roundel', size: 0.004 },
+    { tool: 'flat', size: 0.01 },
+    { tool: 'drill', size: 0.015 },
+    { tool: 'rasp', size: 0.03 },
+    { tool: 'file', size: 0.02 },
+    { tool: 'pumice', size: 0.004 },
+    { tool: 'charcoal', size: 0 },
+    { tool: 'polish', size: 0 },
+    { tool: 'gilding', size: 0 },
+  ];
+  const PAD = 0.05;
+
+  for (const { name, direction } of axes) {
+    for (const { tool, size } of shapes) {
+      it(`${tool} at ${String(size)} m, axis ${name}: never negative outside its box`, () => {
+        const blow: Blow = { tool, point: [0.013, 0.021, -0.007], normal, direction, size, stroke: 0 };
+        // The figure is far from the point, so the rubbing slabs take the tangent plane, not the figure's level sets, and the sampled figure value is not read.
+        const volume = toolVolume(blow, 1, 0.128);
+        const extent = Math.max(volume.max[0] - volume.min[0], volume.max[1] - volume.min[1], volume.max[2] - volume.min[2]);
+        expect(extent).toBeGreaterThan(0);
+        const step = Math.max(0.002, extent / 100);
+        let outside = 0;
+        let inside = 0;
+        let worst = Number.POSITIVE_INFINITY;
+        for (let x = volume.min[0] - PAD; x <= volume.max[0] + PAD; x += step) {
+          for (let y = volume.min[1] - PAD; y <= volume.max[1] + PAD; y += step) {
+            for (let z = volume.min[2] - PAD; z <= volume.max[2] + PAD; z += step) {
+              const d = volume.distance(x, y, z, 1);
+              const inBox = x >= volume.min[0] && x <= volume.max[0] && y >= volume.min[1] && y <= volume.max[1] && z >= volume.min[2] && z <= volume.max[2];
+              if (inBox) {
+                if (d < 0) inside += 1;
+              } else if (d < 0) {
+                outside += 1;
+                if (d < worst) worst = d;
+              }
+            }
+          }
+        }
+        expect(outside, `${String(outside)} samples outside the box are inside the volume, the deepest ${String(worst)} m`).toBe(0);
+        expect(inside).toBeGreaterThan(0);
+      });
+    }
+  }
+});
+
+/** Two parallel slabs of figure `gap` apart along y, face A at y = 0 facing up and face B at y = gap facing down, with uncut stone everywhere, the hollow included; the figure band is 16 cells, wide enough that a blow on face A follows the figure's level sets. */
+function hollow(cell: number, extent: number, gap: number): { state: CarveState; figure: Grid } {
+  const n = Math.round(extent / cell);
+  const spec = { cell, size: [n, n, n] as const, origin: [-extent / 2, gap / 2 - extent / 2, -extent / 2] as const, band: 16 };
+  const figure = new Grid(spec);
+  figure.fill((_x, y) => Math.min(y, gap - y));
+  const stock = new Grid({ ...spec, band: STOCK_BAND_CELLS });
+  stock.fill(() => -1);
+  return { state: { stock, finish: createFinishGrid(spec), chunks: chunkLayout(spec) }, figure };
+}
+
+describe('a rubbing tool in a hollow', () => {
+  it('rasps the face it strikes and never the facing surface 7 cm away', () => {
+    const cell = 0.004;
+    const gap = 0.07;
+    const { state, figure } = hollow(cell, 0.24, gap);
+    expect(figure.sample(0, 0, 0)).toBeLessThan(0.1 * figure.spec.band * cell);
+    const before = state.stock.values.slice();
+    const tilt = 10 * (Math.PI / 180);
+    const blow: Blow = { tool: 'rasp', point: [0, 0, 0], normal: [0, 1, 0], direction: unit(Math.cos(tilt), -Math.sin(tilt), 0), size: 0.03, stroke: 0 };
+    const result = applyBlow(state, figure, blow, 0);
+    expect(result.changed).toBeGreaterThan(0);
+    const cellOf = (x: number, y: number, z: number): number => state.stock.index(Math.round((x - state.stock.spec.origin[0]) / cell), Math.round((y - state.stock.spec.origin[1]) / cell), Math.round((z - state.stock.spec.origin[2]) / cell));
+    expect(state.stock.values[cellOf(0, cell, 0)]).toBeGreaterThan(-state.stock.limit);
+    const { nx, ny, nz } = state.stock;
+    let farChanged = 0;
+    let farCells = 0;
+    // The slab reaches its cut depth above the point and the kernel updates the band beyond that; the stone past both must be as it was.
+    const reach = blow.size + (STOCK_BAND_CELLS + 1) * cell;
+    expect(reach).toBeLessThan(gap);
+    for (let k = 0; k < nz; k += 1) {
+      for (let j = 0; j < ny; j += 1) {
+        const y = state.stock.spec.origin[1] + j * cell;
+        if (y < reach) continue;
+        for (let i = 0; i < nx; i += 1) {
+          const index = state.stock.index(i, j, k);
+          farCells += 1;
+          if (state.stock.values[index] !== before[index] || state.finish[index] !== 0) farChanged += 1;
+        }
+      }
+    }
+    expect(farCells).toBeGreaterThan(0);
+    expect(farChanged, `${String(farChanged)} cells beyond the slab's reach in the hollow or in the facing slab changed`).toBe(0);
+  });
+});
+
+describe('row distances against per-cell distances', () => {
+  const rowCases: ReadonlyArray<{ tool: ToolId; size: number; figureAtPoint: number; exact: boolean }> = [
+    { tool: 'point', size: 0.15, figureAtPoint: 0.3, exact: false },
+    { tool: 'point', size: 0.035, figureAtPoint: 0.1, exact: false },
+    { tool: 'rasp', size: 0.03, figureAtPoint: 0.02, exact: true },
+    { tool: 'rasp', size: 0.03, figureAtPoint: 0.2, exact: true },
+    { tool: 'fine-claw', size: 0.04, figureAtPoint: 0.01, exact: true },
+    { tool: 'pumice', size: 0.004, figureAtPoint: 0.001, exact: true },
+  ];
+  const figureBand = 0.128;
+  for (const { tool, size, figureAtPoint, exact } of rowCases) {
+    it(`${tool} at ${String(size)} m with the figure ${String(figureAtPoint)} m away gives the ${exact ? 'same floats' : 'same floats within a few ulps'} a row at a time`, () => {
+      const random = mulberry32(7 + size * 1000);
+      let rows = 0;
+      for (let n = 0; n < 40; n += 1) {
+        const normal = unit(random() - 0.5, random() - 0.5, random() - 0.5);
+        const direction = unit(-normal[0] + 0.8 * (random() - 0.5), -normal[1] + 0.8 * (random() - 0.5), -normal[2] + 0.8 * (random() - 0.5));
+        const blow: Blow = { tool, point: [random() - 0.5, random() - 0.5, random() - 0.5], normal, direction, size, stroke: 0 };
+        const volume = toolVolume(blow, figureAtPoint, figureBand);
+        if (volume.distances === undefined) throw new Error(`${tool} offers no row distances`);
+        const cell = 0.003 + 0.01 * random();
+        const count = 1 + Math.floor(random() * 4);
+        const originX = blow.point[0] - 0.2 + 0.4 * random();
+        const first = Math.floor(random() * 50);
+        const y = blow.point[1] - 0.2 + 0.4 * random();
+        const z = blow.point[2] - 0.2 + 0.4 * random();
+        const figure = Int16Array.from({ length: 12 }, () => Math.round((random() - 0.3) * 4096));
+        const at = Math.floor(random() * 8);
+        const scale = cell / FIXED_POINT;
+        const row = new Float64Array(count);
+        volume.distances(originX, first, cell, count, y, z, row, figure, at, scale);
+        for (let i = 0; i < count; i += 1) {
+          const x = originX + (first + i) * cell;
+          const perCell = volume.distance(x, y, z, (figure[at + i] ?? 0) * scale);
+          if (exact) expect(row[i]).toBe(perCell);
+          else expect(Math.abs((row[i] ?? Number.NaN) - perCell)).toBeLessThanOrEqual(8 * Number.EPSILON * Math.max(1, Math.abs(perCell)));
+          rows += 1;
+        }
+      }
+      expect(rows).toBeGreaterThan(40);
     });
   }
 });

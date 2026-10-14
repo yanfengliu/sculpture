@@ -12,5 +12,5 @@ export interface GildOptions {
 }
 
 export function gild(ctx: PlanContext, options: GildOptions): Blow[] {
-  return bandBlows(ctx, { tool: 'gilding', pitch: options.pitch, stride: options.stride, size: 0, angle: options.angle, orientation: 'horizontal', strokeLength: 0.2, floor: 'stock', onlyWhereStockAbove: false });
+  return bandBlows(ctx, { tool: 'gilding', pitch: options.pitch, stride: options.stride, size: 0, angle: options.angle, orientation: 'horizontal', strokeLength: 0.2, floor: 'stock', onlyWhereStockAbove: false, steeper: 45 });
 }
