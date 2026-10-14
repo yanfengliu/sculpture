@@ -31,16 +31,22 @@ export const TOOL_VOLUMES: Readonly<Record<ToolId, ToolVolumeSpec>> = {
   flat: { width: 0.03, push: 0.03, angle: 45 * DEG, removes: true, source: 'tools.md, Scalpello: edge 0.5 to 10 cm, held at 35 to 60 degrees, almost smooth sets of parallel straight lines' },
   drill: { width: 0.005, push: 0, angle: 45 * DEG, removes: true, source: 'tools.md, Trapano, The mark: cylindrical holes 4 to 6 mm across and 8 to 20 mm deep; the bit is a chisel-shaped spade point' },
   rasp: { width: 0.05, push: 0.12, angle: 0, removes: true, source: 'tools.md, Raspe e lime, The mark: strokes 5 to 15 cm long crossing at random angles, scratch fields under 0.5 mm deep; the shown stroke is a little wider than the 3 cm rasp since it stands for many' },
-  file: { width: 0.015, push: 0.06, angle: 0, removes: true, source: 'tools.md, Raspe e lime: slender files and rifflers 12 to 40 cm refine after the rasps' },
+  file: { width: 0.03, push: 0.06, angle: 0, removes: true, source: 'tools.md, Raspe e lime: slender files and rifflers 12 to 40 cm refine after the rasps; the shown sweep is twice the 15 mm riffler since it stands for many strokes' },
   pumice: { width: 0.08, push: 0.12, angle: 0, removes: true, source: 'tools.md, Abrasives and polish: a grey hand-sized lump worked wet, removes the rasp scratches and leaves a matt skin' },
   polish: { width: 0.1, push: 0.15, angle: 0, removes: false, source: 'tools.md, Abrasives and polish: tripoli on a leather pad, straw bunches and leather burnish to a satin finish' },
-  gilding: { width: 0.02, push: 0.03, angle: 0, removes: false, source: 'technique.md, Stage 8: the sling and stump were gilded that summer; the gilding arrives through a brush and leaf' },
+  gilding: { width: 0.08, push: 0.08, angle: 0, removes: false, source: 'technique.md, Stage 8: the sling and stump were gilded that summer; the gilding arrives through a brush and leaf, one 80 mm leaf per blow (src/tools/catalog.ts, leafSize)' },
 };
 
 /** Crush sphere at the point's apex as a fraction of the cut depth: the whitened furrow bottom of tools.md, Subbia, The mark. */
 export const CRUSH_RATIO = 0.2;
 /** A point blow of this size or more is a bulk cut (the tools' BULK_CUT_SIZE_M in src/tools/catalog.ts, which the tests check this equals). */
 export const BULK_CUT_SIZE_M = 0.04;
+/**
+ * A fine-claw blow of this size or more is a combing patch: one shown blow of the finishing pass stands for about 1,300 real strokes (docs/design/choreography.md), so its removed volume is the surface-following patch those strokes comb, down to the step's margin, painted with the claw's texture, not one wedge. A departure from a single blow's wedge, stated in the handoff.
+ */
+export const PATCH_SIZE_M = 0.02;
+/** The combing patch's footprint, metres: a hand's breadth along the stroke by half across. */
+const PATCH_SPEC: ToolVolumeSpec = { width: 0.08, push: 0.12, angle: 45 * DEG, removes: true, source: 'technique.md, Stage 4: the dente di cane over the whole figure, one shown blow standing for a combed patch' };
 /**
  * A bulk cut's crater: one shown bulk blow stands for about a thousand real ones (docs/research/decisions.md, Time and scale), so its removed volume is the union of a field of 90-degree pits, which tools.md (Subbia, The mark) describes as a pitted, crater-like crust: a flat-floored crater `BULK_RADIUS_RATIO × size` wide, not one pit. A departure from a single blow's cone, stated in the handoff.
  * The floor meets the wall sharply: a rounded bottom edge left a ring of stock between neighbouring craters that the planner could not predict (src/choreography/generators/furrows.ts predicts the floors it has made) and that read as slivers.
@@ -53,7 +59,7 @@ const FEATHER = 0.5;
 /** Above and below the surface, the painting tools reach one blow size, so both sides of a crossing edge are painted. */
 const PAINT_HALF_THICKNESS = 0.012;
 /** The shank of the drill and the base of the cone extend this far above the surface, so the volume is open toward the air. */
-const AIR_EXTENSION = 0.05;
+export const AIR_EXTENSION = 0.05;
 
 /** The signed distance of a blow's removed volume at a world point. `figure` is the figure's signed distance at the point, which the surface-following tools use as their depth axis. */
 export interface ToolVolume {
@@ -216,9 +222,10 @@ export function toolVolume(blow: Blow, figureAtPoint: number, figureBand: number
   switch (blow.tool) {
     case 'point':
       return size >= BULK_CUT_SIZE_M ? bulkCrater(f, size) : pointCone(f, size, spec);
+    case 'fine-claw':
+      return size >= PATCH_SIZE_M ? surfaceSlab(f, size, PATCH_SPEC, figureAtPoint, figureBand) : bladeWedge(f, size, spec, false);
     case 'two-tooth':
     case 'claw':
-    case 'fine-claw':
     case 'flat':
       return bladeWedge(f, size, spec, blow.tool === 'flat');
     case 'roundel':

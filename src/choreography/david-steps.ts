@@ -1,17 +1,17 @@
 /**
  * The making of the David, step by step: the 21 steps of docs/design/choreography.md (coordinator-owned), each citing docs/research/technique.md and tools.md, over the regions of ./regions.ts and the generators of ./generators/.
  * The calendar follows the two documented anchors (half done on 28 February 1502, nearly finished on 25 January 1504) with the technique note's inferred shares inside each span; `blowsPerShown` is the step's days × five hours × the tool's documented rate ÷ the shown blows the generator plans, rounded (docs/design/choreography.md, Steps).
- * Known compromises, stated in the details: a shown blow stands for many, the toothed marks are shading at 8 mm, drill holes come out oversized, the sling and stump regions are boxes (docs/research/decisions.md).
+ * Known compromises, stated in the details: a shown blow stands for many, the toothed marks are shading at 8 mm, drill holes come out oversized, the sling and stump regions are boxes (docs/research/decisions.md). The finishing passes (fine claw, rasp, file, pumice, polish, gilding) tile the skin at three quarters of each tool's footprint so every flesh cell reaches the step's margin; the fine claw's finishing blow is a combing patch (src/stock/tool-volumes.ts, PATCH_SIZE_M).
  */
 import type { Blow, PlanContext, StepDef, ToolId } from '../contracts/making';
 import { combing } from './generators/combing';
 import { drawing } from './generators/drawing';
-import { furrows } from './generators/furrows';
+import { furrows, furrowsPhases } from './generators/furrows';
 import { gild } from './generators/gild';
 import { holes } from './generators/holes';
 import { abrading, rasping } from './generators/rasping';
 import { scoop } from './generators/scoop';
-import { BACK, CHEST_AND_FACE, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HIGH_POINTS, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE, WHOLE_BUT_CROWN, relief, union } from './regions';
+import { BACK, CHEST_AND_FACE, CROWN, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HIGH_POINTS, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE, WHOLE_BUT_CROWN, relief, union } from './regions';
 
 /** The bulk cuts of the heavy point: one shown blow stands for a field of real pits, so its crater is flat-floored (src/stock/tool-volumes.ts); the pitch keeps neighbouring craters overlapping. */
 const BULK = { pitch: 0.2, size: 0.15, angle: 85 } as const;
@@ -21,21 +21,6 @@ const STROKE = { pitch: 0.04, rowPitch: 0.12, size: 0.035, angle: 45, maxPasses:
 /** Real blows one shown blow stands for: `days` of work at five hours a day and `rate` blows a second, over `shown` planned blows. */
 function ratio(days: number, rate: number, shown: number): number {
   return Math.max(1, Math.round((days * 5 * 3600 * rate) / shown));
-}
-
-/** Concatenates generator outputs into one step's plan, renumbering strokes so every stroke index is unique and consecutive runs stay runs. */
-function sequence(...parts: readonly (readonly Blow[])[]): Blow[] {
-  const out: Blow[] = [];
-  let base = 0;
-  for (const part of parts) {
-    let highest = -1;
-    for (const blow of part) {
-      out.push({ ...blow, stroke: blow.stroke + base });
-      highest = Math.max(highest, blow.stroke);
-    }
-    base += highest + 1;
-  }
-  return out;
 }
 
 const RATE: Readonly<Record<ToolId, number>> = { charcoal: 1, point: 1, 'two-tooth': 1.5, claw: 1.5, 'fine-claw': 1.5, roundel: 1.5, flat: 1.5, drill: 1, rasp: 1, file: 1, pumice: 1, polish: 1, gilding: 1 };
@@ -193,7 +178,11 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1501-11-23',
     to: '1502-01-04',
     shown: 3000,
-    plan: (ctx) => sequence(furrows({ ...ctx, region: relief({ ...WHOLE, min: [WHOLE.min[0], 0, WHOLE.min[2]], max: [WHOLE.max[0], 1.3, WHOLE.max[2]], label: 'legs-and-base' }, 'front') }, { faces: ['front'], ...BULK }), furrows(ctx, { faces: ['front'], ...STROKE })),
+    plan: (ctx) =>
+      furrowsPhases(ctx, [
+        { region: relief({ ...WHOLE, min: [WHOLE.min[0], 0, WHOLE.min[2]], max: [WHOLE.max[0], 1.3, WHOLE.max[2]], label: 'legs-and-base' }, 'front'), options: { faces: ['front'], ...BULK } },
+        { options: { faces: ['front'], ...STROKE } },
+      ]),
   }),
   step({
     id: 'two-tooth-front',
@@ -235,7 +224,11 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1502-02-28',
     to: '1502-05-09',
     shown: 1500,
-    plan: (ctx) => sequence(furrows(ctx, { faces: ['left', 'right', 'top'], ...BULK }), furrows(ctx, { faces: ['left', 'right'], ...STROKE, pitch: 0.06, rowPitch: 0.2 })),
+    plan: (ctx) =>
+      furrowsPhases(ctx, [
+        { options: { faces: ['left', 'right', 'top'], ...BULK, keep: CROWN } },
+        { options: { faces: ['left', 'right'], ...STROKE, pitch: 0.06, rowPitch: 0.2 } },
+      ]),
   }),
   step({
     id: 'back-point',
@@ -249,7 +242,11 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1502-05-09',
     to: '1502-07-11',
     shown: 1200,
-    plan: (ctx) => sequence(furrows(ctx, { faces: ['back'], ...BULK }), furrows(ctx, { faces: ['back'], ...STROKE })),
+    plan: (ctx) =>
+      furrowsPhases(ctx, [
+        { options: { faces: ['back'], ...BULK } },
+        { options: { faces: ['back'], ...STROKE } },
+      ]),
   }),
   step({
     id: 'sides-and-back-claw',
@@ -277,7 +274,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1502-09-19',
     to: '1502-12-26',
     shown: 2000,
-    plan: (ctx) => combing(ctx, { tool: 'fine-claw', pitch: 0.14, stride: 0.08, size: 0.005, angle: 45, passes: ['diagonal'] }),
+    plan: (ctx) => combing(ctx, { tool: 'fine-claw', pitch: 0.06, stride: 0.07, size: 0.04, angle: 45, passes: ['diagonal'] }),
   }),
   step({
     id: 'roundel-hollows',
@@ -354,7 +351,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1503-05-09',
     to: '1503-07-19',
     shown: 1500,
-    plan: (ctx) => rasping(ctx, { tool: 'rasp', pitch: 0.06, stride: 0.12, size: 0.003, angle: 10, passes: ['diagonal'] }),
+    plan: (ctx) => rasping(ctx, { tool: 'rasp', pitch: 0.0375, stride: 0.07, size: 0.03, angle: 10, passes: ['diagonal'] }),
   }),
   step({
     id: 'file-details',
@@ -369,7 +366,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     to: '1503-09-02',
     shown: 500,
     focus: { kind: 'tip', distance: 1.2 },
-    plan: (ctx) => rasping(ctx, { tool: 'file', pitch: 0.05, stride: 0.06, size: 0.0015, angle: 10, passes: ['vertical'] }),
+    plan: (ctx) => rasping(ctx, { tool: 'file', pitch: 0.0225, stride: 0.036, size: 0.02, angle: 10, passes: ['vertical'] }),
   }),
   step({
     id: 'pumice-flesh',
@@ -383,7 +380,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1503-09-02',
     to: '1503-11-21',
     shown: 1500,
-    plan: (ctx) => abrading(ctx, { tool: 'pumice', pitch: 0.1, stride: 0.12, size: 0.0005, angle: 5, passes: ['horizontal'] }),
+    plan: (ctx) => abrading(ctx, { tool: 'pumice', pitch: 0.06, stride: 0.07, size: 0.004, angle: 5, passes: ['horizontal'] }),
   }),
   step({
     id: 'tripoli-straw-leather',
@@ -397,7 +394,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1503-11-21',
     to: '1504-01-25',
     shown: 1000,
-    plan: (ctx) => abrading(ctx, { tool: 'polish', pitch: 0.12, stride: 0.15, size: 0, angle: 8, passes: ['diagonal'] }),
+    plan: (ctx) => abrading(ctx, { tool: 'polish', pitch: 0.075, stride: 0.09, size: 0, angle: 8, passes: ['diagonal'] }),
   }),
   step({
     id: 'last-touches',
@@ -429,6 +426,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     shown: 300,
     realPerShown: 4,
     focus: { kind: 'tip', distance: 1.6 },
-    plan: (ctx) => gild(ctx, { pitch: 0.05, stride: 0.04, angle: 30 }),
+    plan: (ctx) => gild(ctx, { pitch: 0.06, stride: 0.05, angle: 30 }),
   }),
 ];

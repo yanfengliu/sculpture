@@ -36,6 +36,7 @@ export function combing(ctx: PlanContext, options: CombingOptions): Blow[] {
           strokeLength: options.strokeLength ?? 0.4,
           floor: pass === 0 ? 'stock' : 'margin',
           onlyWhereStockAbove: pass === 0,
+          steeper: 60,
         },
         strokeBase,
       ),
