@@ -87,6 +87,10 @@ describe('the plan file', () => {
     expect(planHeaderProblem({ ...good, gridSha256: 'ee'.repeat(32) }, expected)).toMatch(/built on the grid with SHA-256/);
     expect(planHeaderProblem({ ...good, steps: ['a', 'c', 'b'] }, expected)).toMatch(/steps \(a, c, b\) are not the page's/);
     expect(planHeaderProblem({ ...good, snapshots: [{ ...good.snapshots[0], blow: 4 }] }, expected)).toMatch(/does not start at blow 0/);
+    const first = good.snapshots[0];
+    expect(planHeaderProblem({ ...good, snapshots: [first, { ...first, blow: 0 }] }, expected)).toMatch(/snapshot table is malformed/);
+    expect(planHeaderProblem({ ...good, snapshots: [first, { ...first, blow: good.planLength + 1 }] }, expected)).toMatch(/snapshot table is malformed/);
+    expect(planHeaderProblem({ ...good, snapshots: [{ ...first, file: '../david.json' }] }, expected)).toMatch(/snapshot table is malformed/);
     expect(planHeaderProblem(null, expected)).toMatch(/format/);
     expect(decodedPlanProblem(decodePlan(bytes), { ...good, planDigest: '00000000' })).toMatch(/blows digest to [0-9a-f]{8} and the header says 00000000/);
     expect(decodedPlanProblem(decodePlan(bytes), { ...good, sweptDigest: '00000000' })).toMatch(/swept cells digest/);

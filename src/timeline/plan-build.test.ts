@@ -107,6 +107,18 @@ describe('the plan file build', () => {
     reference.dispose();
   });
 
+  it('writes one snapshot where a step without blows ends where the step before it did', () => {
+    const [nodo, layout] = STEPS;
+    if (nodo === undefined || layout === undefined) throw new Error('the David steps lost their first two');
+    const steps = [nodo, { ...nodo, id: 'idle', plan: () => [] }, layout];
+    const table: SnapshotEntry[] = [];
+    const built = buildPlan({ figure, steps, stages: STAGES, name: 'idle', gridSha256: '0'.repeat(64), store: () => ({ gzipBytes: 0, sha256: '0'.repeat(64) }) });
+    table.push(...built.header.snapshots);
+    expect(table.map((entry) => entry.blow)).toEqual([...new Set(table.map((entry) => entry.blow))].sort((a, b) => a - b));
+    expect(built.header.planLength).toBe(decodePlan(built.bytes).blows.reduce((sum, blows) => sum + blows.length, 0));
+    expect(decodePlan(built.bytes).blows[1]).toEqual([]);
+  });
+
   it('round-trips the plan, and a making from it plans nothing', () => {
     const decoded = decodePlan(planBytes);
     expect(decodedPlanProblem(decoded, header)).toBeNull();

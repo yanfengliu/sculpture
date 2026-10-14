@@ -85,6 +85,8 @@ export function buildPlan(options: BuildPlanOptions): BuiltPlan {
     making.setTime(t);
     if (making.blowsApplied !== blow) throw new Error(`the build asked for the state after ${String(blow)} blows at t = ${String(t)} and the making holds ${String(making.blowsApplied)}`);
     const previous = table[table.length - 1];
+    // A step without blows ends where the step before it did, whose snapshot holds that state already.
+    if (previous?.blow === blow) return;
     if (previous !== undefined) table[table.length - 1] = { ...previous, replaySeconds: Number(previousSeconds.toFixed(3)) };
     const file = `${name}.snap.${String(table.length)}.bin.gz`;
     const bytes = encodeSnapshot(making.stock, making.finish, figure, blow);

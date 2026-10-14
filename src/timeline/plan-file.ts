@@ -191,7 +191,8 @@ export function planHeaderProblem(parsed: unknown, expected: { readonly gridSha2
   let last = -1;
   for (const entry of snapshots as unknown[]) {
     const e = (typeof entry === 'object' && entry !== null ? entry : {}) as Partial<Record<keyof SnapshotEntry, unknown>>;
-    if (typeof e.blow !== 'number' || typeof e.step !== 'number' || typeof e.file !== 'string' || typeof e.sha256 !== 'string' || typeof e.replaySeconds !== 'number' || e.blow <= last) return `its snapshot table is malformed at ${JSON.stringify(entry)}`;
+    // Each entry names a file beside the header (a bare name, no path), its size and digest, and a blow inside the plan past the previous entry's.
+    if (typeof e.blow !== 'number' || !Number.isInteger(e.blow) || e.blow <= last || e.blow > h.planLength || typeof e.step !== 'number' || typeof e.file !== 'string' || !/^[\w.-]+$/.test(e.file) || typeof e.bytes !== 'number' || typeof e.sha256 !== 'string' || typeof e.replaySeconds !== 'number') return `its snapshot table is malformed at ${JSON.stringify(entry)}`;
     last = e.blow;
   }
   if ((snapshots[0] as SnapshotEntry).blow !== 0) return 'its snapshot table does not start at blow 0';
