@@ -253,11 +253,11 @@ function cylinderBounds(centre: Vec3, d: Vec3, radius: number, halfHeight: numbe
   return { min: [centre[0] - ex, centre[1] - ey, centre[2] - ez], max: [centre[0] + ex, centre[1] + ey, centre[2] + ez] };
 }
 
-/** The bulk crater: a flat-floored cylinder along the tool axis, `size` deep from the blow point and open above the surface, its floor meeting its wall sharply. */
+/** The bulk crater: a flat-floored cylinder along the tool axis, `size` deep from the blow point and reaching as far above it, so a fin or a cusp the neighbouring craters left standing inside its radius comes away with it (one shown blow stands for a field of pits, and the sculptor knocks such slivers off; src/stock/connectivity.test.ts), its floor meeting its wall sharply. */
 function bulkCrater(f: Frame, size: number): ToolVolume {
   const radius = BULK_RADIUS_RATIO * size;
-  const halfHeight = (size + AIR_EXTENSION) / 2;
-  const centre = (size - AIR_EXTENSION) / 2;
+  const halfHeight = size;
+  const centre = 0;
   const dx = f.d[0];
   const dy = f.d[1];
   const dz = f.d[2];
@@ -432,7 +432,7 @@ function drillHole(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
   };
 }
 
-/** How far above the blow point's level the slab reaches, metres: a cell, so the stock just above the point still updates, but a hollow's facing surface a hand away is never cut (the point's and the drill's AIR_EXTENSION would reach it). */
+/** The least the slab reaches above the blow point's level, metres: a cell, so the stock just above the point still updates. A slab reaches the larger of this and its own cut depth, so a ridge standing a cut higher inside its footprint comes away rather than being cut under and left adrift (src/stock/connectivity.test.ts); a hollow's facing surface is cut only when it lies within that reach, which its margin makes harmless. */
 const SLAB_TOP = 0.01;
 /** Slack for the sampled figure field, whose trilinear gradient can pass 1 near the statue's creases. */
 const FIGURE_SLACK = 0.25;
@@ -444,7 +444,8 @@ function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint
   const rounding = FOOTPRINT_ROUNDING * spec.width;
   const feather = Math.max(FEATHER * hy, size);
   const followFigure = figureAtPoint < 0.4 * figureBand;
-  const bounds = frameBounds(f, -hx, hx, -hy, hy, -size - (followFigure ? spec.push * 0.5 : 0), followFigure ? spec.push * 0.5 : SLAB_TOP, 0);
+  const top = Math.max(SLAB_TOP, size);
+  const bounds = frameBounds(f, -hx, hx, -hy, hy, -size - (followFigure ? spec.push * 0.5 : 0), followFigure ? spec.push * 0.5 : top, 0);
   return {
     removes: true,
     lipschitz: (followFigure ? 1 + FIGURE_SLACK : 1) + size / feather,
@@ -460,7 +461,7 @@ function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint
       const foot = roundedBox2(a, b, hx, hy, rounding);
       const local = foot >= 0 ? 0 : size * Math.min(1, -foot / feather);
       const below = followFigure ? figureAtPoint - local - figure : -local - c;
-      const above = followFigure ? figure - figureAtPoint - SLAB_TOP : c - SLAB_TOP;
+      const above = followFigure ? figure - figureAtPoint - top : c - top;
       return extrude(foot, below > above ? below : above);
     },
   };
