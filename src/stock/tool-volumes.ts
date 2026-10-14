@@ -383,11 +383,14 @@ function bladeWedge(f: Frame, size: number, spec: ToolVolumeSpec, flat: boolean)
   };
 }
 
-/** The roundel: a round channel, the part below the surface of a capsule lying along the push whose chord at the surface is the tool's width. */
+/**
+ * The roundel: a round channel, a capsule lying along the push whose chord at the surface is the tool's width; on a flat face only the part below the surface is stone (closedFormVolume counts that part), and the box holds the whole capsule, whose top rises `radius - size` above the blow point, because a concave face can still hold stone there (until 2026-10-13 the box stopped at the tangent plane and the capsule reached 4 mm outside it; src/stock/carve.test.ts, tool volume bounds).
+ * The capsule is not cut off at the tangent plane: at the test's 0.5 mm cells a cut-off scoop loses the half-filled surface cells, 18 percent of a 2 mm channel, which the closed form counts.
+ */
 function roundelScoop(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
   const radius = ((spec.width * spec.width) / 4 + size * size) / (2 * size);
   const height = radius - size;
-  const bounds = frameBounds(f, -radius, spec.push + radius, -radius, radius, -size, 0, 0);
+  const bounds = frameBounds(f, -radius, spec.push + radius, -radius, radius, -size, height + radius, 0);
   return {
     removes: true,
     lipschitz: 1,
@@ -437,14 +440,17 @@ const SLAB_TOP = 0.01;
 /** Slack for the sampled figure field, whose trilinear gradient can pass 1 near the statue's creases. */
 const FIGURE_SLACK = 0.25;
 
-/** Rasps, files and pumice: a patch `size` deep under the surface over a rounded footprint, its depth feathering out at the edge (over a width no narrower than the cut, which keeps the distance's slope bounded), following the figure's level sets where the figure is near and the tangent plane elsewhere; closed a cell above the point. */
+/**
+ * Rasps, files and pumice: a patch `size` deep under the surface over a rounded footprint, its depth feathering out at the edge (over a width no narrower than the cut, which keeps the distance's slope bounded), following the figure's level sets where the figure is near and the tangent plane elsewhere.
+ * Closed SLAB_TOP above the blow point's tangent plane on both paths: the figure-following band alone is open wherever the figure comes back within SLAB_TOP of the point's level, which in a hollow is the facing surface, and until 2026-10-13 it cut that surface 7 cm away (src/stock/carve.test.ts, a rubbing tool in a hollow). The price is that on a surface more concave than about 18 cm of radius along the push the far ends of the patch, risen past SLAB_TOP, are left to the neighbouring blows.
+ */
 function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint: number, figureBand: number): ToolVolume {
   const hx = spec.push / 2;
   const hy = spec.width / 2;
   const rounding = FOOTPRINT_ROUNDING * spec.width;
   const feather = Math.max(FEATHER * hy, size);
   const followFigure = figureAtPoint < 0.4 * figureBand;
-  const bounds = frameBounds(f, -hx, hx, -hy, hy, -size - (followFigure ? spec.push * 0.5 : 0), followFigure ? spec.push * 0.5 : SLAB_TOP, 0);
+  const bounds = frameBounds(f, -hx, hx, -hy, hy, -size - (followFigure ? spec.push * 0.5 : 0), SLAB_TOP, 0);
   return {
     removes: true,
     lipschitz: (followFigure ? 1 + FIGURE_SLACK : 1) + size / feather,
@@ -460,7 +466,9 @@ function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint
       const foot = roundedBox2(a, b, hx, hy, rounding);
       const local = foot >= 0 ? 0 : size * Math.min(1, -foot / feather);
       const below = followFigure ? figureAtPoint - local - figure : -local - c;
-      const above = followFigure ? figure - figureAtPoint - SLAB_TOP : c - SLAB_TOP;
+      const cap = c - SLAB_TOP;
+      const level = figure - figureAtPoint - SLAB_TOP;
+      const above = followFigure && level > cap ? level : cap;
       return extrude(foot, below > above ? below : above);
     },
   };
