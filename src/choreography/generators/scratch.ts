@@ -16,6 +16,42 @@ const EMPTY_CELLS = 0.5;
 export interface ScratchOptions {
   /** Cell size of the scratch's lattice, metres: the stock's own when absent or finer than the stock's; coarser, the stock and the figure are resampled onto it. */
   readonly cell?: number;
+  /** Rows of the stock's own lattice, from its lowest stone row up, kept at the stock's resolution beside the scratch and carved with every blow: the floor band ./floor.ts clears. None when absent. */
+  readonly floorRows?: number;
+}
+
+/** The floor band: the stock's lowest rows on its own lattice, carved with every blow the scratch takes, so the planner sees the sheets a coarse scratch averages away. */
+export interface FloorBand {
+  /** The stock's own lattice. */
+  readonly spec: GridSpec;
+  /** The band's first row on that lattice (the stock's lowest stone row at the step's start) and its row count. */
+  readonly j0: number;
+  readonly rows: number;
+  /** Stock and figure values of the band's cells, x fastest, then the band's rows, then z, in the grid's fixed point. */
+  readonly values: Int16Array;
+  readonly figure: Int16Array;
+  /** The stock's clamp in fixed point. */
+  readonly limit: number;
+}
+
+/** Copies rows `j0` to `j0 + rows - 1` of `values` on `spec`'s lattice, x fastest, then the rows, then z. */
+function bandOf(values: Int16Array, spec: GridSpec, j0: number, rows: number): Int16Array {
+  const [nx, ny, nz] = spec.size;
+  const out = new Int16Array(nx * rows * nz);
+  for (let k = 0; k < nz; k += 1) out.set(values.subarray(nx * (j0 + ny * k), nx * (j0 + rows + ny * k)), nx * rows * k);
+  return out;
+}
+
+/** The lowest row of `stock` holding a stone cell, or −1 when it holds none. */
+function lowestStoneRow(stock: Grid): number {
+  const { nx, ny, nz, values } = stock;
+  for (let j = 0; j < ny; j += 1) {
+    for (let k = 0; k < nz; k += 1) {
+      const base = nx * (j + ny * k);
+      for (let i = 0; i < nx; i += 1) if ((values[base + i] ?? 0) < 0) return j;
+    }
+  }
+  return -1;
 }
 
 /** Coarse figure copies by figure grid, then by cell size, metres: the figure never changes, so one copy serves every step. */
@@ -56,7 +92,12 @@ export class ScratchStock implements SdfSampler {
   readonly cell: number;
   /** Blows carved so far. */
   carved = 0;
+  /** The floor band, or null when the options asked for none or the stock holds no stone. */
+  readonly floor: FloorBand | null;
+  /** Metres cubed the last `carve` took from the floor band. */
+  floorRemoved = 0;
   private readonly target: KernelTarget;
+  private readonly floorTarget: KernelTarget | null;
   private readonly sink = new UndoSink();
 
   constructor(ctx: PlanContext, options: ScratchOptions = {}) {
@@ -75,6 +116,15 @@ export class ScratchStock implements SdfSampler {
     const grid = this.grid;
     this.cell = grid.cell;
     this.target = { values: grid.values, finish: null, figure: figureValues, nx: grid.nx, ny: grid.ny, nz: grid.nz, offset: [0, 0, 0], origin: grid.spec.origin, cell: grid.cell, limit: grid.limit, globalNx: grid.nx, globalNy: grid.ny };
+    const j0 = (options.floorRows ?? 0) > 0 ? lowestStoneRow(stock) : -1;
+    if (j0 < 0) {
+      this.floor = null;
+      this.floorTarget = null;
+      return;
+    }
+    const rows = Math.min(options.floorRows ?? 0, stock.ny - j0);
+    this.floor = { spec: stock.spec, j0, rows, values: bandOf(stock.values, stock.spec, j0, rows), figure: bandOf(ctx.figure.values, stock.spec, j0, rows), limit: stock.limit };
+    this.floorTarget = { values: this.floor.values, finish: null, figure: this.floor.figure, nx: stock.nx, ny: rows, nz: stock.nz, offset: [0, j0, 0], origin: stock.spec.origin, cell: stock.cell, limit: stock.limit, globalNx: stock.nx, globalNy: stock.ny };
   }
 
   sample(x: number, y: number, z: number): number {
@@ -95,19 +145,35 @@ export class ScratchStock implements SdfSampler {
     return length < 1e-12 ? [0, 1, 0] : [gx / length, gy / length, gz / length];
   }
 
-  /** Carves `blow` at the step's `margin` into the scratch and returns the volume it removed, metres cubed. */
+  /** Carves `blow` at the step's `margin` into the scratch, and into the floor band where its box reaches the band's rows, and returns the volume it removed from the scratch, metres cubed (`floorRemoved` holds the band's). */
   carve(blow: Blow, margin: number): number {
     const volume = volumeOf(this.figure, blow);
+    this.floorRemoved = 0;
     const box = dilatedBox(volume, this.grid.spec);
     if (box === null) return 0;
+    const { sink } = this;
+    this.resetSink();
+    const result = carveCells(this.target, volume, box, kernelParams(blow, margin, this.cell), sink);
+    this.carved += 1;
+    const floor = this.floor;
+    const floorTarget = this.floorTarget;
+    if (floor !== null && floorTarget !== null) {
+      const fine = dilatedBox(volume, floor.spec);
+      if (fine !== null && fine.min[1] < floor.j0 + floor.rows && fine.max[1] >= floor.j0) {
+        this.resetSink();
+        const local = { min: [fine.min[0], Math.max(0, fine.min[1] - floor.j0), fine.min[2]] as const, max: [fine.max[0], Math.min(floor.rows - 1, fine.max[1] - floor.j0), fine.max[2]] as const };
+        this.floorRemoved = carveCells(floorTarget, volume, local, kernelParams(blow, margin, floor.spec.cell), sink).removed;
+      }
+    }
+    return result.removed;
+  }
+
+  private resetSink(): void {
     const { sink } = this;
     sink.runs.count = 0;
     sink.indices.count = 0;
     sink.stock.count = 0;
     sink.finish.count = 0;
-    const result = carveCells(this.target, volume, box, kernelParams(blow, margin, this.cell), sink);
-    this.carved += 1;
-    return result.removed;
   }
 
   /** Whether a cut removing `removed` metres cubed counts as a blow on stone. */

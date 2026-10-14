@@ -6,7 +6,8 @@
 import type { Blow, PlanContext, StepDef, ToolId } from '../contracts/making';
 import { combing } from './generators/combing';
 import { drawing } from './generators/drawing';
-import { furrows, furrowsPhases } from './generators/furrows';
+import type { FloorOptions } from './generators/floor';
+import { furrowsPhases, type FurrowsPhase } from './generators/furrows';
 import { gild } from './generators/gild';
 import { holes } from './generators/holes';
 import { abrading, rasping } from './generators/rasping';
@@ -21,6 +22,42 @@ const STROKE = { pitch: 0.04, rowPitch: 0.12, size: 0.035, angle: 45, maxPasses:
 const furrowed = (margin: number) => margin + STROKE.size;
 /** The front of the block as a half relief: the three roughing steps take layers off the whole front, the knee and the hand emerging in the first, the chest and the face in the second, the legs and the base in the last (technique.md, Stage 2: Vasari's water rule). */
 const FRONT_RELIEF = relief(FRONT, 'front');
+/** The floor pass of the point steps that finish their part of the block (the front, the sides, the back): chops of 6 cm struck down and in at the stone left standing on the floor beside the base (./generators/floor.ts). */
+const FLOOR: FloorOptions = { size: 0.06, angle: 85 };
+
+/** A point step's work: its phases over the faces and, for a step that finishes its part of the block, the floor pass. */
+export interface PointWork {
+  readonly phases: readonly FurrowsPhase[];
+  readonly floor?: FloorOptions;
+}
+
+/** The point steps' work by step id, so the plan-order gate (./roughing-order.test.ts) can plan a step again with the planner's marks; each step's plan is `furrowsPhases(ctx, work.phases, work.floor)`. */
+export const POINT_WORK: Readonly<Record<string, (ctx: PlanContext) => PointWork>> = {
+  nodo: () => ({ phases: [{ options: { faces: ['front'], pitch: 0.2, size: 0.06, angle: 85, maxPasses: 1 } }] }),
+  'high-points': () => ({ phases: [{ options: { faces: ['front'], ...BULK, maxPasses: 2 } }] }),
+  'chest-and-face': () => ({ phases: [{ options: { faces: ['front'], ...BULK, maxPasses: 2 } }] }),
+  'front-furrows': (ctx) => ({
+    phases: [{ options: { faces: ['front'], ...BULK, margin: furrowed(ctx.margin) } }, { options: { faces: ['front'], ...STROKE } }],
+    floor: FLOOR,
+  }),
+  'sides-point': (ctx) => ({
+    phases: [{ options: { faces: ['left', 'right', 'top'], ...BULK, keep: CROWN, margin: furrowed(ctx.margin) } }, { options: { faces: ['left', 'right'], ...STROKE, pitch: 0.06, rowPitch: 0.2 } }],
+    floor: FLOOR,
+  }),
+  'back-point': (ctx) => ({
+    phases: [{ options: { faces: ['back'], ...BULK, margin: furrowed(ctx.margin) } }, { options: { faces: ['back'], ...STROKE } }],
+    floor: FLOOR,
+  }),
+};
+
+/** The plan of the point step `id` from POINT_WORK. */
+function pointPlan(id: string): (ctx: PlanContext) => readonly Blow[] {
+  return (ctx) => {
+    const work = POINT_WORK[id]?.(ctx);
+    if (work === undefined) throw new Error(`no point work is defined for step "${id}"; add it to POINT_WORK`);
+    return furrowsPhases(ctx, work.phases, work.floor);
+  };
+}
 
 /** Real blows one shown blow stands for: `days` of work at five hours a day and `rate` blows a second, over `shown` planned blows. */
 function ratio(days: number, rate: number, shown: number): number {
@@ -106,7 +143,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     shown: 2,
     realPerShown: 1,
     focus: { kind: 'tip', distance: 1.6 },
-    plan: (ctx) => furrows(ctx, { faces: ['front'], pitch: 0.2, size: 0.06, angle: 85, maxPasses: 1 }),
+    plan: pointPlan('nodo'),
   }),
   step({
     id: 'principal-view',
@@ -136,7 +173,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     to: '1501-10-22',
     shown: 1500,
     focus: { kind: 'tip', distance: 2.2 },
-    plan: (ctx) => furrows(ctx, { faces: ['front'], ...BULK, maxPasses: 2 }),
+    plan: pointPlan('high-points'),
   }),
   step({
     id: 'chest-and-face',
@@ -151,7 +188,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     to: '1501-11-23',
     shown: 1500,
     focus: { kind: 'tip', distance: 2.2 },
-    plan: (ctx) => furrows(ctx, { faces: ['front'], ...BULK, maxPasses: 2 }),
+    plan: pointPlan('chest-and-face'),
   }),
   step({
     id: 'front-furrows',
@@ -165,11 +202,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1501-11-23',
     to: '1502-01-04',
     shown: 3000,
-    plan: (ctx) =>
-      furrowsPhases(ctx, [
-        { options: { faces: ['front'], ...BULK, margin: furrowed(ctx.margin) } },
-        { options: { faces: ['front'], ...STROKE } },
-      ]),
+    plan: pointPlan('front-furrows'),
   }),
   step({
     id: 'two-tooth-front',
@@ -211,11 +244,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1502-02-28',
     to: '1502-05-09',
     shown: 1500,
-    plan: (ctx) =>
-      furrowsPhases(ctx, [
-        { options: { faces: ['left', 'right', 'top'], ...BULK, keep: CROWN, margin: furrowed(ctx.margin) } },
-        { options: { faces: ['left', 'right'], ...STROKE, pitch: 0.06, rowPitch: 0.2 } },
-      ]),
+    plan: pointPlan('sides-point'),
   }),
   step({
     id: 'back-point',
@@ -229,11 +258,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     from: '1502-05-09',
     to: '1502-07-11',
     shown: 1200,
-    plan: (ctx) =>
-      furrowsPhases(ctx, [
-        { options: { faces: ['back'], ...BULK, margin: furrowed(ctx.margin) } },
-        { options: { faces: ['back'], ...STROKE } },
-      ]),
+    plan: pointPlan('back-point'),
   }),
   step({
     id: 'sides-and-back-claw',
