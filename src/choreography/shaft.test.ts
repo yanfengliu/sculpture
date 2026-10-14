@@ -1,6 +1,6 @@
 /**
  * The chisel's place in the stone at every blow of the David plan (src/choreography/david-steps.ts) on the synthetic figure at 2 cm cells: the tools seen buried in the stock in the captures of 2026-10-11, measured. What a green run proves, and its bounds:
- *   The Making plans the whole David (`planAll`, each step from the stock the earlier steps leave); the test then replays the blows itself in plan order with the carving rule (src/stock/carve.ts, applyBlow) on its own stock and finish grids, and before each blow samples the stock's distance at the blow point and along the shaft, `point - direction × d` for d = 1, 2, 3, 4, 6, 8, 12 and 16 cm. Every tip lies within one cell of the stock's surface (|distance| <= cell), every shaft sample is air (distance >= -cell / 2), and the test's replay ends byte for byte where the Making's own replay to t = N ends, which pins the instrument to the engine. The run logs, per step and per tool, the tips in stone, the tips in air and the shafts through stone, each with its count, its worst value and an example blow, so a red run names the step and the generator.
+ *   The Making plans the whole David (`planAll`, each step from the stock the earlier steps leave); the test then replays the blows itself in plan order with the carving rule (src/stock/carve.ts, applyBlow) on its own stock and finish grids, taking off at each step's end every piece of stock connected to neither the figure nor the base row by the whole-grid flood fill of src/stock/components.ts, and before each blow samples the stock's distance at the blow point and along the shaft, `point - direction × d` for d = 1, 2, 3, 4, 6, 8, 12 and 16 cm. Every tip lies within one cell of the stock's surface (|distance| <= cell), every shaft sample is air (distance >= -cell / 2), and the test's replay ends byte for byte where the Making's own replay to t = N ends, which pins the instrument to the engine and checks the Making's incremental sweep (src/stock/sweep.ts) against the brute force over the whole plan. The run logs, per step and per tool, the tips in stone, the tips in air and the shafts through stone, each with its count, its worst value and an example blow, so a red run names the step and the generator.
  *   The replay is the test's own rather than `setTime` to each blow's strike phase, so the readings do not depend on how the timeline groups blows into visible cycles.
  * Bounds: trilinear reads of a 2 cm grid along one ray, clamped at the stock band (3 cells, so ±60 mm means at least that), so a shaft grazing a wall by less than half a cell passes and the tool's width is ignored; the 8 mm page follows only by inference; the synthetic mannequin, not the David grid; a stub mesher, so nothing is meshed or rendered.
  */
@@ -18,7 +18,8 @@ import type { Blow, BlowCycle, ToolPose } from '../contracts/making';
 import { syntheticFigure } from '../david/synthetic';
 import { applyBlow, type CarveState } from '../stock/carve';
 import { chunkLayout } from '../stock/chunks';
-import { blockGrid, createFinishGrid, frameBlockBox } from '../stock/grid';
+import { floodComponents } from '../stock/components';
+import { blockGrid, createFinishGrid, frameBlockBox, type Grid } from '../stock/grid';
 import type { ChunkMesher } from '../stock/remesh';
 import { createMaking, type EngineMaking } from '../timeline/making';
 import { DAVID_STEPS } from './david-steps';
@@ -80,6 +81,21 @@ function row(id: string, tool: string): Row {
   return { id, tool, blows: 0, inStone: new Tally(), inAir: new Tally(), shaft: new Tally() };
 }
 
+/** Takes off every piece of stock connected to neither the figure nor the base row, as the Making's sweep does at a step's end, by the whole-grid flood fill rather than the engine's chunk labelling; returns the cells taken. */
+function sweepLoose(state: CarveState, figure: Grid, baseRow: number): number {
+  const pieces = floodComponents(state.stock, figure, baseRow);
+  const limit = state.stock.limit;
+  let swept = 0;
+  for (let n = 0; n < pieces.label.length; n += 1) {
+    const c = pieces.label[n] ?? 0;
+    if (c === 0 || pieces.holdsFigure[c - 1] === 1 || pieces.holdsBase[c - 1] === 1) continue;
+    state.stock.values[n] = limit;
+    state.finish[n] = 0;
+    swept += 1;
+  }
+  return swept;
+}
+
 describe('the chisel in the stone over the David steps at 2 cm', () => {
   it('starts every blow with the tip on the surface and the shaft in the air', () => {
     const m = making(0.02);
@@ -90,6 +106,7 @@ describe('the chisel in the stone over the David steps at 2 cm', () => {
     const cell = stock.cell;
     const rows: Row[] = [];
     const perTool = new Map<string, Row>();
+    let swept = 0;
     for (let s = 0; s < m.N; s += 1) {
       const def = DAVID_STEPS[s];
       if (def === undefined) throw new Error('missing step');
@@ -117,13 +134,15 @@ describe('the chisel in the stone over the David steps at 2 cm', () => {
         applyBlow(state, figure, blow, def.margin);
       });
       rows.push(here);
+      if (here.blows > 0) swept += sweepLoose(state, figure, m.baseRow);
     }
     m.setTime(m.N);
     let mismatch = 0;
     for (let i = 0; i < stock.values.length; i += 1) if (stock.values[i] !== m.stock.values[i]) mismatch += 1;
+    const sweptByMaking = m.steps.reduce((sum, _, s) => sum + m.sweptCells(s), 0);
     const header = `${'step'.padEnd(22)}${'tool'.padEnd(11)}${'blows'.padStart(6)}  ${'tip in stone: n, worst, example'.padEnd(46)}  ${'tip in air: n, worst, example'.padEnd(46)}  shaft through stone: n, worst at d, example`;
     const format = (r: Row): string => `${r.id.padEnd(22)}${r.tool.padEnd(11)}${String(r.blows).padStart(6)}  ${r.inStone.cell()}  ${r.inAir.cell()}  ${r.shaft.cell()}`;
-    console.log([header, ...rows.map(format), 'per tool', ...[...perTool.values()].map(format), `stock cells differing between the test's replay and the Making at t = N: ${String(mismatch)}`].join('\n'));
+    console.log([header, ...rows.map(format), 'per tool', ...[...perTool.values()].map(format), `stock cells differing between the test's replay and the Making at t = N: ${String(mismatch)}; loose cells taken off at the steps' ends: ${String(swept)} by the flood fill, ${String(sweptByMaking)} by the Making's sweeps`].join('\n'));
     const tips = rows.reduce((sum, r) => sum + r.inStone.count + r.inAir.count, 0);
     const shafts = rows.reduce((sum, r) => sum + r.shaft.count, 0);
     const total = rows.reduce((sum, r) => sum + r.blows, 0);
@@ -132,5 +151,6 @@ describe('the chisel in the stone over the David steps at 2 cm', () => {
     expect.soft(tips, `${String(tips)} of ${String(total)} blows start with the tip more than a cell from the stock surface`).toBeLessThanOrEqual(total * AIR_FRACTION_ALLOWED);
     expect.soft(shafts, `${String(shafts)} of ${String(total)} blows start with the shaft inside stone`).toBeLessThanOrEqual(total * SHAFT_FRACTION_ALLOWED);
     expect.soft(mismatch, `${String(mismatch)} stock cells differ between the test's replay and the Making's at t = N`).toBe(0);
+    expect.soft(sweptByMaking, 'the cells the Making swept over the plan against the flood fill').toBe(swept);
   }, 600_000);
 });

@@ -1,6 +1,6 @@
 /**
  * The carving rule on the main thread (docs/design/spec.md, Stock and figure): `applyBlow` runs the kernel of src/stock/carve-kernel.ts over the blow's volume box dilated by the stock band on the whole grid, paints the tool's finish, records an undo box (the old stock and finish of every changed cell) and reports the changed cells, the removed volume and the dirty chunks; `undoBlow` restores the bytes.
- * An undo box holds one part per array that applied the blow: one on the serial path, one per chunk on the parallel path (src/stock/carve-jobs.ts), each with its changed-cell box so undo can dirty the chunks again.
+ * An undo box holds one part per array that applied the blow: one on the serial path, one per chunk on the parallel path (src/stock/carve-jobs.ts), each with its changed-cell box so undo can dirty the chunks again; a step's last blow also carries the parts of the step's end sweep (src/stock/sweep.ts), after its own.
  */
 import { FINISH, FIXED_POINT, type FinishCode, type GridSpec } from '../contracts/grid';
 import type { Blow, ToolId } from '../contracts/making';
@@ -126,12 +126,17 @@ export function applyBlow(state: CarveState, figure: Grid, blow: Blow, margin: n
   return { changed: result.changed, removed: result.removed, dirty: chunksTouching(state.chunks, result.box), undo: { parts: [part] } };
 }
 
-/** Restores the bytes an `applyBlow` changed and returns the chunks to remesh. */
+/**
+ * Restores the bytes an `applyBlow` changed and returns the chunks to remesh.
+ * The parts are restored from the last to the first: a step's end sweep (src/stock/sweep.ts) files its parts after the blow's own in the step's last blow's box, and may cover cells the blow changed, so its record (the bytes after the blow) must give way to the blow's (the bytes before it). The chunk-parallel parts of one blow are disjoint, so their order is free.
+ */
 export function undoBlow(state: CarveState, undo: UndoBox): number[] {
   const values = state.stock.values;
   const deep = -state.stock.limit;
   const dirty: number[] = [];
-  for (const part of undo.parts) {
+  for (let p = undo.parts.length - 1; p >= 0; p -= 1) {
+    const part = undo.parts[p];
+    if (part === undefined) continue;
     const { runs, indices, stock, finish } = part;
     for (let r = 0; r < runs.length; r += 2) {
       const start = runs[r] ?? 0;
