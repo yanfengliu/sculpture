@@ -6,6 +6,7 @@
  *   4. The gilding leaf paints over tooth texture (claw, fine claw, roundel, drill) and never over polished, rasped or untouched stone (TOOL_PAINT_OVER); the other painting tools mark whatever they touch.
  *   5. Every tool volume's box is a bound of its shape at a slanted axis: with the tool axis 45 degrees off the normal and along the cube diagonal, the distance sampled on a lattice (at most 2 mm, no coarser than a hundredth of the box) over the box dilated by 5 cm is never negative outside the box, and is negative somewhere inside it (the reviewed revision's cube of the crater's reach was 36 mm short at 45 degrees; docs/work/0_making-of/reviews/0_integration.md, Bulk-crater bounds).
  *   6. A rasp blow on one face of a 7 cm hollow between two figure slabs, where the figure is near enough that the slab follows its level sets, leaves everything beyond the slab's reach above the point (its cut depth, the larger of SLAB_TOP and the size, plus the stock band the kernel updates) and the facing slab untouched (stock and finish), while it cuts the face it struck.
+ *   7. The row form of a volume's distance (`distances`, the carving loop's per-row path) gives every cell the float of the per-cell `distance` over 40 random frames and rows with random figure values: bit for bit for the rubbing slab on both its paths (it keeps the per-cell order of sums), and within a few ulps for the bulk crater and the cone, whose row forms hoist the y and z products into one sum. The bytes cannot depend on the path either way: the carving loop evaluates every cell through the row form on the serial and the chunked path alike and uses the per-cell form only at block centres, where its reading decides a skip with margin to spare.
  * Bounds: the closed forms are the ones in src/stock/tool-volumes.ts, so this checks the carved shape against the stated geometry, not against a real chisel mark; the 45-degree strokes of the plan are exercised only by the random blows; the bound check samples a lattice, so a shape poking out of its box by less than the lattice step between samples would pass; the hollow is flat-faced, so a curved hollow's reach is not measured.
  */
 import { describe, expect, it } from 'vitest';
@@ -305,4 +306,48 @@ describe('a rubbing tool in a hollow', () => {
     expect(farCells).toBeGreaterThan(0);
     expect(farChanged, `${String(farChanged)} cells beyond the slab's reach in the hollow or in the facing slab changed`).toBe(0);
   });
+});
+
+describe('row distances against per-cell distances', () => {
+  const rowCases: ReadonlyArray<{ tool: ToolId; size: number; figureAtPoint: number; exact: boolean }> = [
+    { tool: 'point', size: 0.15, figureAtPoint: 0.3, exact: false },
+    { tool: 'point', size: 0.035, figureAtPoint: 0.1, exact: false },
+    { tool: 'rasp', size: 0.03, figureAtPoint: 0.02, exact: true },
+    { tool: 'rasp', size: 0.03, figureAtPoint: 0.2, exact: true },
+    { tool: 'fine-claw', size: 0.04, figureAtPoint: 0.01, exact: true },
+    { tool: 'pumice', size: 0.004, figureAtPoint: 0.001, exact: true },
+  ];
+  const figureBand = 0.128;
+  for (const { tool, size, figureAtPoint, exact } of rowCases) {
+    it(`${tool} at ${String(size)} m with the figure ${String(figureAtPoint)} m away gives the ${exact ? 'same floats' : 'same floats within a few ulps'} a row at a time`, () => {
+      const random = mulberry32(7 + size * 1000);
+      let rows = 0;
+      for (let n = 0; n < 40; n += 1) {
+        const normal = unit(random() - 0.5, random() - 0.5, random() - 0.5);
+        const direction = unit(-normal[0] + 0.8 * (random() - 0.5), -normal[1] + 0.8 * (random() - 0.5), -normal[2] + 0.8 * (random() - 0.5));
+        const blow: Blow = { tool, point: [random() - 0.5, random() - 0.5, random() - 0.5], normal, direction, size, stroke: 0 };
+        const volume = toolVolume(blow, figureAtPoint, figureBand);
+        if (volume.distances === undefined) throw new Error(`${tool} offers no row distances`);
+        const cell = 0.003 + 0.01 * random();
+        const count = 1 + Math.floor(random() * 4);
+        const originX = blow.point[0] - 0.2 + 0.4 * random();
+        const first = Math.floor(random() * 50);
+        const y = blow.point[1] - 0.2 + 0.4 * random();
+        const z = blow.point[2] - 0.2 + 0.4 * random();
+        const figure = Int16Array.from({ length: 12 }, () => Math.round((random() - 0.3) * 4096));
+        const at = Math.floor(random() * 8);
+        const scale = cell / FIXED_POINT;
+        const row = new Float64Array(count);
+        volume.distances(originX, first, cell, count, y, z, row, figure, at, scale);
+        for (let i = 0; i < count; i += 1) {
+          const x = originX + (first + i) * cell;
+          const perCell = volume.distance(x, y, z, (figure[at + i] ?? 0) * scale);
+          if (exact) expect(row[i]).toBe(perCell);
+          else expect(Math.abs((row[i] ?? Number.NaN) - perCell)).toBeLessThanOrEqual(8 * Number.EPSILON * Math.max(1, Math.abs(perCell)));
+          rows += 1;
+        }
+      }
+      expect(rows).toBeGreaterThan(40);
+    });
+  }
 });

@@ -95,10 +95,15 @@ function place(ctx: PlanContext, options: BandOptions, c: Candidate): { point: V
   return { point: above.point, normal: dot(stockNormal, c.figureNormal) > 0.2 ? stockNormal : c.figureNormal };
 }
 
-/** Plans the blows of one pass; `strokeBase` offsets the stroke indices so passes of one step stay distinct. With `scratch` (the stock of `ctx`), each blow is carved as it is planned, so the next is placed on the surface it leaves. */
-export function bandBlows(ctx: PlanContext, options: BandOptions, strokeBase = 0, scratch?: ScratchStock): Blow[] {
+/** The surface points a pass of `options` scans, `figureSurfacePoints` at the lesser of the stride and the pitch: the same for every pass of a step, so a step scans once and hands them to each `bandBlows`. */
+export function bandSurfacePoints(ctx: PlanContext, options: Pick<BandOptions, 'stride' | 'pitch'>): Vec3[] {
+  return figureSurfacePoints(ctx, Math.min(options.stride, options.pitch));
+}
+
+/** Plans the blows of one pass; `strokeBase` offsets the stroke indices so passes of one step stay distinct. With `scratch` (the stock of `ctx`), each blow is carved as it is planned, so the next is placed on the surface it leaves. `points` are the pass's surface points when the caller scanned them already (`bandSurfacePoints`). */
+export function bandBlows(ctx: PlanContext, options: BandOptions, strokeBase = 0, scratch?: ScratchStock, points?: readonly Vec3[]): Blow[] {
   const candidates: Candidate[] = [];
-  for (const q of figureSurfacePoints(ctx, Math.min(options.stride, options.pitch))) {
+  for (const q of points ?? bandSurfacePoints(ctx, options)) {
     // A band is one blow wide: points off its centreline by more than half a stride lie between bands and are left.
     const across = acrossOf(q, options.orientation);
     const band = Math.floor(across / options.pitch);

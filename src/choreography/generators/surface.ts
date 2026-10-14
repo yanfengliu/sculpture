@@ -3,6 +3,7 @@
  * Every function is pure in its arguments, so a generator is deterministic in its PlanContext and seed.
  */
 import type { Blow, PlanContext, RegionDef, SdfSampler, ToolId, Vec3 } from '../../contracts/making';
+import { Grid } from '../../stock/grid';
 
 /** mulberry32: a small seeded generator in [0, 1). */
 export function mulberry32(seed: number): () => number {
@@ -144,15 +145,30 @@ export function inRegion(region: RegionDef, point: Vec3, normal: Vec3): boolean 
   return region.contains === undefined ? true : region.contains(point, normal);
 }
 
-/** Points on the figure's surface inside the region, about `spacing` apart, found by scanning the region's box at half that spacing and projecting the near-surface samples; each cell of a `spacing` lattice keeps one point, in scan order. */
-export function figureSurfacePoints(ctx: PlanContext, spacing: number): Vec3[] {
+/** Cells of slack in the scan's one-read rejection (see `figureSurfacePoints`): √3 for the trilinear sample's reach from the nearest cell, the same again for a figure whose field is a distance bound rather than a distance (the synthetic mannequin's ellipsoids), and the fixed point's rounding. */
+const SCAN_SLACK_CELLS = 2 * Math.sqrt(3) + 1 / 256;
+
+/**
+ * Points on the figure's surface inside the region, about `spacing` apart, found by scanning the region's box at half that spacing and projecting the near-surface samples; each cell of a `spacing` lattice keeps one point, in scan order.
+ * On a figure grid a sample is first judged by one read of its nearest cell: the grid's values are a distance clamped to its band, 1-Lipschitz, and the trilinear sample lies within SCAN_SLACK_CELLS of that cell's value, so a cell farther from the surface than `step` plus that slack cannot yield a point and the trilinear sample is skipped (the scan was the whole cost of a step over a small region in a tall box, the files over the face and the hands: 3.7 s of 4.7 at 8 mm, 2026-10-13). The points are the same with or without the read (surface.test.ts).
+ */
+export function figureSurfacePoints(ctx: PlanContext, spacing: number, options: { readonly prefilter?: boolean } = {}): Vec3[] {
   const { region, figure } = ctx;
   const points: Vec3[] = [];
   const taken = new Set<string>();
   const step = spacing / 2;
+  const grid = options.prefilter === false || !(figure instanceof Grid) ? null : figure;
+  const values = grid?.values ?? null;
+  const reach = grid === null ? 0 : (step / grid.cell + SCAN_SLACK_CELLS) * 256;
   for (let y = region.max[1]; y >= region.min[1]; y -= step) {
+    const j = grid === null ? 0 : Math.min(grid.ny - 1, Math.max(0, Math.round((y - grid.spec.origin[1]) / grid.cell)));
     for (let z = region.min[2]; z <= region.max[2]; z += step) {
+      const rowAt = grid === null ? 0 : grid.nx * (j + grid.ny * Math.min(grid.nz - 1, Math.max(0, Math.round((z - grid.spec.origin[2]) / grid.cell))));
       for (let x = region.min[0]; x <= region.max[0]; x += step) {
+        if (grid !== null && values !== null) {
+          const i = Math.min(grid.nx - 1, Math.max(0, Math.round((x - grid.spec.origin[0]) / grid.cell)));
+          if (Math.abs(values[rowAt + i] ?? 0) > reach) continue;
+        }
         const d = figure.sample(x, y, z);
         if (Math.abs(d) > step) continue;
         const p = projectToFigure(figure, [x, y, z]);

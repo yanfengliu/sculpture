@@ -1,6 +1,7 @@
 /**
  * The point's work on a face of the stock (docs/research/technique.md, Stage 2; tools.md, Subbia): layers taken off toward the figure "as one would lift a wax figure out of a pail of water", the highest points of the figure appearing first.
  * A face carries a raster of columns running inward. Each column knows where the figure plus the step's margin stops it (or where its run ends when it meets no figure: the relief plane from the front or the back, the block's middle from a side, nowhere from the top, which only clears what stands over the figure) and whether its stop point is in the phase's region (the region's `contains` predicate on the figure's normal there; a column that meets no figure is kept) and outside `keep` (the crown's crust). Where its stone begins is read, before every blow, from a scratch copy of the stock (./scratch.ts) that the planner carves with each blow it plans, so each blow lands on the surface the blows before it left, its normal is that surface's gradient, and a blow that would meet air is left out.
+ * The scratch is a 2 cm lattice (ROUGHING_SCRATCH_CELL) whatever the stock's own cell: a crater is 36 cm wide and a furrow 10 to 30 cm long, so the point's work needs no finer surface, and at the page's 8 mm the full-resolution copy cost each roughing step 2 to 4 s to plan (2026-10-13, docs/devlog/summary.md). The columns march and the entries are read at half that cell. The finishing passes (./combing.ts, ./rasping.ts) keep the full-resolution scratch, since they chase the allowance to within a cell.
  * Passes are the outer loop: a pass takes one layer off every column that still stands proud, so the whole face comes down together and the figure emerges evenly. Within a pass the order is Vasari's: the first blow falls on the column whose stop is nearest the face (the knee, the hand, the chest), and the work spreads from there over the raster's neighbours, always to the neighbour whose figure lies highest, lower rows before higher in a tie, so the cut grows outward and downward from the high points and never hops across the face.
  * Bulk cuts (blows at or above the tools' bulk size, struck steeply) are craters sized and placed with seeded irregularity, each covering its neighbours for the pass so no pillar or sliver stands between them. The sculptor's stroke (the 45-degree point) runs in furrows along the form: the furrow follows the contour of the figure under it (around a mass, along a limb), turned a little one way or the other in alternation between neighbouring runs so the field reads as crossing diagonals, as on the Prisoners; each run is one stroke of 10 to 30 cm, and the shaft is kept clear of the stone.
  */
@@ -63,6 +64,8 @@ const SHAFT_CLEARANCE = 0.16;
 const FURROW_TURN = (30 * Math.PI) / 180;
 /** Longest run of one stroke, metres (tools.md, Subbia, The mark: bands 10 to 30 cm long). */
 const RUN_LENGTH = 0.3;
+/** Cell size of the scratch the point's work is planned on, metres, where the stock's own is finer (see the header). */
+export const ROUGHING_SCRATCH_CELL = 0.02;
 /** A blow whose stock normal leans more than about 25 degrees from the face's own (cosine below this) is struck along the face's normal instead: the point works into the face, never sideways into a crater's rim, which would tunnel under the stone beside it and set it adrift (src/stock/connectivity.test.ts). */
 const WALL_COSINE = 0.9;
 
@@ -88,9 +91,8 @@ interface Column {
   covered: number;
 }
 
-/** Marches one column through the figure: the margin stop and the figure's normal there, or the run's limit when it meets no figure. */
-function marchFigure(ctx: PlanContext, frame: FaceFrame, start: Vec3, length: number, limit: number): { stop: number; stopNormal: Vec3 | null } {
-  const step = ctx.cell * 0.5;
+/** Marches one column through the figure at `step` metres: the margin stop and the figure's normal there, or the run's limit when it meets no figure. */
+function marchFigure(ctx: PlanContext, frame: FaceFrame, start: Vec3, length: number, limit: number, step: number): { stop: number; stopNormal: Vec3 | null } {
   for (let s = 0; s <= length + 1e-9; s += step) {
     const p: Vec3 = [start[0] + frame.inward[0] * s, start[1] + frame.inward[1] * s, start[2] + frame.inward[2] * s];
     if (ctx.figure.sample(p[0], p[1], p[2]) - ctx.margin <= 0) {
@@ -159,7 +161,7 @@ class FaceModel {
       for (let c = 0; c < this.cols; c += 1) {
         const u = this.uMin + (c + 0.5) * this.du;
         const start = this.pointAt(u, v, 0);
-        const { stop, stopNormal } = marchFigure({ ...ctx, margin }, frame, start, this.length, limit);
+        const { stop, stopNormal } = marchFigure({ ...ctx, margin }, frame, start, this.length, limit, scratch.cell * 0.5);
         const column: Column = { index: r * this.cols + c, r, c, u, v, stop, stopPoint: this.pointAt(u, v, stop), stopNormal, entry: null, covered: -1 };
         this.refresh(column, 0);
         this.columns.push(column);
@@ -449,7 +451,7 @@ function unionBox(ctx: PlanContext, phases: readonly FurrowsPhase[]): RegionDef 
 export function furrowsPhases(ctx: PlanContext, phases: readonly FurrowsPhase[]): Blow[] {
   const random = mulberry32(ctx.seed);
   const blows: Blow[] = [];
-  const scratch = new ScratchStock(ctx);
+  const scratch = new ScratchStock(ctx, { cell: Math.max(ctx.cell, ROUGHING_SCRATCH_CELL) });
   const box = unionBox(ctx, phases);
   const raster = Math.min(...phases.map((phase) => phase.options.raster ?? (phase.options.size >= BULK_CUT_SIZE_M ? phase.options.pitch / 4 : phase.options.pitch)));
   const models = new Map<string, FaceModel>();

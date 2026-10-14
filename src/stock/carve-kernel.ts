@@ -197,8 +197,8 @@ export function carveCells(target: KernelTarget, volume: ToolVolume, box: CellBo
               if (dCentre - reach > skipCell) continue;
               deep = dCentre + reach < deepCell;
             }
-            if (!deep && rows !== null) rows(origin[0], oi + ib, cell, iEnd - ib + 1, y, z, row);
             let index = ib + nx * (j + ny * k);
+            if (!deep && rows !== null) rows(origin[0], oi + ib, cell, iEnd - ib + 1, y, z, row, figureValues, index, figureScale);
             let globalIndex = oi + ib + globalNx * (oj + j + globalNy * (ok + k));
             for (let i = ib; i <= iEnd; i += 1, index += 1, globalIndex += 1) {
               const s = values[index] ?? limit;
