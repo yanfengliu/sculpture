@@ -435,14 +435,14 @@ function drillHole(f: Frame, size: number, spec: ToolVolumeSpec): ToolVolume {
   };
 }
 
-/** How far above the blow point's level the slab reaches, metres: a cell, so the stock just above the point still updates, but a hollow's facing surface a hand away is never cut (the point's and the drill's AIR_EXTENSION would reach it). */
+/** The least height above the blow point's level the slab reaches, metres (surfaceSlab raises it to the cut's size): a cell, so the stock just above the point still updates, but a hollow's facing surface a hand away is never cut (the point's and the drill's AIR_EXTENSION would reach it). */
 const SLAB_TOP = 0.01;
 /** Slack for the sampled figure field, whose trilinear gradient can pass 1 near the statue's creases. */
 const FIGURE_SLACK = 0.25;
 
 /**
  * Rasps, files and pumice: a patch `size` deep under the surface over a rounded footprint, its depth feathering out at the edge (over a width no narrower than the cut, which keeps the distance's slope bounded), following the figure's level sets where the figure is near and the tangent plane elsewhere.
- * Closed SLAB_TOP above the blow point's tangent plane on both paths: the figure-following band alone is open wherever the figure comes back within SLAB_TOP of the point's level, which in a hollow is the facing surface, and until 2026-10-13 it cut that surface 7 cm away (src/stock/carve.test.ts, a rubbing tool in a hollow). The price is that on a surface more concave than about 18 cm of radius along the push the far ends of the patch, risen past SLAB_TOP, are left to the neighbouring blows.
+ * Closed `top = max(SLAB_TOP, size)` above the blow point's tangent plane on both paths: the figure-following band alone is open wherever the figure comes back within SLAB_TOP of the point's level, which in a hollow is the facing surface, and until 2026-10-13 it cut that surface 7 cm away (src/stock/carve.test.ts, a rubbing tool in a hollow). The top is never under `size`: a ridge standing higher than the point inside the footprint would otherwise be cut under and set adrift (engine-3's connectivity instrument, 2026-10-13: about 1,000 cells of slivers at 2 cm with a plane SLAB_TOP above the point); a facing surface within `size` of the point's level is still cut, down to the figure plus the margin, which is where this step leaves it anyway.
  */
 function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint: number, figureBand: number): ToolVolume {
   const hx = spec.push / 2;
@@ -450,7 +450,8 @@ function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint
   const rounding = FOOTPRINT_ROUNDING * spec.width;
   const feather = Math.max(FEATHER * hy, size);
   const followFigure = figureAtPoint < 0.4 * figureBand;
-  const bounds = frameBounds(f, -hx, hx, -hy, hy, -size - (followFigure ? spec.push * 0.5 : 0), SLAB_TOP, 0);
+  const top = Math.max(SLAB_TOP, size);
+  const bounds = frameBounds(f, -hx, hx, -hy, hy, -size - (followFigure ? spec.push * 0.5 : 0), top, 0);
   return {
     removes: true,
     lipschitz: (followFigure ? 1 + FIGURE_SLACK : 1) + size / feather,
@@ -466,7 +467,7 @@ function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint
       const foot = roundedBox2(a, b, hx, hy, rounding);
       const local = foot >= 0 ? 0 : size * Math.min(1, -foot / feather);
       const below = followFigure ? figureAtPoint - local - figure : -local - c;
-      const cap = c - SLAB_TOP;
+      const cap = c - top;
       const level = figure - figureAtPoint - SLAB_TOP;
       const above = followFigure && level > cap ? level : cap;
       return extrude(foot, below > above ? below : above);
