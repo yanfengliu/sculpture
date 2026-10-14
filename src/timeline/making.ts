@@ -70,11 +70,13 @@ export interface EngineMaking extends Making {
   readonly planSource: 'file' | 'page';
   /** The block's lowest stone row at t = 0, a cell index along y: what the sweep counts as standing on the ground. */
   readonly baseRow: number;
+  /** The block the stock starts from. */
+  readonly block: WorldBox;
   /** Blows of a planned step, for tests and tools. */
   blowsOf(step: number): readonly Blow[];
   /** The visible cycles of a planned step. */
   cyclesOf(step: number): Cycles;
-  /** Cells the step's end sweep took off, once the cursor has reached that end; 0 before. */
+  /** Cells the step's end sweep took off, once the cursor has reached that end by applying its last blow; 0 before, and for a step whose end a snapshot load passed. */
   sweptCells(step: number): number;
   /** The step's end sweep as last run: its cells, milliseconds and chunks relabelled; null until the cursor has reached the step's end. */
   sweepOf(step: number): SweepRecord | null;
@@ -111,7 +113,7 @@ class MakingImpl implements EngineMaking, TimelineView {
   steps: StepInfo[];
   readonly defs: readonly StepDef[];
   private readonly blowCycle: BlowCycle;
-  private readonly block: WorldBox;
+  readonly block: WorldBox;
   private readonly state: CarveState;
   private readonly carver: ChunkCarver | null;
   private readonly jumpBlows: number;

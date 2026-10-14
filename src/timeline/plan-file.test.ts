@@ -1,8 +1,8 @@
 /**
  * The plan file's format and its version (src/timeline/plan-file.ts). What a green run proves, and its bounds:
  *   1. The `.plan.bin` bytes round-trip every bit of every blow (numbers that are not short decimals, a negative zero, every tool) and every swept cell, and the decoded plan gives the digest the Making computes (`planDigestOf` is `fnvBlow` over the blows in order).
- *   2. Bytes that are not a plan are refused with what is wrong (the magic, the layout version, a truncated file, steps that do not partition the blows, refused before a blow is built), and a header the page cannot use is named with why: another format, plan version, grid, step list, no SHA-256 of the data file, a snapshot table that does not start at blow 0, repeats a blow, runs past the plan or names a path; a decoded plan whose length or digests differ from its header, or whose snapshot table names a step its blow is not in, is named too, and so are swept lists that repeat a cell, go backward or leave the grid.
- *   3. PLAN_VERSION names what the planner produces: the fingerprint of the whole David plan on the synthetic figure at 2 cm cells (src/timeline/plan-build.ts, `planFingerprint`: the plan digest, the swept cells' digest and a hash of the stock and finish halfway through and at the end of every step) equals the entry FINGERPRINTS holds for PLAN_VERSION. A change to the generators, the carving, the tool volumes or the sweep that changes any of those states fails here until PLAN_VERSION is bumped and the new fingerprint added, so a plan file built before it is not used by the page (which then plans for itself until `npm run model` rebuilds it).
+ *   2. Bytes that are not a plan are refused with what is wrong (the magic, the layout version, a truncated file, steps that do not partition the blows, refused before a blow is built, a number that is not finite), and a header the page cannot use is named with why: another format, plan version, planner fingerprint, snapshot format, block or stock band, grid, step list, no SHA-256 of the data file, a snapshot table that does not start at blow 0, repeats a blow, runs past the plan or names a path; a decoded plan whose length or digests differ from its header, or whose snapshot table names a step its blow is not in, is named too, and so are swept lists that repeat a cell, go backward or leave the grid.
+ *   3. PLAN_VERSION names what the planner produces: the fingerprint of the whole David plan on the synthetic figure at 2 cm cells (src/timeline/plan-build.ts, `planFingerprint`: the plan digest, the swept cells' digest and a hash of the stock and finish halfway through and at the end of every step) equals the entry PLAN_FINGERPRINTS holds for PLAN_VERSION. A change to the generators, the carving, the tool volumes or the sweep that changes any of those states fails here until a new version's fingerprint is added; and since the build writes PLAN_FINGERPRINT into the header and the page refuses another (claim 2), a plan file built before is refused even if the entry was edited in place instead (the page then plans for itself until `npm run model:plan` rebuilds it).
  *   4. The negative control of 3: on a small block, two makings that end in the same bytes but paint a different finish code on the way (the charcoal's mark, later polished over) give different fingerprints, the change the review of 2026-10-14 found a final-state fingerprint blind to.
  * Bounds: the fingerprint is computed in Node; the page's Chrome computes some transcendental functions differently in the last bit (docs/research/decisions.md, Engine), which is why the page takes the plan from the file rather than checking its own plan against it. A planner change that leaves the synthetic figure's plan and states alone but changes the David's, or a change seen only between a step's halfway point and its end and undone by the end, is not caught; the step list is compared by id in the page.
  */
@@ -20,12 +20,8 @@ import { Grid } from '../stock/grid';
 import type { ChunkMesher } from '../stock/remesh';
 import { createMaking, type MakingOptions } from './making';
 import { planFingerprint } from './plan-build';
-import { decodedPlanProblem, decodePlan, encodePlan, PLAN_FORMAT, PLAN_VERSION, type PlanHeader, planDigestOf, planHeaderProblem, sweptDigestOf, sweptProblem } from './plan-file';
-
-/** PLAN_VERSION to the fingerprint of the synthetic 2 cm plan it was built with. Add a line, never change one. */
-const FINGERPRINTS: Readonly<Record<number, string>> = {
-  1: '02f19b94-2266b800-9d5c6848',
-};
+import { decodedPlanProblem, decodePlan, encodePlan, PLAN_FINGERPRINT, PLAN_FINGERPRINTS, PLAN_FORMAT, PLAN_VERSION, type PlanHeader, planDigestOf, planHeaderProblem, sweptDigestOf, sweptProblem } from './plan-file';
+import { SNAPSHOT_VERSION } from '../stock/snapshot';
 
 const STILL: BlowCycle = { posesAt: () => [], chipsAt: () => [], restPose: (tool) => ({ tool, position: [0, 0, 0], quaternion: [0, 0, 0, 1] }) };
 const NO_MESHER: ChunkMesher = {
@@ -50,6 +46,10 @@ function header(plan: { blows: Blow[][]; swept: Uint32Array[] }): PlanHeader {
   return {
     format: PLAN_FORMAT,
     planVersion: PLAN_VERSION,
+    planFingerprint: PLAN_FINGERPRINT,
+    snapshotVersion: SNAPSHOT_VERSION,
+    block: { min: [-1, 0, -0.5], max: [1, 5, 0.5] },
+    stockBand: 3,
     gridSha256: 'ab'.repeat(32),
     steps: ['a', 'b', 'c'],
     planLength: plan.blows.reduce((sum, list) => sum + list.length, 0),
@@ -92,20 +92,27 @@ describe('the plan file', () => {
     const view = new DataView(overlapping.buffer);
     view.setUint32(24 + 12, 0, true);
     expect(() => decodePlan(overlapping)).toThrow(/step 1 starts at blow 0; the steps before it end at 5/);
+    const infinite = bytes.slice();
+    new DataView(infinite.buffer).setFloat64(24 + 3 * 12 + 4, Number.POSITIVE_INFINITY, true);
+    expect(() => decodePlan(infinite)).toThrow(/plan file blow 0 has number 0 Infinity, which is not finite/);
     const good = header(plan);
-    const expected = { gridSha256: good.gridSha256, steps: good.steps };
+    const expected = { gridSha256: good.gridSha256, steps: good.steps, block: good.block, stockBand: good.stockBand };
     expect(planHeaderProblem(good, expected)).toBeNull();
     expect(planHeaderProblem({ ...good, format: 'other' }, expected)).toMatch(/format is "other"/);
     expect(planHeaderProblem({ ...good, planVersion: PLAN_VERSION + 1 }, expected)).toMatch(/plan version/);
+    expect(planHeaderProblem({ ...good, planFingerprint: 'an older planner' }, expected)).toMatch(/fingerprint "an older planner" and this page's is/);
+    expect(planHeaderProblem({ ...good, snapshotVersion: SNAPSHOT_VERSION + 1 }, expected)).toMatch(/snapshots are format/);
+    expect(planHeaderProblem({ ...good, block: { min: [-1, 0, -0.5], max: [1, 5, 0.5000001] } }, expected)).toMatch(/built from the block/);
+    expect(planHeaderProblem({ ...good, stockBand: 4 }, expected)).toMatch(/stock band of 4 cells/);
     expect(planHeaderProblem({ ...good, gridSha256: 'ee'.repeat(32) }, expected)).toMatch(/built on the grid with SHA-256/);
     expect(planHeaderProblem({ ...good, steps: ['a', 'c', 'b'] }, expected)).toMatch(/steps \(a, c, b\) are not the page's/);
     expect(planHeaderProblem({ ...good, planSha256: undefined }, expected)).toMatch(/SHA-256 of the data file/);
     const [first, second] = good.snapshots;
     if (first === undefined || second === undefined) throw new Error('the sample header lost its snapshots');
     expect(planHeaderProblem({ ...good, snapshots: [{ ...first, blow: 4 }] }, expected)).toMatch(/does not start at blow 0/);
-    expect(planHeaderProblem({ ...good, snapshots: [first, { ...second, blow: 0 }] }, expected)).toMatch(/snapshot table is malformed/);
-    expect(planHeaderProblem({ ...good, snapshots: [first, { ...second, blow: good.planLength + 1 }] }, expected)).toMatch(/snapshot table is malformed/);
-    expect(planHeaderProblem({ ...good, snapshots: [{ ...first, file: '../david.json' }] }, expected)).toMatch(/snapshot table is malformed/);
+    expect(planHeaderProblem({ ...good, snapshots: [first, { ...second, blow: 0 }] }, expected)).toMatch(/snapshot table entry .* lacks/);
+    expect(planHeaderProblem({ ...good, snapshots: [first, { ...second, blow: good.planLength + 1 }] }, expected)).toMatch(/snapshot table entry .* lacks/);
+    expect(planHeaderProblem({ ...good, snapshots: [{ ...first, file: '../david.json' }] }, expected)).toMatch(/snapshot table entry .* lacks/);
     expect(planHeaderProblem(null, expected)).toMatch(/format/);
     const decoded = decodePlan(bytes);
     expect(decodedPlanProblem(decoded, { ...good, planDigest: '00000000' })).toMatch(/blows digest to [0-9a-f]{8} and the header says 00000000/);
@@ -123,10 +130,10 @@ describe('the plan file', () => {
     const making = createMaking({ figure: syntheticFigure(0.02), steps: DAVID_STEPS, stages: STAGES, blowCycle: STILL, material: new THREE.MeshBasicMaterial(), mesher: NO_MESHER });
     const fingerprint = planFingerprint(making);
     making.dispose();
-    const recorded = FINGERPRINTS[PLAN_VERSION];
+    const recorded = PLAN_FINGERPRINTS[PLAN_VERSION];
     expect(
       recorded,
-      `the synthetic 2 cm plan's fingerprint is ${fingerprint} and PLAN_VERSION ${String(PLAN_VERSION)} records ${String(recorded)}: the planner, the carving or the sweep changed what it produces, so plan files built before are stale. Bump PLAN_VERSION in src/timeline/plan-file.ts to ${String(PLAN_VERSION + 1)}, add ${String(PLAN_VERSION + 1)}: '${fingerprint}' to FINGERPRINTS here, and rebuild with npm run model.`,
+      `the synthetic 2 cm plan's fingerprint is ${fingerprint} and PLAN_VERSION ${String(PLAN_VERSION)} records ${String(recorded)}: the planner, the carving or the sweep changed what it produces, so plan files built before are stale. Bump PLAN_VERSION in src/timeline/plan-file.ts to ${String(PLAN_VERSION + 1)}, add ${String(PLAN_VERSION + 1)}: '${fingerprint}' to PLAN_FINGERPRINTS there (never edit a line in place), and rebuild with npm run model:plan.`,
     ).toBe(fingerprint);
   }, 120_000);
 

@@ -10,10 +10,10 @@ import { chunkLayout } from '../stock/chunks';
 import type { Grid, WorldBox } from '../stock/grid';
 import type { ChunkMesher } from '../stock/remesh';
 import { FNV_OFFSET, fnvHex } from '../stock/digest';
-import { encodeSnapshot } from '../stock/snapshot';
+import { encodeSnapshot, SNAPSHOT_VERSION } from '../stock/snapshot';
 import type { Cycles } from './cycles';
 import { createMaking, type EngineMaking, type MakingOptions } from './making';
-import { encodePlan, PLAN_FORMAT, PLAN_VERSION, type PlanHeader, type SnapshotEntry, sweptDigestOf } from './plan-file';
+import { encodePlan, PLAN_FINGERPRINT, PLAN_FORMAT, PLAN_VERSION, type PlanHeader, type SnapshotEntry, sweptDigestOf } from './plan-file';
 import { ReplayEstimate, SEGMENT_SECONDS } from './replay-cost';
 
 export interface BuildPlanOptions {
@@ -135,6 +135,10 @@ export function buildPlan(options: BuildPlanOptions): BuiltPlan {
   const header: PlanHeader = {
     format: PLAN_FORMAT,
     planVersion: PLAN_VERSION,
+    planFingerprint: PLAN_FINGERPRINT,
+    snapshotVersion: SNAPSHOT_VERSION,
+    block: { min: [...making.block.min], max: [...making.block.max] },
+    stockBand: making.stock.spec.band,
     gridSha256: options.gridSha256,
     steps: steps.map((step) => step.id),
     planLength: making.planLength,

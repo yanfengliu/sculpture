@@ -23,6 +23,9 @@ export interface SnapshotReply {
   readonly error: string | null;
 }
 
+/** A load still out after this long fails, so a stalled fetch or a lost reply cannot hold the making still for the session. */
+export const LOAD_TIMEOUT_MS = 15_000;
+
 export interface SnapshotLoader {
   load(entry: SnapshotEntry): Promise<Uint8Array>;
   dispose(): void;
@@ -76,6 +79,9 @@ export function createSnapshotLoader(directory: string, maxBytes: number): Snaps
       if (reply.bytes !== null) wait?.resolve(new Uint8Array(reply.bytes));
       else wait?.reject(new Error(reply.error ?? 'the snapshot worker answered with neither bytes nor an error'));
     };
+    created.onmessageerror = (): void => {
+      failAll('a reply of the snapshot worker could not be read');
+    };
     created.onerror = (event: ErrorEvent): void => {
       failAll(`the snapshot worker failed: ${event.message}`);
       created.terminate();
@@ -85,27 +91,15 @@ export function createSnapshotLoader(directory: string, maxBytes: number): Snaps
     return created;
   };
   return {
-    async load(entry) {
-      if (isDisposed()) throw new Error(`the snapshot loader was disposed before ${entry.file} was asked for`);
-      const url = `${directory}${entry.file}`;
-      const abort = new AbortController();
-      aborts.add(abort);
-      let bytes: ArrayBuffer;
-      try {
-        const response = await fetch(url, { signal: abort.signal });
-        if (!response.ok) throw new Error(`${url} answered ${String(response.status)}`);
-        // Gzip of incompressible bytes runs a little past them; a body past this is not the snapshot.
-        bytes = await readAtMost(response, entry.bytes + Math.ceil(entry.bytes / 100) + 1024, url);
-      } finally {
-        aborts.delete(abort);
-      }
-      if (isDisposed()) throw new Error(`the snapshot loader was disposed while ${entry.file} was fetched`);
-      const id = next;
-      next += 1;
-      return new Promise<Uint8Array>((resolve, reject) => {
-        waiting.set(id, { resolve, reject });
-        const request: SnapshotRequest = { id, bytes, file: entry.file, size: entry.bytes, sha256: entry.sha256, maxBytes };
-        start().postMessage(request, [bytes]);
+    load(entry) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${entry.file} did not arrive within ${String(LOAD_TIMEOUT_MS / 1000)} s`));
+        }, LOAD_TIMEOUT_MS);
+      });
+      return Promise.race([fetchAndInflate(entry), timeout]).finally(() => {
+        clearTimeout(timer);
       });
     },
     dispose() {
@@ -117,4 +111,28 @@ export function createSnapshotLoader(directory: string, maxBytes: number): Snaps
       worker = null;
     },
   };
+
+  async function fetchAndInflate(entry: SnapshotEntry): Promise<Uint8Array> {
+    if (isDisposed()) throw new Error(`the snapshot loader was disposed before ${entry.file} was asked for`);
+    const url = `${directory}${entry.file}`;
+    const abort = new AbortController();
+    aborts.add(abort);
+    let bytes: ArrayBuffer;
+    try {
+      const response = await fetch(url, { signal: abort.signal });
+      if (!response.ok) throw new Error(`${url} answered ${String(response.status)}`);
+      // Gzip of incompressible bytes runs a little past them; a body past this is not the snapshot.
+      bytes = await readAtMost(response, entry.bytes + Math.ceil(entry.bytes / 100) + 1024, url);
+    } finally {
+      aborts.delete(abort);
+    }
+    if (isDisposed()) throw new Error(`the snapshot loader was disposed while ${entry.file} was fetched`);
+    const id = next;
+    next += 1;
+    return new Promise<Uint8Array>((resolve, reject) => {
+      waiting.set(id, { resolve, reject });
+      const request: SnapshotRequest = { id, bytes, file: entry.file, size: entry.bytes, sha256: entry.sha256, maxBytes };
+      start().postMessage(request, [bytes]);
+    });
+  }
 }

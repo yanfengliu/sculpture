@@ -1,9 +1,9 @@
 /**
- * The plan file's build (src/timeline/plan-build.ts) and a Making that runs from it (src/timeline/making.ts, `MakingOptions.plan`), on the synthetic figure at 2 cm cells with the first seven David steps (the layout, the three roughing passes of the point, the two-tooth chisel and the claw: 3,968 blows, five of the seven with an end sweep). What a green run proves, and its bounds:
- *   1. The build's snapshots hold the Making's bytes: every snapshot of the table, written into a fresh untouched block (src/stock/snapshot.ts), equals the stock and finish grids of a Making that plans in-process and is set to the snapshot's position (a step's end, or a visible cycle's start inside a step), byte for byte; the table starts at blow 0, has a snapshot at every step's end and some inside steps (the segment budget is cut to 2 ms here so that it does).
+ * The plan file's build (src/timeline/plan-build.ts) and a Making that runs from it (src/timeline/making.ts, `MakingOptions.plan`), on the synthetic figure at 2 cm cells with the first seven David steps (the knot, the layout, the three roughing passes of the point, the two-tooth chisel and the claw: 3,960 blows, four of the seven with cells for their end sweep). What a green run proves, and its bounds:
+ *   1. The build's snapshots hold the Making's bytes: every snapshot of the table, written into a fresh untouched block (src/stock/snapshot.ts), equals the stock and finish grids of a Making that plans in-process and is set to the snapshot's position (a step's end, or a visible cycle's start inside a step), byte for byte; the table starts at blow 0, has a snapshot at every step's end and some inside steps (the segment budget is cut to 0.05 s here so that it does).
  *   2. The plan file round-trips: the decoded blows and swept cells give the header's length and digests, and the Making from the file plans nothing and reports `planSource` `file`.
- *   3. The state stays a pure function of `t` through snapshots: after a seeded history of 40 moves (plays forward and backward in small steps, integer steps, scrubs anywhere) on a Making from the file that prefers a snapshot to any replay, with its carver in-process and jumps from 4 blows, the grids and the blow count equal a Making that plans in-process and follows the same moves at every tenth move, and at the end equal a fresh in-process replay to the last `t`; snapshots were loaded both forward and backward, and the undo log started past blow 0. The same holds with a loader that answers later (a promise), where `dirtyChunks` counts the load until it lands.
- *   4. A snapshot that is missing, truncated, or corrupt in a way found only while it is written (the grids then go back to the untouched block) is set aside with a logged reason and the making replays instead, to the same bytes; disposing the making disposes its plan source (the page's loader and worker).
+ *   3. The state stays a pure function of `t` through snapshots: after a seeded history of 40 moves (plays forward and backward in small steps, integer steps, scrubs anywhere) on a Making from the file that prefers a snapshot to any replay, with its carver in-process and jumps from 4 blows, the grids and the blow count equal a Making that plans in-process and follows the same moves at every tenth move, and at the end equal a fresh in-process replay to the last `t`; snapshots were loaded both forward and backward, and the undo log started past blow 0. The same holds with a loader that answers later (a promise), where `dirtyChunks` counts the load until it lands, and with a carver and a loader that both answer after random delays while later moves arrive (moves issued while a job or a load is out, checked at every tenth move and at the end).
+ *   4. A snapshot that is missing, truncated, or corrupt in a way found only while it is written (the grids then go back to the untouched block) is set aside with a logged reason and the making replays instead, to the same bytes, from the untouched block when every snapshot below the undo log's start is refused; disposing the making disposes its plan source (the page's loader and worker).
  * Bounds: the first seven steps, since the whole plan takes 13 s to replay at 2 cm and the history replays parts of it four times (the whole plan's digests are src/timeline/plan-file.test.ts's claim); the synthetic figure at 2 cm, not the David at 8 mm (scripts/build-plan.mjs builds that, and the page's jump times are measured in the page); the loader is in memory, so the page's fetch, worker inflate and SHA-256 check (src/stock/snapshot-loader.ts) are not exercised; the grids are compared, not the chunk meshes (they are a function of the grids, src/timeline/making.test.ts).
  */
 import { createHash } from 'node:crypto';
@@ -15,6 +15,7 @@ import { DAVID_STEPS } from '../choreography/david-steps';
 import { STAGES } from '../choreography/stages';
 import type { BlowCycle } from '../contracts/making';
 import { syntheticFigure } from '../david/synthetic';
+import { type ChunkCarver, copyChunk, runCarveJob } from '../stock/carve-jobs';
 import { chunkLayout } from '../stock/chunks';
 import { blockGrid, createFinishGrid, frameBlockBox } from '../stock/grid';
 import type { ChunkMesher } from '../stock/remesh';
@@ -229,6 +230,76 @@ describe('a making that runs from the plan file', () => {
     expect(errors.mock.calls.some(([message]) => String(message).includes('404'))).toBe(true);
     expect(errors.mock.calls.some(([message]) => String(message).includes('truncated or malformed'))).toBe(true);
     expect(errors.mock.calls.some(([message]) => String(message).includes('has class 250'))).toBe(true);
+    errors.mockRestore();
+    making.dispose();
+    fresh.dispose();
+  });
+
+  it('reaches the same bytes when moves come while chunk jobs and loads are out, both answering after random delays', async () => {
+    const random = mulberry32(4242);
+    const delay = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, Math.floor(random() * 4)));
+    const layout = chunkLayout(figure.spec);
+    const figureChunk = (id: number): Int16Array => copyChunk(figure.values, figure.spec, layout, id, figure.limit, (n) => new Int16Array(n));
+    const carver: ChunkCarver = {
+      submit(job, done): void {
+        void delay().then(() => {
+          done(runCarveJob(job, job.figure ?? figureChunk(job.id), layout));
+        });
+      },
+      dispose(): void {
+        // Nothing to release.
+      },
+    };
+    const making = createMaking({ ...BASE, plan: source((entry) => delay().then(() => files.get(entry.file) ?? new Uint8Array(0))), carver, jumpBlows: 4, snapshotLoadSeconds: 0 });
+    const follower = createMaking(BASE);
+    const settle = async (): Promise<void> => {
+      while (making.dirtyChunks > 0) await new Promise((resolve) => setTimeout(resolve, 1));
+    };
+    let outWhenMoved = 0;
+    const moves = history(77, making.N, 40);
+    for (const [n, t] of moves.entries()) {
+      if (making.dirtyChunks > 0) outWhenMoved += 1;
+      making.setTime(t);
+      // Most moves come at once, some after a pause, so later moves land while earlier jobs and loads are out.
+      if (random() < 0.3) await delay();
+      if (n % 10 === 9) {
+        await settle();
+        follower.setTime(t);
+        sameGrids(making, follower, `after ${String(n + 1)} moves at t = ${String(t)}`);
+      }
+    }
+    await settle();
+    expect(outWhenMoved).toBeGreaterThan(5);
+    expect(making.snapshotLoads).toBeGreaterThan(3);
+    const last = moves[moves.length - 1] ?? 0;
+    const fresh = createMaking(BASE);
+    fresh.setTime(last);
+    sameGrids(making, fresh, `at the end, t = ${String(last)}`);
+    for (const m of [making, follower, fresh]) m.dispose();
+  });
+
+  it('starts over from the block when every snapshot below the undo log is refused', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let refuse = false;
+    const making = createMaking({
+      ...BASE,
+      plan: source((entry) => {
+        if (refuse) throw new Error('refused');
+        return files.get(entry.file) ?? new Uint8Array(0);
+      }),
+      snapshotLoadSeconds: 0,
+    });
+    making.setTime(making.N);
+    expect(making.undoBase).toBeGreaterThan(0);
+    refuse = true;
+    const fresh = createMaking(BASE);
+    for (const t of [1.5, 0.4, 3.2]) {
+      making.setTime(t);
+      fresh.setTime(t);
+      sameGrids(making, fresh, `at t = ${String(t)}`);
+    }
+    expect(making.undoBase).toBe(0);
+    expect(errors.mock.calls.filter(([message]) => String(message).includes('refused')).length).toBeGreaterThan(1);
     errors.mockRestore();
     making.dispose();
     fresh.dispose();

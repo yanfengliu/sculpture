@@ -3,7 +3,7 @@
  *   david.plan.bin   every step's blows and the cells its end sweep took off;
  *   david.plan.json  the header: format, PLAN_VERSION, the grid's SHA-256, the step ids, the plan's length and digests, and the snapshot table;
  *   david.snap.<i>.bin.gz  the stock and finish at blow 0, at every step's end and inside the steps whose replay would take the page's pool longer than about a second (src/timeline/replay-cost.ts).
- * Snapshots of an earlier build are deleted first, so the table and the files always match. The engine's TypeScript is loaded through Vite's module runner (`runnerImport`), which resolves and transpiles it as the page's bundle does.
+ * The header, the data and the snapshots of an earlier build are deleted first and the header is written last, so an interrupted build leaves no header and the page plans for itself rather than trusting a table whose files are gone. The engine's TypeScript is loaded through Vite's module runner (`runnerImport`), which resolves and transpiles it as the page's bundle does.
  *
  * Usage: node scripts/build-plan.mjs        (after npm run model:grid; npm run model runs both)
  * Exit:  0 the files are written; 1 the grid is missing or does not match its header, or the build failed, with the reason.
@@ -49,9 +49,9 @@ async function main() {
   log(`grid ${header.size.join('×')} at ${String(header.cell)} m, SHA-256 ${digest.slice(0, 16)}…`);
 
   mkdirSync(MODEL_DIR, { recursive: true });
-  const stale = readdirSync(MODEL_DIR).filter((name) => SNAPSHOT_FILE.test(name));
+  const stale = readdirSync(MODEL_DIR).filter((name) => SNAPSHOT_FILE.test(name) || name === 'david.plan.json' || name === 'david.plan.bin');
   for (const name of stale) unlinkSync(join(MODEL_DIR, name));
-  if (stale.length > 0) log(`deleted ${String(stale.length)} snapshots of an earlier build`);
+  if (stale.length > 0) log(`deleted ${String(stale.length)} files of an earlier build`);
 
   const { module } = await runnerImport(join(REPO_ROOT, 'scripts', 'lib', 'plan', 'david-plan.ts'), { root: REPO_ROOT, configFile: false, logLevel: 'error' });
   // Each snapshot is gzipped on libuv's threads while the replay goes on; the sizes go into the table once all are written.

@@ -7,16 +7,24 @@
  * - per blow BLOW_NUMBERS Float64 (point, normal, direction, size, stroke), so every number keeps its IEEE-754 bits and the plan digest is the in-page plan's;
  * - the swept cells, global cell indices in increasing order per step (W Uint32);
  * - per blow its tool's code in TOOL_IDS (B bytes).
- * The page uses the file only when the header's format, PLAN_VERSION, grid SHA-256 and step ids match what it runs, the data file's SHA-256 is the header's, and the plan it decoded holds the header's length and digests, a snapshot table inside its steps and swept lists of distinct cells inside the grid (`planHeaderProblem`, `decodedPlanProblem`, `sweptProblem`); otherwise it plans in the page and says why. The decoder checks the steps partition the blows and the swept cells before it builds a blow.
- * PLAN_VERSION names the planner and the replay the files were built with: src/timeline/plan-file.test.ts holds a table from each version to the synthetic 2 cm making's fingerprint (src/timeline/plan-build.ts, `planFingerprint`) and fails, asking for a new version, when the planner, the carving or the sweep changes what they produce.
+ * The page uses the file only when the header's format, PLAN_VERSION and PLAN_FINGERPRINT, snapshot format, grid SHA-256, block, stock band and step ids match what it runs, the data file's SHA-256 is the header's, and the plan it decoded holds the header's length and digests, a snapshot table inside its steps and swept lists of distinct cells inside the grid (`planHeaderProblem`, `decodedPlanProblem`, `sweptProblem`); otherwise it plans in the page and says why. The decoder checks the steps partition the blows and the swept cells before it builds a blow.
+ * PLAN_VERSION names the planner and the replay the files were built with, and PLAN_FINGERPRINTS holds each version's fingerprint of the synthetic 2 cm making (src/timeline/plan-build.ts, `planFingerprint`): src/timeline/plan-file.test.ts recomputes it and fails, asking for a new version, when the planner, the carving or the sweep changes what they produce. The build writes PLAN_FINGERPRINT into the header and the page refuses another, so even a line edited in place retires the files built before it.
  */
-import type { Blow } from '../contracts/making';
+import type { Blow, Vec3 } from '../contracts/making';
 import { TOOL_IDS } from '../stock/carve-jobs';
 import { FNV_OFFSET, fnvBlow, fnvHex, fnvNumber } from '../stock/digest';
+import type { WorldBox } from '../stock/grid';
+import { SNAPSHOT_VERSION } from '../stock/snapshot';
 
 export const PLAN_FORMAT = 'sculpture-plan/1';
-/** Bump when the planner, the carving rule, the tool volumes or the sweep change their output, and add the new digests to the table in src/timeline/plan-file.test.ts; a plan file of another version is not used. */
+/** Bump when the planner, the carving rule, the tool volumes or the sweep change their output, and add the new fingerprint to PLAN_FINGERPRINTS; a plan file of another version is not used. */
 export const PLAN_VERSION = 1;
+/** Each PLAN_VERSION's fingerprint of the synthetic 2 cm plan (src/timeline/plan-build.ts, `planFingerprint`), which src/timeline/plan-file.test.ts recomputes. Add a line, never change one. */
+export const PLAN_FINGERPRINTS: Readonly<Record<number, string>> = {
+  1: '02f19b94-2266b800-9d5c6848',
+};
+/** The fingerprint this page's planner has; the build records it in the header and the page refuses a header with another. */
+export const PLAN_FINGERPRINT = PLAN_FINGERPRINTS[PLAN_VERSION] ?? 'none';
 const PLAN_MAGIC = 0x4c504353;
 const PLAN_BIN_VERSION = 1;
 const PLAN_HEADER_WORDS = 6;
@@ -41,6 +49,13 @@ export interface SnapshotEntry {
 export interface PlanHeader {
   readonly format: typeof PLAN_FORMAT;
   readonly planVersion: number;
+  /** PLAN_FINGERPRINT when the plan was built. */
+  readonly planFingerprint: string;
+  /** SNAPSHOT_VERSION of src/stock/snapshot.ts the snapshots were written in. */
+  readonly snapshotVersion: number;
+  /** The block the stock started from and the stock's band, cells: the page's Making must start from the same. */
+  readonly block: { readonly min: Vec3; readonly max: Vec3 };
+  readonly stockBand: number;
   /** SHA-256 of the figure grid the plan was built on (its header's `sha256`). */
   readonly gridSha256: string;
   /** Step ids in timeline order. */
@@ -159,7 +174,11 @@ export function decodePlan(bytes: Uint8Array): DecodedPlan {
     const sweptHere = view.getUint32(at + 8, true);
     const list: Blow[] = [];
     for (let b = first; b < first + count; b += 1) {
-      const n = (k: number): number => view.getFloat64(numbersAt + (b * BLOW_NUMBERS + k) * 8, true);
+      const n = (k: number): number => {
+        const value = view.getFloat64(numbersAt + (b * BLOW_NUMBERS + k) * 8, true);
+        if (!Number.isFinite(value)) throw new Error(`plan file blow ${String(b)} has number ${String(k)} ${String(value)}, which is not finite`);
+        return value;
+      };
       const tool = TOOL_IDS[bytes[toolsAt + b] ?? 255];
       if (tool === undefined) throw new Error(`plan file blow ${String(b)} has tool code ${String(bytes[toolsAt + b])}, which TOOL_IDS does not list`);
       list.push({ tool, point: [n(0), n(1), n(2)], normal: [n(3), n(4), n(5)], direction: [n(6), n(7), n(8)], size: n(9), stroke: n(10) });
@@ -191,10 +210,15 @@ export function sweptDigestOf(swept: readonly Uint32Array[]): string {
 }
 
 /** Why a parsed `.plan.json` cannot serve this page (null when it can): its format, version, grid or steps differ from what the page runs. */
-export function planHeaderProblem(parsed: unknown, expected: { readonly gridSha256: string; readonly steps: readonly string[] }): string | null {
+export function planHeaderProblem(parsed: unknown, expected: { readonly gridSha256: string; readonly steps: readonly string[]; readonly block: WorldBox; readonly stockBand: number }): string | null {
   const h = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as Partial<Record<keyof PlanHeader, unknown>>;
   if (h.format !== PLAN_FORMAT) return `its format is ${JSON.stringify(h.format)}, not "${PLAN_FORMAT}"`;
   if (h.planVersion !== PLAN_VERSION) return `it was built by plan version ${JSON.stringify(h.planVersion)} and this page plans with version ${String(PLAN_VERSION)}`;
+  if (h.planFingerprint !== PLAN_FINGERPRINT) return `it was built by a planner with fingerprint ${JSON.stringify(h.planFingerprint)} and this page's is ${PLAN_FINGERPRINT}`;
+  if (h.snapshotVersion !== SNAPSHOT_VERSION) return `its snapshots are format ${JSON.stringify(h.snapshotVersion)} and this page reads format ${String(SNAPSHOT_VERSION)}`;
+  const block = h.block as { min?: unknown; max?: unknown } | undefined;
+  const same = (a: unknown, b: Vec3): boolean => Array.isArray(a) && a.length === 3 && a.every((v, n) => v === b[n]);
+  if (!same(block?.min, expected.block.min) || !same(block?.max, expected.block.max) || h.stockBand !== expected.stockBand) return `it was built from the block ${JSON.stringify(h.block)} with a stock band of ${JSON.stringify(h.stockBand)} cells, and this page starts from ${JSON.stringify(expected.block)} with ${String(expected.stockBand)}`;
   if (typeof h.gridSha256 !== 'string' || h.gridSha256.toLowerCase() !== expected.gridSha256.toLowerCase()) return `it was built on the grid with SHA-256 ${JSON.stringify(h.gridSha256)}, and the loaded grid's is ${expected.gridSha256}`;
   const steps = h.steps;
   if (!Array.isArray(steps) || steps.length !== expected.steps.length || steps.some((id, n) => id !== expected.steps[n])) return `its steps (${Array.isArray(steps) ? steps.join(', ') : 'none'}) are not the page's (${expected.steps.join(', ')})`;
@@ -205,8 +229,9 @@ export function planHeaderProblem(parsed: unknown, expected: { readonly gridSha2
   for (const entry of snapshots as unknown[]) {
     const e = (typeof entry === 'object' && entry !== null ? entry : {}) as Partial<Record<keyof SnapshotEntry, unknown>>;
     // Each entry names a file beside the header (a bare name, no path), its size and digest, and a blow inside the plan past the previous entry's.
-    if (typeof e.blow !== 'number' || !Number.isInteger(e.blow) || e.blow <= last || e.blow > h.planLength || typeof e.step !== 'number' || typeof e.file !== 'string' || !/^[\w.-]+$/.test(e.file) || typeof e.bytes !== 'number' || typeof e.sha256 !== 'string' || typeof e.replaySeconds !== 'number') return `its snapshot table is malformed at ${JSON.stringify(entry)}`;
-    last = e.blow;
+    const rule = typeof e.blow !== 'number' || !Number.isInteger(e.blow) || e.blow > h.planLength ? `a whole blow from 0 to the plan's ${String(h.planLength)}` : e.blow <= last ? `a blow past the entry before's ${String(last)}` : typeof e.step !== 'number' ? 'a step' : typeof e.file !== 'string' || !/^[\w.-]+$/.test(e.file) ? 'a bare file name' : typeof e.bytes !== 'number' ? 'its inflated size' : typeof e.sha256 !== 'string' ? 'its SHA-256' : typeof e.replaySeconds !== 'number' ? 'its replay estimate' : null;
+    if (rule !== null) return `its snapshot table entry ${JSON.stringify(entry)} lacks ${rule}`;
+    last = e.blow as number;
   }
   if ((snapshots[0] as SnapshotEntry).blow !== 0) return 'its snapshot table does not start at blow 0';
   return null;

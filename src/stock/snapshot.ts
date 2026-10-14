@@ -2,7 +2,7 @@
  * Snapshots of the carving state (docs/design/spec.md, Undo and replay; docs/research/decisions.md, Engine): the stock and finish grids at one blow index of the plan, written by scripts/build-plan.mjs beside the plan and written back into the grids by the page's Making when a jump lands nearer to it than a replay would.
  *
  * Format `sculpture-snapshot/1`, little-endian, gzipped on disk (`public/model/<name>.snap.<i>.bin.gz`):
- * - a header of HEADER_WORDS Uint32 words: magic, version, the grid's three sizes, TILE, the stock's clamp (fixed point), the blow index, the tile count, the run count and the value count;
+ * - a header of HEADER_WORDS (12) Uint32 words: magic, version, the grid's three sizes, TILE, the stock's clamp (fixed point), the blow index, the tile count, the run count, the value count and a zero;
  * - the run lengths (Uint16 per run), the value cells' stock residuals (Int16 per value: the stock minus the figure at the cell, which is 0 wherever a pass stopped on the figure and the step's margin wherever it stopped at it, so the band compresses to almost nothing where the stone has reached its allowance), then the tile kinds (a byte per tile), the run classes (a byte per run) and the value cells' finish codes (a byte per value).
  * The grid is cut into TILE³ tiles (ceil(n / TILE) per axis, so the lattice's last plane is covered too), in tile order x fastest; a tile is all air with finish 0 (TILE_AIR), all deep stone with finish 0 (TILE_DEEP), or runs (TILE_RUNS) over its cells in x-fastest order clipped to the grid: a run of deep stone with finish 0 (RUN_DEEP), of band cells stored as values (RUN_VALUES), or of air with one finish code (RUN_AIR + code; air keeps the code of the last tool that touched it while it was in the band). Only the band cells carry values, so a snapshot costs about three bytes per band cell before gzip.
  * `applySnapshot` writes a snapshot into a carve state, cell by cell, and returns the chunks whose window holds a cell that changed, so only those are remeshed; the bytes it writes are exactly the encoded state (src/stock/snapshot.test.ts).
@@ -182,7 +182,8 @@ export function snapshotInfo(bytes: Uint8Array): SnapshotInfo {
   const info: SnapshotInfo = { size: [word(2), word(3), word(4)], limit: word(6), blow: word(7), tiles: word(8), runs: word(9), values: word(10) };
   const [tx, ty, tz] = tileCounts(info.size);
   const expected = HEADER_WORDS * 4 + info.runs * 3 + info.values * 3 + info.tiles;
-  if (info.tiles !== tx * ty * tz || bytes.byteLength !== expected) throw new Error(`snapshot at blow ${String(info.blow)} is truncated or malformed: ${String(bytes.byteLength)} bytes for ${String(info.tiles)} tiles, ${String(info.runs)} runs and ${String(info.values)} values, which need ${String(expected)}`);
+  if (info.tiles !== tx * ty * tz) throw new Error(`snapshot at blow ${String(info.blow)} is malformed: it holds ${String(info.tiles)} tiles and a ${info.size.join('×')} grid has ${String(tx * ty * tz)} of ${String(TILE)}³`);
+  if (bytes.byteLength !== expected) throw new Error(`snapshot at blow ${String(info.blow)} is truncated or malformed: ${String(bytes.byteLength)} bytes for ${String(info.tiles)} tiles, ${String(info.runs)} runs and ${String(info.values)} values, which need ${String(expected)}`);
   return info;
 }
 

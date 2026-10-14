@@ -117,6 +117,6 @@ export class SnapshotJumps {
   private failed(index: number, error: unknown): void {
     this.broken.add(index);
     const entry = this.source.snapshots[index];
-    console.error(`snapshot ${entry?.file ?? String(index)} (blow ${String(entry?.blow)}) is not used, the making replays instead: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`snapshot ${entry?.file ?? String(index)} (blow ${String(entry?.blow)}) is not used, the making replays instead: ${error instanceof Error ? error.message : String(error)}. If the plan file is stale or damaged, npm run model:plan rebuilds it with its snapshots.`);
   }
 }

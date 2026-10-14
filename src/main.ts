@@ -9,9 +9,9 @@ import { DAVID_STEPS } from './choreography/david-steps';
 import { STAGES } from './choreography/stages';
 import type { GridHeader } from './contracts/grid';
 import type { Making, Vec3 } from './contracts/making';
-import { DEFAULT_CELL_M } from './david/frame';
+import { DEFAULT_CELL_M, STOCK_BAND_CELLS } from './david/frame';
 import { syntheticFigure } from './david/synthetic';
-import { loadFigureGrid } from './stock/grid';
+import { latticeBlockBox, loadFigureGrid } from './stock/grid';
 import type { Grid } from './stock/grid';
 import { defaultWorkerCount } from './stock/pool';
 import { maxSnapshotBytes } from './stock/snapshot';
@@ -90,7 +90,8 @@ async function planFor(fetched: Promise<[unknown, ArrayBuffer]> | null, header: 
   if (fetched === null || header === undefined) return 'the figure is not the David grid';
   try {
     const [parsed, data] = await fetched;
-    const problem = planHeaderProblem(parsed, { gridSha256: header.sha256, steps: DAVID_STEPS.map((step) => step.id) });
+    // The Making starts a header's figure from the lattice's block (src/timeline/making.ts), with the stock's band of src/david/frame.ts.
+    const problem = planHeaderProblem(parsed, { gridSha256: header.sha256, steps: DAVID_STEPS.map((step) => step.id), block: latticeBlockBox(header), stockBand: STOCK_BAND_CELLS });
     if (problem !== null) return `${DAVID_PLAN} does not fit: ${problem}`;
     const plan = parsed as PlanHeader;
     const digest = hex(await crypto.subtle.digest('SHA-256', data));

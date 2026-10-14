@@ -2,10 +2,13 @@
  * The snapshot format (src/stock/snapshot.ts). What a green run proves, and its bounds:
  *   1. Round trip: on lattices of 70×45×33 and 65×97×40 cells (edge tiles clipped on every axis, and a z extent one past the chunk layout's last 32 cells, the plane `chunkLayout` leaves beyond its chunks), after seeded blows of the point, the claw, the drill, the rasp and the gilding leaf (stone cut to the band, air left with the finish of the last tool, the leaf's paint on the claw's texture only), a snapshot written into a fresh untouched block gives the stock and finish bytes exactly, wherever the cells lie.
  *   2. Only what differs is dirtied: written into a state that differs from it in a few cells, a snapshot changes exactly those cells, counts the tiles that held them and returns exactly the chunks whose 33³ mesh window holds one (`chunksTouching` of each changed cell); written into the state it was taken from, it changes nothing and dirties nothing.
+ *   5. The encoding is pinned: a fixed state built cell by cell (not carved, so only the encoder moves the pin) encodes to the SHA-256 recorded for SNAPSHOT_VERSION, and decodes back to itself.
  *   3. Uniform tiles cost a byte: a tile of air or of deep stone with finish 0 holds no runs, and the snapshot of the untouched block is mostly such tiles.
  *   4. Bytes that are not a snapshot for this lattice are refused, before any cell is written, with what is wrong: another magic or version, a truncated file, another grid size; a snapshot stays within `maxSnapshotBytes`. Bytes no encoder writes (a tile kind past the three, a run class past air with the last finish code, a value outside the stock's clamp) are refused while writing, which the Making answers by going back to the untouched block (src/timeline/plan-build.test.ts).
  * Bounds: random blows on small lattices, not a plan (src/timeline/plan-build.test.ts checks the build's snapshots against the Making on the synthetic figure); the residual against the figure is exercised with the figure the snapshot was taken on, which the page guarantees by the grid's SHA-256 in the plan file.
  */
+import { createHash } from 'node:crypto';
+
 import { describe, expect, it } from 'vitest';
 
 import type { Blow, ToolId, Vec3 } from '../contracts/making';
@@ -14,6 +17,9 @@ import { chunkLayout, chunksTouching } from './chunks';
 import { blockGrid, createFinishGrid, Grid, type WorldBox } from './grid';
 import { applySnapshot, encodeSnapshot, maxSnapshotBytes, snapshotInfo, TILE } from './snapshot';
 import { BULK_CUT_SIZE_M } from './tool-volumes';
+
+/** SHA-256 of the fixed state's snapshot in format SNAPSHOT_VERSION 1. */
+const SNAPSHOT_GOLDEN = 'b52ad6949e2e0933e41ffda5446e58194c6f510a91c49e79d58ae2627fc29290';
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -186,6 +192,25 @@ describe('snapshots', () => {
     expect(() => applySnapshot(bytes, freshState(other), other.figure)).toThrow(/70×45×33 grid/);
     expect(Buffer.from(target.stock.values.buffer).toString('base64')).toBe(before);
     expect(bytes.byteLength).toBeLessThanOrEqual(maxSnapshotBytes(c.figure.spec.size));
+  });
+
+  it('encodes a fixed state to the bytes it always has', () => {
+    // A state built cell by cell, not carved, so the pin moves with the encoding alone: SNAPSHOT_VERSION names it, the plan header records it, and the page refuses snapshots of another.
+    const c = lattice([40, 35, 33]);
+    const state = freshState(c);
+    const random = mulberry32(31);
+    const { values, limit } = state.stock;
+    for (let n = 0; n < values.length; n += 1) {
+      const roll = random();
+      values[n] = roll < 0.4 ? -limit : roll < 0.8 ? limit : Math.round((random() * 2 - 1) * (limit - 1));
+      state.finish[n] = values[n] === -limit ? 0 : Math.floor(random() * 14);
+    }
+    const bytes = encodeSnapshot(state.stock, state.finish, c.figure, 7);
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    expect(digest, `the snapshot encoding changed (SHA-256 ${digest}): if on purpose, bump SNAPSHOT_VERSION in src/stock/snapshot.ts, pin the new digest here and rebuild the plan with npm run model:plan`).toBe(SNAPSHOT_GOLDEN);
+    const back = freshState(c);
+    applySnapshot(bytes, back, c.figure);
+    expect(equalBytes(back, state)).toBe(true);
   });
 
   it('refuses a tile kind, a run class or a value no encoder writes, while writing', () => {
