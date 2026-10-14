@@ -1,19 +1,21 @@
 /**
  * The Making (src/timeline/making.ts) on a 6 cm synthetic block with four inline steps. What a green run proves, and its bounds:
  *   1. Determinism: after a seeded random history of 50 plays, reversals, steps and scrubs, the hashes of the stock grid, the finish grid, every chunk's positions, the poses and the chips equal those of a fresh Making set straight to the same `t`, checked at 10 points of the history and at the end, in under 3 s (about 1.2 s alone; the bound leaves room for the other test files running beside it).
- *   2. Rest positions: at every integer `t` the first `t` steps are complete, `current` is null, no tool is posed and nothing is in flight; at `t = N` then `t = 0` the stock and finish are the untouched block again and the undo log is empty.
+ *   2. Rest positions: at every integer `t` the first `t` steps are complete, `current` is null and nothing is in flight; no tool is posed except, between two steps of one tool, that tool where its last blow left it; at `t = N` then `t = 0` the stock and finish are the untouched block again and the undo log is empty.
  *   3. Planning: steps are planned in order from the state the earlier steps leave (a later step's blows land on the surface the earlier one cut), `planAll` fills the plan, `planLength` and `planDigest` agree between two Makings and `steps[i]` carries the blow ranges.
  *   4. Blow `k` of a step applies when the position passes STRIKE_PHASE of its window `[k / count, (k + 1) / count)`, the blow in progress is the window's blow at its phase, and chips come from struck blows only.
- * Bounds: the steps here are inline rasters, not the choreography; the mesher is synchronous; nothing is rendered.
+ *   5. Carry-on, with the real blow cycle (src/tools/blow-cycle.ts): across the boundary between two steps of one tool the chisel and the mallet move under 2 cm from `t = k - 1e-6` to `k` to `k + 1e-6`, and `current.previous` past the boundary is the earlier step's last blow, where before 2026-10-13 the tool went back to the bench, over a metre away; where the tool changes, `t = k` poses nothing and the new tool starts at the bench.
+ * Bounds: the steps here are inline rasters, not the choreography; the mesher is synchronous; nothing is rendered; claim 5 holds for the raster's blows, not the choreography's reach or angles.
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 
-import { type Blow, type BlowCycle, type ChipState, type PlanContext, type StageDef, type StepDef, STRIKE_PHASE, type ToolId, type ToolPose } from '../contracts/making';
+import { type Blow, type BlowCycle, type ChipState, type PlanContext, type StageDef, type StepDef, STRIKE_PHASE, type ToolId, type ToolPose, type Vec3 } from '../contracts/making';
 import { BLOCK_M } from '../david/frame';
 import { syntheticFigure } from '../david/synthetic';
 import { FNV_OFFSET, fnvArray, fnvHex, fnvNumber, fnvText } from '../stock/digest';
 import { blockGrid, frameBlockBox } from '../stock/grid';
+import { createBlowCycle } from '../tools/blow-cycle';
 import { createMaking, type EngineMaking } from './making';
 
 const CELL = 0.06;
@@ -132,7 +134,9 @@ describe('making', () => {
       making.setTime(k);
       expect(making.current).toBeNull();
       expect(making.blowsApplied).toBe(counts.slice(0, k).reduce((a, b) => a + b, 0));
-      expect(making.poses).toEqual([]);
+      // Between two steps of one tool (bulk and furrows, both the point) that tool is held where its last blow left it; everywhere else the tools are down.
+      const held = k > 0 && k < making.N && making.steps[k - 1]?.tool === making.steps[k]?.tool;
+      expect(making.poses.map((pose) => pose.tool)).toEqual(held ? [making.steps[k]?.tool, 'mallet'] : []);
       expect(making.chips).toEqual([]);
       expect(making.dirtyChunks).toBe(0);
     }
@@ -194,9 +198,41 @@ describe('making', () => {
     expect(making.blowsApplied).toBe(Math.floor(position - STRIKE_PHASE) + 1);
     expect(making.current?.blow).toBe(making.blowsOf(0)[Math.floor(position)]);
     expect(making.current?.phase).toBeCloseTo(position - Math.floor(position), 9);
-    // The step's end applies its last blow.
+    // The step's end applies its last blow; nothing is in progress, and the point is held for the second step, which uses it too.
     making.setTime(1);
     expect(making.blowsApplied).toBe(count);
-    expect(making.poses).toEqual([]);
+    expect(making.current).toBeNull();
+    expect(making.poses.map((pose) => pose.tool)).toEqual(['point', 'mallet']);
+  });
+
+  it('carries an unchanged tool on across a step boundary, where it once went back to the bench, and sets a changed tool down', () => {
+    const real = createBlowCycle();
+    const making = createMaking({ figure, steps: STEPS, stages: STAGES, blowCycle: real, material });
+    making.planAll();
+    const EPS = 1e-6;
+    const positions = (t: number): Map<string, Vec3> => {
+      making.setTime(t);
+      return new Map(making.poses.map((pose) => [pose.tool, pose.position]));
+    };
+    const distance = (a: Vec3 | undefined, b: Vec3 | undefined): number => (a === undefined || b === undefined ? Number.POSITIVE_INFINITY : Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]));
+    // bulk → furrows, both the point: the tool and the mallet stay where the last blow left them, through the rest position and into the next approach.
+    const before = positions(1 - EPS);
+    const held = positions(1);
+    const after = positions(1 + EPS);
+    expect([...held.keys()]).toEqual(['point', 'mallet']);
+    for (const tool of ['point', 'mallet']) {
+      expect(distance(before.get(tool), held.get(tool)), `${tool} across t = 1`).toBeLessThan(0.02);
+      expect(distance(held.get(tool), after.get(tool)), `${tool} into the second step`).toBeLessThan(0.02);
+    }
+    const bulk = making.blowsOf(0);
+    expect(making.current?.previous).toBe(bulk[bulk.length - 1]);
+    // The bench is over a metre from the stone: the jump the carry-on removes.
+    expect(distance(before.get('point'), real.restPose('point').position)).toBeGreaterThan(1);
+    // furrows → comb: the point is set down and the claw starts at the bench.
+    expect(positions(2).size).toBe(0);
+    const claw = positions(2 + EPS);
+    expect(making.current?.previous).toBeNull();
+    expect(distance(claw.get('claw'), real.restPose('claw').position)).toBeLessThan(0.02);
+    making.dispose();
   });
 });

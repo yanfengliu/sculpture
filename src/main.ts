@@ -76,7 +76,7 @@ async function createMakingForQuery(query: ViewerQuery, material: Material, prob
     blowCycle,
     toolMeshes,
     toolNames: (tool) => ({ italian: TOOL_CATALOG[tool].italian, english: TOOL_CATALOG[tool].english }),
-    carrySeconds: (blow) => blowCycle.approachSeconds(blow, null),
+    carrySeconds: (blow, previous) => blowCycle.approachSeconds(blow, previous),
     source: figure.header?.source ?? null,
   };
 }
@@ -257,7 +257,7 @@ if (query.shot) {
   };
 }
 
-/** The carry a step's first approach gets (src/timeline/carry.ts): the tools' carry time from the bench, so a tool never crosses metres in a frame; none in capture mode, where nothing plays. */
+/** The carry a step's first approach gets (src/timeline/carry.ts): the tools' carry time from the bench, or from the previous step's last blow when the tool is unchanged, so a tool never crosses metres in a frame; none in capture mode, where nothing plays. */
 const carry: CarrySeconds = query.shot ? null : (bundle.carrySeconds ?? null);
 
 /** What the follow camera frames at the player's position: the step's focus point, else the working tip, at the step's focus distance and from the side the blow's normal faces; null at a rest position without a focus point. */

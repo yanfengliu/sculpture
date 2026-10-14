@@ -70,7 +70,7 @@ function fakeMaking(counts: readonly number[], weights: readonly number[]): Maki
     chips: [],
     get current() {
       const p = progress();
-      return p === null ? null : { blow: blow(p.step, p.index), phase: p.phase };
+      return p === null ? null : { blow: blow(p.step, p.index), previous: null, phase: p.phase };
     },
     stockObject: {} as Making['stockObject'],
     onMeshed() {

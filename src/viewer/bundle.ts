@@ -19,8 +19,8 @@ export interface MakingBundle {
   readonly making: Making;
   /** The tools' cycle: the page rests every tool the making does not pose at `restPose`. */
   readonly blowCycle: BlowCycle;
-  /** Seconds a hand needs to carry the tool from the bench to `blow` (src/tools/blow-cycle.ts, `approachSeconds`); the page stretches a step's first approach to it. */
-  readonly carrySeconds?: (blow: Blow) => number;
+  /** Seconds a hand needs to bring the tool to `blow` from `previous`, the blow it was last at, or from the bench when that is null (src/tools/blow-cycle.ts, `approachSeconds`); the page stretches a step's first approach to it. */
+  readonly carrySeconds?: (blow: Blow, previous: Blow | null) => number;
   /** One mesh per rendered tool, origin at the working tip, shaft along +Y; the page sets each one's position and quaternion from `Making.poses` every frame and hides the ones no pose names. */
   readonly toolMeshes: ReadonlyMap<RenderedTool, Object3D>;
   readonly toolNames: (tool: RenderedTool) => ToolNames;
