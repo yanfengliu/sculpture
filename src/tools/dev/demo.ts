@@ -7,7 +7,7 @@ import type { Scene } from 'three';
 
 import type { Blow, ChipState } from '../../contracts/making';
 import { STRIKE, createBlowCycle } from '../blow-cycle';
-import { FADE_END } from '../chip-burst';
+import { MAX_CHIP_SECONDS } from '../chip-burst';
 import { ChipPool } from '../chips';
 import { toolModel } from '../geometry/index';
 import { fromQuat } from '../math';
@@ -81,7 +81,7 @@ export function createStrikeDemo(scene: Scene): StrikeDemo {
         model.quaternion.copy(fromQuat(pose.quaternion));
       }
       const chips: ChipState[] = [];
-      for (let back = 0; back <= Math.ceil(FADE_END * STRIKES_PER_SECOND); back += 1) {
+      for (let back = 0; back <= Math.ceil(MAX_CHIP_SECONDS * STRIKES_PER_SECOND); back += 1) {
         const struckAt = (index - back + STRIKE) / STRIKES_PER_SECOND;
         chips.push(...cycle.chipsAt(blowAt(index - back), seconds - struckAt));
       }

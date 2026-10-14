@@ -15,6 +15,7 @@ import { chunkLayout } from '../stock/chunks';
 import { FNV_OFFSET, fnvBlow, fnvHex, seedOf } from '../stock/digest';
 import { blockGrid, createFinishGrid, frameBlockBox, type Grid, latticeBlockBox, type WorldBox } from '../stock/grid';
 import { type ChunkMesher, createDeferredMesher, createSyncMesher, Remesher } from '../stock/remesh';
+import { MAX_CHIP_SECONDS } from '../tools/chip-burst';
 import { blowsStruck, type Cycles, cyclesOf } from './cycles';
 import { createDeferredCarver, createSyncCarver, figureChunkOf, type Jump, type JumpBlow, type JumpOutcome, startJump } from './jump';
 
@@ -57,8 +58,8 @@ export interface EngineMaking extends Making {
 
 const TITLE_LIMIT = 48;
 const DETAIL_LIMIT = 200;
-/** Seconds of playing time at 1× looked back for chips, into the previous step when the current one is young; the tools fade a chip well within it. */
-const CHIP_WINDOW_SECONDS = 4;
+/** Seconds of playing time at 1× looked back for chips, into the previous step when the current one is young: the longest any chip lives, so no chip of a struck cycle is dropped before it has faded. */
+const CHIP_WINDOW_SECONDS = MAX_CHIP_SECONDS;
 /** Blows of a cycle that launch chips, spread over the cycle's run, so a long run does not flood the pool. */
 const CHIP_BLOWS_PER_CYCLE = 4;
 /** A forward move of this many blows or more goes to the carve workers. */
@@ -246,26 +247,22 @@ class MakingImpl implements EngineMaking {
     const chips: ChipState[] = [];
     const secondsPerCycle = ((this.defs[p.step]?.weight ?? 1) * BASE_SECONDS) / p.cycles.cycles;
     const struckCycles = Math.min(p.cycles.cycles, Math.max(0, Math.floor(p.position - STRIKE_PHASE) + 1));
-    let emptyRun = 0;
-    const collect = (step: number, cycle: number, cycles: Cycles, secondsSince: number): boolean => {
+    const collect = (step: number, cycle: number, cycles: Cycles, secondsSince: number): void => {
       const plan = this.plans[step] ?? [];
       const first = cycle * cycles.group;
       const size = Math.min(cycles.group, plan.length - first);
       const stride = Math.max(1, Math.ceil(size / CHIP_BLOWS_PER_CYCLE));
-      let some = 0;
       for (let j = first; j < first + size; j += stride) {
         const blow = plan[j];
         if (blow === undefined) break;
-        const launched = this.blowCycle.chipsAt(blow, secondsSince);
-        some += launched.length;
-        chips.push(...launched);
+        chips.push(...this.blowCycle.chipsAt(blow, secondsSince));
       }
-      emptyRun = some === 0 ? emptyRun + 1 : 0;
-      return emptyRun < 2;
     };
+    // Every struck cycle within the window, newest first: a chip's life is its own, so an older cycle's chips may outlive a newer one's, and only the window ends the walk.
     for (let c = struckCycles - 1; c >= 0; c -= 1) {
       const secondsSince = (p.position - (c + STRIKE_PHASE)) * secondsPerCycle;
-      if (secondsSince > CHIP_WINDOW_SECONDS || !collect(p.step, c, p.cycles, secondsSince)) return chips;
+      if (secondsSince > CHIP_WINDOW_SECONDS) return chips;
+      collect(p.step, c, p.cycles, secondsSince);
     }
     // The previous step's last strikes are still in the air when this step is young.
     const previous = p.step - 1;
@@ -275,7 +272,8 @@ class MakingImpl implements EngineMaking {
     const secondsPerPrevious = ((this.defs[previous]?.weight ?? 1) * BASE_SECONDS) / Math.max(1, before.cycles);
     for (let c = before.cycles - 1; c >= 0; c -= 1) {
       const secondsSince = elapsed + (before.cycles - (c + STRIKE_PHASE)) * secondsPerPrevious;
-      if (secondsSince > CHIP_WINDOW_SECONDS || !collect(previous, c, before, secondsSince)) break;
+      if (secondsSince > CHIP_WINDOW_SECONDS) break;
+      collect(previous, c, before, secondsSince);
     }
     return chips;
   }
