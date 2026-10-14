@@ -4,6 +4,7 @@
  *   2. Rim and floor: for two 6 cm blows struck straight into a flat face, the wall at half depth (the distance's zero along 72 rays from the axis, by bisection) lies between the radius over 1 + RIM_WOBBLE and the radius times 1 + RIM_WOBBLE plus PIT_DEPTH, its widest is at least 1.25 times its narrowest, and the two walls differ by more than a centimetre somewhere, since each blow draws its own phases (2026-10-14: 63 to 86 and 64 to 88 mm around the 72 mm radius, 24 mm apart at most); the floor (the zero straight down at 1,000 points within 0.75 radii of the axis, where the floor and not the wall is nearest) lies between the cut depth and the cut depth plus PIT_DEPTH, and its deepest and shallowest points differ by at least 2 mm (2026-10-14: 60.0 to 62.8 mm).
  *   3. The pits belong to the stone: on a 4 mm lattice, a second crater struck beside the first at the same depth changes none of the band cells under the shared floor (deeper than the floor, within 0.6 radii of both axes), where pits drawn per blow rewrote the cells whose new pit was the deeper (the undo cost of src/stock/undo-budget.test.ts; with the pits' seed set to the blow's, 11 of 153, red, 2026-10-14); the region holds more than 100 band cells (146).
  *   4. The mean volume six craters remove from a flat face at different points on a 4 mm lattice is within 1.5 percent of closedFormVolume, which counts the ragged rim's mean area and the pits' mean depth (2026-10-14: 0.26 percent under; the plain cylinder's closed form is 2.1 percent under the mean).
+ *   5. The rim's phases come from `turn` (src/stock/tool-frame.ts), sums and products alone, since Chrome and Node round Math.cos and Math.sin differently in the last bit: over 10,000 seeded turns and the quarter-turn edges, it is within 1e-10 of Math.cos and Math.sin.
  * Bounds: claim 1 samples pairs, so a steeper spot between samples would pass; the face is flat and the axis along its normal in claims 2 to 4, so a slanted crater's box is covered only by the bound test of src/stock/carve.test.ts; claim 3 holds where the two floors coincide exactly (one face level and one axis), and a floor at another depth rewrites the band as a plain cylinder's would; the look at the page's 8 mm cells is the captures' claim, not this test's.
  */
 import { describe, expect, it } from 'vitest';
@@ -12,6 +13,7 @@ import type { Blow, Vec3 } from '../contracts/making';
 import { applyBlow, type CarveState } from './carve';
 import { chunkLayout } from './chunks';
 import { createFinishGrid, Grid } from './grid';
+import { turn } from './tool-frame';
 import { BULK_CUT_SIZE_M, BULK_RADIUS_RATIO, closedFormVolume, PIT_DEPTH, RIM_WOBBLE, type ToolVolume, toolVolume } from './tool-volumes';
 
 const SIZE = 0.06;
@@ -167,5 +169,16 @@ describe('the bulk crater', () => {
     const mean = removed.reduce((sum, v) => sum + v, 0) / removed.length;
     const expected = closedFormVolume('point', SIZE);
     expect(Math.abs(mean / expected - 1), `mean removed ${String(mean)} m³ against the closed form's ${String(expected)} m³`).toBeLessThan(0.015);
+  });
+
+  it('draws its phases by sums and products within 1e-10 of Math.cos and Math.sin', () => {
+    const random = mulberry32(7);
+    const us = [0, 0.25, 0.5, 0.75, 1 - 1e-12, 0.125, ...Array.from({ length: 10_000 }, () => random())];
+    let worst = 0;
+    for (const u of us) {
+      const [c, s] = turn(u);
+      worst = Math.max(worst, Math.abs(c - Math.cos(2 * Math.PI * u)), Math.abs(s - Math.sin(2 * Math.PI * u)));
+    }
+    expect(worst).toBeLessThan(1e-10);
   });
 });

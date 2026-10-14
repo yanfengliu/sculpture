@@ -5,7 +5,7 @@
  * Bounds are the tight axis-aligned box of each shape (a cylinder's box, not a cube of its reach), because the carving loop and the chunk jobs visit every cell of the box dilated by the band.
  */
 import type { Blow, ToolId, Vec3 } from '../contracts/making';
-import { blowFrame, blowSeed, cylinderBounds, extrude, type Frame, frameBounds, PIT_MEAN, PIT_SLOPE, pitDepth, polygonDistance, rotationRows, roundedBox2, seededUnit } from './tool-frame';
+import { blowFrame, blowSeed, cylinderBounds, extrude, type Frame, frameBounds, PIT_MEAN, PIT_SLOPE, pitDepth, polygonDistance, rotationRows, roundedBox2, seededUnit, turn } from './tool-frame';
 
 /** The removed volume's dimensions per tool, metres and radians. `source` names the line of docs/research/tools.md (or technique.md) the numbers come from. */
 export interface ToolVolumeSpec {
@@ -178,10 +178,10 @@ function bulkCrater(f: Frame, size: number, seed: number): ToolVolume {
   // Two axes across the tool axis: w is at right angles to it.
   const [exx, exy, exz] = w;
   const [eyx, eyy, eyz] = [dy * exz - dz * exy, dz * exx - dx * exz, dx * exy - dy * exx];
-  // The harmonics' cosine and sine weights at seeded phases.
+  // The harmonics' cosine and sine weights at seeded phases, by `turn`, not Math.cos and Math.sin: Chrome and Node round those differently in the last bit (engine-b, 2026-10-14), and a crater the page carves after a snapshot Node built must be the crater Node carved.
   const [w2c = 0, w2s = 0, w3c = 0, w3s = 0, w5c = 0, w5s = 0] = RIM_AMPLITUDES.flatMap((amplitude, n) => {
-    const phase = 2 * Math.PI * seededUnit(seed, n);
-    return [amplitude * Math.cos(phase), amplitude * Math.sin(phase)];
+    const [c, s] = turn(seededUnit(seed, n));
+    return [amplitude * c, amplitude * s];
   });
   const [[l1x = 0, l1y = 0, l1z = 0] = [], [l2x = 0, l2y = 0, l2z = 0] = [], [l3x = 0, l3y = 0, l3z = 0] = []] = PIT_AXES;
   const bounds = cylinderBounds([px, py, pz], f.d, radius * (1 + RIM_WOBBLE) + PIT_DEPTH, halfHeight + PIT_DEPTH);

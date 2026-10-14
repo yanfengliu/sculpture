@@ -133,6 +133,20 @@ export function seededUnit(seed: number, n: number): number {
   return mix32((seed ^ Math.imul(n + 1, 0x9e3779b9)) >>> 0) / 4294967296;
 }
 
+/** The cosine and the sine of 2π`u` from sums and products alone, which every engine rounds alike, where Math.cos and Math.sin differ between Chrome and Node in the last bit (engine-b, 2026-10-14): `u` is reduced to a quarter turn and the Taylor series run to x^14 and x^15 on [0, π/2], within 1e-10 of the true values. */
+export function turn(u: number): [number, number] {
+  const t = (u - Math.floor(u)) * 4;
+  const quarter = Math.floor(t);
+  const x = (t - quarter) * (Math.PI / 2);
+  const x2 = x * x;
+  const c = 1 - (x2 / 2) * (1 - (x2 / 12) * (1 - (x2 / 30) * (1 - (x2 / 56) * (1 - (x2 / 90) * (1 - (x2 / 132) * (1 - x2 / 182))))));
+  const s = x * (1 - (x2 / 6) * (1 - (x2 / 20) * (1 - (x2 / 42) * (1 - (x2 / 72) * (1 - (x2 / 110) * (1 - (x2 / 156) * (1 - x2 / 210)))))));
+  if (quarter === 0) return [c, s];
+  if (quarter === 1) return [-s, c];
+  if (quarter === 2) return [-c, -s];
+  return [s, -c];
+}
+
 /** The radii of the pits as fractions of the lattice's pitch, the smallest and the largest: each cell draws one between them. */
 const PIT_RADIUS_MIN = 0.25;
 const PIT_RADIUS_MAX = 0.42;
