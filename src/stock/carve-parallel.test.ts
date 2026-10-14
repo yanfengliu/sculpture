@@ -127,8 +127,9 @@ describe('chunk carve jobs', () => {
     for (let n = parts.length - 1; n >= 0; n -= 1) {
       const blowParts = parts[n] ?? [];
       for (const part of blowParts) {
-        recorded += part.indices.length;
+        for (let r = 1; r < part.indices.length; r += 2) recorded += part.indices[r] ?? 0;
         for (let r = 1; r < part.runs.length; r += 2) recorded += part.runs[r] ?? 0;
+        expect(part.stock.length).toBe(part.finish.length);
       }
       undoBlow(chunked, { parts: blowParts });
     }

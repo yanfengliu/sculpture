@@ -60,8 +60,9 @@ export interface CarveState {
 export interface UndoPart {
   /** Pairs of (first global index, length): cells that were deep stock, −limit with finish 0. */
   readonly runs: Uint32Array;
-  /** Every other changed cell, global index, with its old stock and finish. */
+  /** Pairs of (first global index, length): segments of consecutive changed cells recorded with their values (every other changed cell, plus the short deep runs src/stock/carve-kernel.ts folds in). */
   readonly indices: Uint32Array;
+  /** The old stock and finish of the segments' cells, segment after segment in `indices` order; their length is the sum of the segment lengths. */
   readonly stock: Int16Array;
   readonly finish: Uint8Array;
   /** Global cell box of the changed cells, for dirtying chunks on undo. */
@@ -138,10 +139,13 @@ export function undoBlow(state: CarveState, undo: UndoBox): number[] {
       values.fill(deep, start, end);
       state.finish.fill(0, start, end);
     }
-    for (let n = 0; n < indices.length; n += 1) {
-      const index = indices[n] ?? 0;
-      values[index] = stock[n] ?? 0;
-      state.finish[index] = finish[n] ?? 0;
+    let n = 0;
+    for (let r = 0; r < indices.length; r += 2) {
+      const start = indices[r] ?? 0;
+      const length = indices[r + 1] ?? 0;
+      values.set(stock.subarray(n, n + length), start);
+      state.finish.set(finish.subarray(n, n + length), start);
+      n += length;
     }
     dirty.push(...chunksTouching(state.chunks, part.box));
   }
