@@ -10,4 +10,4 @@ When the gate lands, prove it red by reintroducing the defect, record that in [g
 
 ## Rules
 
-- A test that asserts a contract constant's literal value compares the constant with itself and goes red on the next decision, never on a defect. — **gate:** `src/repo-conventions.test.ts` fails on `expect(<NAME>).toBe(<number>)` where `<NAME>` is imported from `src/contracts/`, naming the file and line ([evidence](lessons-evidence.md#pinned-constant-2026-10-11))
+None open: the last two (a pinned contract constant, a wall-clock bound in a unit test) became gates in `src/repo-conventions.test.ts` on 2026-10-14 ([gate-proofs.md](gate-proofs.md)).

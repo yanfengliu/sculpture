@@ -6,11 +6,12 @@ import { describe, expect, it } from 'vitest';
 import { BROWSER_ARGS, BROWSER_CHANNEL, DEFAULT_PORT, devOrigin, devPort } from './harness.mjs';
 
 describe('devPort', () => {
-  it('defaults to 5181 when SCULPTURE_PORT is unset, empty or blank', () => {
-    expect(DEFAULT_PORT).toBe(5181);
-    expect(devPort({})).toBe(5181);
-    expect(devPort({ SCULPTURE_PORT: '' })).toBe(5181);
-    expect(devPort({ SCULPTURE_PORT: '  ' })).toBe(5181);
+  it('defaults to DEFAULT_PORT when SCULPTURE_PORT is unset, empty or blank, a port no sibling repo uses (met 5310, 3d-maker 5199)', () => {
+    expect(devPort({})).toBe(DEFAULT_PORT);
+    expect(devPort({ SCULPTURE_PORT: '' })).toBe(DEFAULT_PORT);
+    expect(devPort({ SCULPTURE_PORT: '  ' })).toBe(DEFAULT_PORT);
+    expect(devPort({ SCULPTURE_PORT: String(DEFAULT_PORT) })).toBe(DEFAULT_PORT);
+    expect([5310, 5199]).not.toContain(DEFAULT_PORT);
   });
 
   it('reads a whole port number from 1024 to 65535', () => {
@@ -36,8 +37,8 @@ describe('devOrigin and the browser choice', () => {
     expect(devOrigin({ SCULPTURE_PORT: '5182' })).toBe('http://127.0.0.1:5182');
   });
 
-  it('runs on the installed Chrome with the software WebGL flag', () => {
-    expect(BROWSER_CHANNEL).toBe('chrome');
+  it('runs on an installed branded browser, never a downloaded Chromium, with the software WebGL flag', () => {
+    expect(['chrome', 'chrome-beta', 'msedge']).toContain(BROWSER_CHANNEL);
     expect(BROWSER_ARGS).toContain('--enable-unsafe-swiftshader');
   });
 });
