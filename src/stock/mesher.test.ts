@@ -4,7 +4,7 @@
  *   2. A plane at z = 16.5 cells gives exactly two triangles per crossing cell (2048) with every vertex on the plane.
  *   3. A window all inside or all outside gives nothing.
  *   4. Each vertex carries the finish code of the nearer corner of its edge.
- *   5. The sphere chunk meshes in under 5 ms (median of 200 runs), a loose bound so CI never flakes; the real figure is a few hundred such chunks.
+ *   5. The sphere chunk meshes in under 5 ms of this file's own CPU time on average over 200 runs (`process.cpuUsage()`, whose tick on Windows is about 16 ms, so the 200 runs are timed together; wall time grows with the suite's parallel files), a loose bound so CI never flakes; the median wall time is logged. The real figure is a few hundred such chunks.
  * Bounds: the output is unwelded and has no normals; a sphere and a plane do not exercise every one of the 256 cases (the closedness check does cover the cases the sphere meets); no real stock, no worker, no GPU.
  */
 import { describe, expect, it } from 'vitest';
@@ -127,14 +127,16 @@ describe('marching cubes', () => {
   it('meshes the sphere chunk in under 5 ms', () => {
     for (let n = 0; n < 50; n += 1) meshChunk(sphere);
     const times: number[] = [];
+    const before = process.cpuUsage();
     for (let n = 0; n < 200; n += 1) {
       const start = performance.now();
       meshChunk(sphere);
       times.push(performance.now() - start);
     }
+    const used = process.cpuUsage(before);
+    const meanCpuMs = (used.user + used.system) / 1000 / 200;
     times.sort((a, b) => a - b);
-    const median = times[100] ?? 0;
-    console.log(`mesher: sphere chunk ${String(meshChunk(sphere).positions.length / 9)} triangles, median ${median.toFixed(3)} ms, min ${(times[0] ?? 0).toFixed(3)} ms`);
-    expect(median).toBeLessThan(5);
+    console.log(`mesher: sphere chunk ${String(meshChunk(sphere).positions.length / 9)} triangles, wall median ${(times[100] ?? 0).toFixed(3)} ms, min ${(times[0] ?? 0).toFixed(3)} ms, CPU mean ${meanCpuMs.toFixed(3)} ms`);
+    expect(meanCpuMs).toBeLessThan(5);
   });
 });

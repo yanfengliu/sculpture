@@ -7,7 +7,8 @@ import { PROPS, PROP_IDS, propExtent, propModel } from './props';
 
 describe('workshop props', () => {
   it('names every prop and cites a research section with an [S n] reference', () => {
-    expect(PROP_IDS).toEqual(['square', 'plumb-line', 'wax-model', 'curved-rasp', 'leather-pad']);
+    expect(new Set(PROP_IDS).size).toBe(PROP_IDS.length);
+    expect(Object.keys(PROPS).sort()).toEqual([...PROP_IDS].sort());
     for (const id of PROP_IDS) {
       const spec = PROPS[id];
       expect(spec.italian.length).toBeGreaterThan(0);

@@ -15,8 +15,8 @@ import { quatFromBasis } from '../tools/math';
 import { propModel } from '../tools/props';
 import type { Platform } from '../tools/scaffold';
 import { BRIDGES, DECK_EXTENTS, DECK_LEVELS, SCAFFOLD_TIMBER } from '../tools/scaffold';
-import type { SpanGeometry, YardSpanId } from './yard-spans';
-import { hiddenSpans, outwardNormal } from './yard-spans';
+import type { Box, SpanGeometry, YardSpanId } from './yard-spans';
+import { hiddenSpans, innerFaces, outwardNormal } from './yard-spans';
 
 /** The scaffold's timbers, deck extents and bridges are the tools' model (src/tools/scaffold.ts), the one the reach check uses, so the decks drawn are the decks the blows are planned from. */
 const { deckWidth: DECK_WIDTH, plankWidth: PLANK_W, plankThickness: PLANK_T, plankGap: PLANK_GAP, post: POST, beam: BEAM, postHeight: POST_HEIGHT, topBeamY: TOP_BEAM_Y } = SCAFFOLD_TIMBER;
@@ -138,18 +138,33 @@ function earthTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-function buildFloor(): THREE.Mesh {
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE), new THREE.MeshStandardMaterial({ map: earthTexture(), roughness: 1, metalness: 0 }));
+function buildFloor(material: THREE.Material): THREE.Mesh {
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE), material);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   floor.name = 'floor';
   return floor;
 }
 
-interface Materials {
+/** The yard's materials: `yardMaterials()` draws their textures on canvases for the page; a unit test passes plain ones, since Node has no canvas. */
+export interface YardMaterials {
   readonly timber: THREE.Material;
   readonly deck: THREE.Material;
   readonly wall: THREE.Material;
+  readonly floor: THREE.Material;
+}
+type Materials = YardMaterials;
+
+/** The page's materials, with wood grain and packed earth drawn on canvases. */
+export function yardMaterials(): YardMaterials {
+  const wall = new THREE.MeshStandardMaterial({ map: woodTexture([150, 128, 98], 7), roughness: 0.9, metalness: 0, side: THREE.FrontSide });
+  wall.shadowSide = THREE.DoubleSide;
+  return {
+    timber: new THREE.MeshStandardMaterial({ map: woodTexture([156, 122, 82], 3), roughness: 0.85, metalness: 0 }),
+    deck: new THREE.MeshStandardMaterial({ map: woodTexture([172, 142, 100], 5), roughness: 0.9, metalness: 0 }),
+    wall,
+    floor: new THREE.MeshStandardMaterial({ map: earthTexture(), roughness: 1, metalness: 0 }),
+  };
 }
 
 /** One span under construction: its timbers and deck planks as instanced boxes, plus any props, built into one group named by its id. */
@@ -338,7 +353,7 @@ export interface Yard {
   update(position: { readonly x: number; readonly y: number; readonly z: number }): void;
 }
 
-interface SpanPlan extends SpanGeometry {
+interface SpanPlan extends Omit<SpanGeometry, 'faces'> {
   /** Adds the span's timbers, decks and props to the builder. */
   readonly build: (span: SpanBuilder, materials: Materials) => void;
 }
@@ -404,23 +419,42 @@ const SPAN_PLANS: readonly SpanPlan[] = [
   { id: 'model-stand', centre: STAND_CENTRE, normal: outwardNormal(STAND_CENTRE), cameraHides: true, build: buildWaxModel },
 ];
 
+/** Every mesh and instance box of `group`, in world space: the pieces whose inner faces decide when the span hides. */
+function pieceBoxes(group: THREE.Group): Box[] {
+  group.updateMatrixWorld(true);
+  const boxes: Box[] = [];
+  const box = new THREE.Box3();
+  const matrix = new THREE.Matrix4();
+  group.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const geometry = object.geometry as THREE.BufferGeometry;
+    geometry.computeBoundingBox();
+    const local = geometry.boundingBox;
+    if (local === null) return;
+    const count = object instanceof THREE.InstancedMesh ? object.count : 1;
+    for (let i = 0; i < count; i += 1) {
+      if (object instanceof THREE.InstancedMesh) object.getMatrixAt(i, matrix).premultiply(object.matrixWorld);
+      else matrix.copy(object.matrixWorld);
+      box.copy(local).applyMatrix4(matrix);
+      boxes.push({ min: [box.min.x, box.min.y, box.min.z], max: [box.max.x, box.max.y, box.max.z] });
+    }
+  });
+  return boxes;
+}
+
+const BLOCK_BOX: Box = { min: [-BLOCK_M.width / 2, 0, -BLOCK_M.depth / 2], max: [BLOCK_M.width / 2, BLOCK_M.height, BLOCK_M.depth / 2] };
+
 /** Builds the yard: the floor and one group per span, with the visibility rule ready to apply. */
-export function buildYard(): Yard {
+export function buildYard(materials: YardMaterials = yardMaterials()): Yard {
   const group = new THREE.Group();
   group.name = 'yard';
-  const wall = new THREE.MeshStandardMaterial({ map: woodTexture([150, 128, 98], 7), roughness: 0.9, metalness: 0, side: THREE.FrontSide });
-  wall.shadowSide = THREE.DoubleSide;
-  const materials: Materials = {
-    timber: new THREE.MeshStandardMaterial({ map: woodTexture([156, 122, 82], 3), roughness: 0.85, metalness: 0 }),
-    deck: new THREE.MeshStandardMaterial({ map: woodTexture([172, 142, 100], 5), roughness: 0.9, metalness: 0 }),
-    wall,
-  };
   const spans: YardSpan[] = SPAN_PLANS.map((plan, index) => {
     const builder = new SpanBuilder(plan.id, materials, 1 + index * 37);
     plan.build(builder, materials);
-    return { id: plan.id, centre: plan.centre, normal: plan.normal, cameraHides: plan.cameraHides, group: builder.build() };
+    const built = builder.build();
+    return { id: plan.id, centre: plan.centre, normal: plan.normal, faces: innerFaces(pieceBoxes(built), BLOCK_BOX, plan.normal), cameraHides: plan.cameraHides, group: built };
   });
-  group.add(buildFloor(), ...spans.map((span) => span.group));
+  group.add(buildFloor(materials.floor), ...spans.map((span) => span.group));
 
   let enabled = true;
   let hidden: readonly YardSpanId[] = [];

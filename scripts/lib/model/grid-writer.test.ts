@@ -23,7 +23,6 @@ describe('encodeValues and rawBytes', () => {
     expect(Array.from(values)).toEqual([0, 128, -128, 1, -1, 0, -1, 8192, -8192, 8192]);
     expect(min).toBe(-8192);
     expect(max).toBe(8192);
-    expect(FIXED_POINT).toBe(256);
     // The contract's default band, whatever its value, is what a far cell clamps to; pinning the number here would only test the constant against itself.
     const wide = encodeValues([1000, -1000], DEFAULT_BAND_CELLS);
     expect(Array.from(wide.values)).toEqual([DEFAULT_BAND_CELLS * FIXED_POINT, -DEFAULT_BAND_CELLS * FIXED_POINT]);

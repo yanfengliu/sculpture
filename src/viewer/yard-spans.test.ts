@@ -1,6 +1,6 @@
 /**
  * The yard-span rule (docs/policies/local-rules.md: nothing stands between the camera and the stock), on geometry only.
- * Bound: it pins the half-space test, the bench exemption and the yard-off case on a hand-made span list and on the three-quarter, front and back camera positions of src/viewer/presets.ts; whether the page hides the groups it built is the e2e suite's job (tests/e2e/yard.spec.ts).
+ * Bound: it pins the inner-face test, the bench exemption and the yard-off case on a hand-made span list and on the three-quarter, front and back camera positions of src/viewer/presets.ts; whether the page hides the groups it built is the e2e suite's job (tests/e2e/yard.spec.ts).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -8,15 +8,16 @@ import { PRESETS } from './presets';
 import type { SpanGeometry } from './yard-spans';
 import { cameraOutside, hiddenSpans, outwardNormal } from './yard-spans';
 
+/** Hand-made spans, each with its inner face. */
 const SPANS: readonly SpanGeometry[] = [
-  { id: 'wall-left', centre: [-4.5, 2, 0.5], normal: [-1, 0, 0], cameraHides: true },
-  { id: 'wall-right', centre: [4.5, 2, 0.5], normal: [1, 0, 0], cameraHides: true },
-  { id: 'wall-back', centre: [0, 2, -3.5], normal: [0, 0, -1], cameraHides: true },
-  { id: 'scaffold-front', centre: [0, 2.4, 1.67], normal: [0, 0, 1], cameraHides: true },
-  { id: 'scaffold-left', centre: [-2.0, 2.4, -0.1], normal: [-1, 0, 0], cameraHides: true },
-  { id: 'scaffold-right', centre: [2.0, 2.4, -0.1], normal: [1, 0, 0], cameraHides: true },
-  { id: 'scaffold-back', centre: [0, 2.4, -1.1], normal: [0, 0, -1], cameraHides: true },
-  { id: 'bench', centre: [-2.0, 0.4, 1.3], normal: outwardNormal([-2.0, 0.4, 1.3]), cameraHides: false },
+  { id: 'wall-left', centre: [-4.5, 2, 0.5], normal: [-1, 0, 0], faces: [{ normal: [-1, 0, 0], inner: 4.5 }], cameraHides: true },
+  { id: 'wall-right', centre: [4.5, 2, 0.5], normal: [1, 0, 0], faces: [{ normal: [1, 0, 0], inner: 4.5 }], cameraHides: true },
+  { id: 'wall-back', centre: [0, 2, -3.5], normal: [0, 0, -1], faces: [{ normal: [0, 0, -1], inner: 3.5 }], cameraHides: true },
+  { id: 'scaffold-front', centre: [0, 2.4, 1.67], normal: [0, 0, 1], faces: [{ normal: [0, 0, 1], inner: 1.1 }], cameraHides: true },
+  { id: 'scaffold-left', centre: [-2.0, 2.4, -0.1], normal: [-1, 0, 0], faces: [{ normal: [-1, 0, 0], inner: 1.4 }], cameraHides: true },
+  { id: 'scaffold-right', centre: [2.0, 2.4, -0.1], normal: [1, 0, 0], faces: [{ normal: [1, 0, 0], inner: 1.4 }], cameraHides: true },
+  { id: 'scaffold-back', centre: [0, 2.4, -1.1], normal: [0, 0, -1], faces: [{ normal: [0, 0, -1], inner: 0.85 }], cameraHides: true },
+  { id: 'bench', centre: [-2.0, 0.4, 1.3], normal: outwardNormal([-2.0, 0.4, 1.3]), faces: [{ normal: [-1, 0, 0], inner: 1.6 }], cameraHides: false },
 ];
 
 function presetPosition(id: string): readonly [number, number, number] {
@@ -26,13 +27,20 @@ function presetPosition(id: string): readonly [number, number, number] {
 }
 
 describe('cameraOutside', () => {
-  it('is the sign of the camera offset along the outward normal', () => {
+  it('is whether the camera lies past the inner face along the outward normal', () => {
     const wall = SPANS[1];
     if (wall === undefined) throw new Error('no wall');
     expect(cameraOutside(wall, [7, 4, 8])).toBe(true);
     expect(cameraOutside(wall, [4.5, 4, 8])).toBe(false);
     expect(cameraOutside(wall, [0, 4, 8])).toBe(false);
     expect(cameraOutside(wall, [-7, 4, 8])).toBe(false);
+  });
+
+  it('counts a camera on the deck, short of the span centre but past its inner face, as outside', () => {
+    const right = SPANS[5];
+    if (right === undefined) throw new Error('no right scaffold');
+    expect(cameraOutside(right, [1.6, 3.4, 0])).toBe(true);
+    expect(cameraOutside(right, [1.3, 3.4, 0])).toBe(false);
   });
 });
 
