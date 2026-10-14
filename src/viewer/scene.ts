@@ -8,7 +8,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 import { BLOCK_M } from '../david/frame';
+import { MAX_DISTANCE, MAX_POLAR_ANGLE, MIN_DISTANCE } from './orbit-limits';
 import type { CameraPose } from './query';
+import type { Yard } from './yard';
 import { buildYard } from './yard';
 
 /** Kept for src/tools/dev/main.ts, which looks for a placeholder block of this height; the scene holds no block of its own any more (the stock comes from the making). */
@@ -38,6 +40,8 @@ export interface Viewer {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly controls: OrbitControls;
+  /** The yard's spans and their visibility rule (src/viewer/yard.ts): applied after every camera move, before the frame renders. */
+  readonly yard: Yard;
   /** Frames rendered since `start`. */
   readonly frames: number;
   setPose(pose: CameraPose): void;
@@ -62,20 +66,22 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
   const environment = new THREE.PMREMGenerator(renderer);
   scene.environment = environment.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environmentIntensity = 0.25;
-  scene.add(...buildLights(), buildYard());
+  const yard = buildYard();
+  scene.add(...buildLights(), yard.group);
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 500);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = !options.shot;
-  controls.maxPolarAngle = Math.PI / 2 - 0.02;
-  // 20 cm tools must be framed from close by in the follow view.
-  controls.minDistance = 0.2;
-  controls.maxDistance = 80;
+  // The limits live in src/viewer/orbit-limits.ts, where the page checks an explicit cam= pose against them before keeping it.
+  controls.maxPolarAngle = MAX_POLAR_ANGLE;
+  controls.minDistance = MIN_DISTANCE;
+  controls.maxDistance = MAX_DISTANCE;
 
   function setPose(pose: CameraPose): void {
     camera.position.set(...pose.position);
     controls.target.set(...pose.target);
     controls.update();
+    yard.update(camera.position);
   }
   setPose(options.pose ?? options.cam ?? DEFAULT_POSE);
 
@@ -92,6 +98,7 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
     scene,
     camera,
     controls,
+    yard,
     get frames() {
       return frames;
     },
@@ -104,6 +111,8 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
         last = now;
         tick?.(seconds);
         controls.update();
+        // After the controls, so an orbit in progress hides the spans the camera has just moved outside of.
+        yard.update(camera.position);
         renderer.render(scene, camera);
         frames += 1;
         requestAnimationFrame(frame);

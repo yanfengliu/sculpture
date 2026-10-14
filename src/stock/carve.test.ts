@@ -5,7 +5,7 @@
  *   3. Undoing the recorded boxes in reverse restores the stock and finish bytes exactly, and the undo and the result name the same dirty chunks.
  *   4. The gilding leaf paints over tooth texture (claw, fine claw, roundel, drill) and never over polished, rasped or untouched stone (TOOL_PAINT_OVER); the other painting tools mark whatever they touch.
  *   5. Every tool volume's box is a bound of its shape at a slanted axis: with the tool axis 45 degrees off the normal and along the cube diagonal, the distance sampled on a lattice (at most 2 mm, no coarser than a hundredth of the box) over the box dilated by 5 cm is never negative outside the box, and is negative somewhere inside it (the reviewed revision's cube of the crater's reach was 36 mm short at 45 degrees; docs/work/0_making-of/reviews/0_integration.md, Bulk-crater bounds).
- *   6. A rasp blow on one face of a 7 cm hollow between two figure slabs, where the figure is near enough that the slab follows its level sets, leaves the far half of the hollow and the facing slab untouched (stock and finish), while it cuts the face it struck.
+ *   6. A rasp blow on one face of a 7 cm hollow between two figure slabs, where the figure is near enough that the slab follows its level sets, leaves everything beyond the slab's reach above the point (its cut depth, the larger of SLAB_TOP and the size, plus the stock band the kernel updates) and the facing slab untouched (stock and finish), while it cuts the face it struck.
  * Bounds: the closed forms are the ones in src/stock/tool-volumes.ts, so this checks the carved shape against the stated geometry, not against a real chisel mark; the 45-degree strokes of the plan are exercised only by the random blows; the bound check samples a lattice, so a shape poking out of its box by less than the lattice step between samples would pass; the hollow is flat-faced, so a curved hollow's reach is not measured.
  */
 import { describe, expect, it } from 'vitest';
@@ -284,10 +284,13 @@ describe('a rubbing tool in a hollow', () => {
     const { nx, ny, nz } = state.stock;
     let farChanged = 0;
     let farCells = 0;
+    // The slab reaches its cut depth above the point and the kernel updates the band beyond that; the stone past both must be as it was.
+    const reach = blow.size + (STOCK_BAND_CELLS + 1) * cell;
+    expect(reach).toBeLessThan(gap);
     for (let k = 0; k < nz; k += 1) {
       for (let j = 0; j < ny; j += 1) {
         const y = state.stock.spec.origin[1] + j * cell;
-        if (y < gap / 2) continue;
+        if (y < reach) continue;
         for (let i = 0; i < nx; i += 1) {
           const index = state.stock.index(i, j, k);
           farCells += 1;
@@ -296,6 +299,6 @@ describe('a rubbing tool in a hollow', () => {
       }
     }
     expect(farCells).toBeGreaterThan(0);
-    expect(farChanged, `${String(farChanged)} cells in the far half of the hollow or the facing slab changed`).toBe(0);
+    expect(farChanged, `${String(farChanged)} cells beyond the slab's reach in the hollow or in the facing slab changed`).toBe(0);
   });
 });

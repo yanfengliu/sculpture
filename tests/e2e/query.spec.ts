@@ -28,6 +28,25 @@ test('the first load plays forward from t = 0; autoplay=0 keeps it still', async
   expect((await facts(page)).t).toBe(0);
 });
 
+test('a bare t= or step= starts still at that position; a step the making lacks sets none, so the page plays', async ({ page }) => {
+  await openPage(page, 't=1.5');
+  const atT = await facts(page);
+  expect(atT).toMatchObject({ playing: null, moving: false, t: 1.5, queryProblems: [] });
+  await waitFrames(page, 20);
+  expect((await facts(page)).t).toBe(1.5);
+
+  await openPage(page, 'step=2');
+  const atStep = await facts(page);
+  expect(atStep).toMatchObject({ playing: null, moving: false, t: 2 });
+  await waitFrames(page, 20);
+  expect((await facts(page)).t).toBe(2);
+
+  await openPage(page, 'step=no-such-step');
+  const unplaced = await facts(page);
+  expect(unplaced.playing).toBe('forward');
+  expect(unplaced.queryProblems).toEqual([expect.stringContaining('query parameter step="no-such-step" was ignored')]);
+});
+
 test('t= sets the position; step= by index or id wins over it; a step the making lacks is reported', async ({ page }) => {
   // Five loads, each booting the figure grid and replaying the steps before its position.
   test.slow();
@@ -51,7 +70,19 @@ test('t= sets the position; step= by index or id wins over it; a step the making
   expect(missing.queryProblems).toEqual([expect.stringContaining('query parameter step="no-such-step" was ignored')]);
   await openPage(page, 'autoplay=0&step=999');
   expect((await facts(page)).queryProblems).toEqual([`query parameter step="999" was ignored: it takes a step id or a 1-based index from 1 to ${String(steps.N)}.`]);
-  // The clamp of t= to [0, N] is the player's (src/timeline/player.test.ts); loading at t above N would replay the whole plan here for nothing new.
+});
+
+test('a key the page does not read is reported; t above N is reported and clamped to N', async ({ page }) => {
+  // The clamp to N replays the whole plan: one of the suite's full jumps.
+  test.slow();
+  await openPage(page, 'autoplay=0&setp=5');
+  const typo = await facts(page);
+  expect(typo.t).toBe(0);
+  expect(typo.queryProblems).toEqual(['query parameter setp="5" was ignored: the page reads only shot, t, step, view, cam, model, finish, yard, autoplay, noui.']);
+  await openPage(page, 'autoplay=0&t=9999');
+  const clamped = await facts(page);
+  expect(clamped.t).toBe(clamped.N);
+  expect(clamped.queryProblems).toEqual([`query parameter t="9999" was clamped to N=${String(clamped.N)}, the end of the timeline: it takes a number from 0 to ${String(clamped.N)}.`]);
 });
 
 test('view= picks a preset, cam= wins over it, and an unknown view is reported', async ({ page }) => {
@@ -77,6 +108,19 @@ test('view= picks a preset, cam= wins over it, and an unknown view is reported',
   const unknown = await facts(page);
   expect(unknown.view).toBe('three-quarter');
   expect(unknown.queryProblems).toEqual(['query parameter view="sideways" was ignored: it takes one of front, back, left, right, three-quarter, head, hands, sling-and-stump, free or follow.']);
+});
+
+test('a cam= pose outside the orbit limits is reported and the preset keeps the camera', async ({ page }) => {
+  await openPage(page, 'autoplay=0&view=front');
+  await waitFrames(page, 3);
+  const front = await canvasBlocks(page);
+  // A camera 2 m below its target: the orbit would lift it to its polar limit, so the page refuses it rather than render from somewhere else than the URL says.
+  await openPage(page, 'autoplay=0&view=front&cam=0,1,10,0,3,0');
+  const refused = await facts(page);
+  expect(refused.view).toBe('front');
+  expect(refused.queryProblems).toEqual([expect.stringMatching(/^query parameter cam="0,1,10,0,3,0" was ignored: the orbit keeps the camera 0\.2 to 80 m from its target and at most 88\.9° from straight above it .*; this pose is 10\.20 m away at 101\.3°\.$/)]);
+  await waitFrames(page, 3);
+  expectSameCanvas(await canvasBlocks(page), front);
 });
 
 test('finish=1 starts in the finish-code view with the toggle pressed', async ({ page }) => {

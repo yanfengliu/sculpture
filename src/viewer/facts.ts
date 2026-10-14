@@ -1,7 +1,7 @@
 /**
  * `window.__sculpture`: the read-only facts the page exposes for tests (docs/design/spec.md, Query contract), the `window.__shotReady` capture flag and the `window.__shotSeek` capture seek.
  * Tests read these and drive the page through its real controls; nothing writes state through them. `__shotSeek` exists under `?shot=1` only, for the video exporter (scripts/export-video.mjs): it seeks through the player, the same path as the scrubber, and re-arms `__shotReady`.
- * Beyond the contract's list, the page adds per-step `stepTools`, `stepWeights` and `stepBlowCounts` (for the capture scripts) and the page state `playing`, `speed`, `view`, `follow` and `finish` (for the control tests).
+ * Beyond the contract's list, the page adds per-step `stepTools`, `stepWeights` and `stepBlowCounts` (for the capture scripts) and the page state `playing`, `speed`, `view`, `follow`, `finish`, `yard` and `hiddenSpans` (for the control tests).
  */
 import type { Making, PlayDirection, Player } from '../contracts/making';
 import { BASE_SECONDS } from '../contracts/making';
@@ -36,6 +36,9 @@ export interface SculptureFacts {
   readonly view: string;
   readonly follow: boolean;
   readonly finish: boolean;
+  /** Whether the yard structures show (the Yard toggle, `yard=0`), and the ids of the yard spans hidden now: those between the camera and the block, or every span while the yard is off (src/viewer/yard-spans.ts). */
+  readonly yard: boolean;
+  readonly hiddenSpans: readonly string[];
   /** URL parameters the page ignored, each with why (`src/viewer/query.ts` and the page's own checks); empty for a well-formed URL, so a capture harness can tell a wrong shot from the asked one. */
   readonly queryProblems: readonly string[];
 }
@@ -71,6 +74,8 @@ export const EMPTY_FACTS: SculptureFacts = {
   view: 'free',
   follow: false,
   finish: false,
+  yard: true,
+  hiddenSpans: [],
   queryProblems: [],
 };
 
@@ -78,6 +83,8 @@ export interface PageState {
   readonly view: string;
   readonly follow: boolean;
   readonly finish: boolean;
+  readonly yard: boolean;
+  readonly hiddenSpans: readonly string[];
   readonly queryProblems: readonly string[];
 }
 
@@ -104,6 +111,8 @@ export function buildFacts(making: Making, player: Player & { readonly moving: b
     view: page.view,
     follow: page.follow,
     finish: page.finish,
+    yard: page.yard,
+    hiddenSpans: page.hiddenSpans,
     queryProblems: page.queryProblems,
   };
 }
@@ -119,11 +128,12 @@ export function publishFacts(facts: SculptureFacts): void {
     stepWeights: Object.freeze([...facts.stepWeights]),
     stepBlowCounts: Object.freeze([...facts.stepBlowCounts]),
     stages: Object.freeze([...facts.stages]),
+    hiddenSpans: Object.freeze([...facts.hiddenSpans]),
     queryProblems: Object.freeze([...facts.queryProblems]),
   });
 }
 
 /** The fields that change frame to frame, as one string, so the page republishes only on a change. */
 export function factsSignature(facts: SculptureFacts): string {
-  return [facts.t, facts.blowsApplied, facts.dirtyChunks, facts.playing, facts.speed, facts.moving, facts.view, facts.follow, facts.finish, facts.planLength].join('|');
+  return [facts.t, facts.blowsApplied, facts.dirtyChunks, facts.playing, facts.speed, facts.moving, facts.view, facts.follow, facts.finish, facts.yard, facts.hiddenSpans.join(','), facts.planLength, facts.queryProblems.length].join('|');
 }

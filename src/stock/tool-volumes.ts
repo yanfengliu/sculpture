@@ -442,7 +442,7 @@ const FIGURE_SLACK = 0.25;
 
 /**
  * Rasps, files and pumice: a patch `size` deep under the surface over a rounded footprint, its depth feathering out at the edge (over a width no narrower than the cut, which keeps the distance's slope bounded), following the figure's level sets where the figure is near and the tangent plane elsewhere.
- * Closed SLAB_TOP above the blow point's tangent plane on both paths: the figure-following band alone is open wherever the figure comes back within SLAB_TOP of the point's level, which in a hollow is the facing surface, and until 2026-10-13 it cut that surface 7 cm away (src/stock/carve.test.ts, a rubbing tool in a hollow). The price is that on a surface more concave than about 18 cm of radius along the push the far ends of the patch, risen past SLAB_TOP, are left to the neighbouring blows.
+ * Closed `top` (the larger of SLAB_TOP and the cut, so a ridge a cut higher inside the footprint comes away rather than being cut under) above the blow point's tangent plane on both paths: the figure-following band alone is open wherever the figure comes back within SLAB_TOP of the point's level, which in a hollow is the facing surface, and until 2026-10-13 it cut that surface 7 cm away (src/stock/carve.test.ts, a rubbing tool in a hollow). The price is that on a surface more concave than about 18 cm of radius along the push the far ends of the patch, risen past SLAB_TOP, are left to the neighbouring blows.
  */
 function surfaceSlab(f: Frame, size: number, spec: ToolVolumeSpec, figureAtPoint: number, figureBand: number): ToolVolume {
   const hx = spec.push / 2;

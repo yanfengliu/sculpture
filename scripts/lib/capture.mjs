@@ -6,7 +6,8 @@ import { chromium } from '@playwright/test';
 
 import { BROWSER_ARGS, BROWSER_CHANNEL } from '../harness.mjs';
 
-export const READY_TIMEOUT_MS = 30_000;
+/** How long a shot may take to reach the page's own ready flag. A load at a late t replays every blow before it on the page's thread: about 27 s on the David at t = 21 (2026-10-11), the engine's open budget item (spec, Budgets: under 3 s), so the wait is well above it; a shot that is still not ready is a TIMEOUT, not a wrong shot. */
+export const READY_TIMEOUT_MS = 120_000;
 
 /** True when the dev server answers at `base`. */
 export async function serverReachable(base) {
@@ -29,7 +30,14 @@ export function noServerMessage(name, base) {
  */
 export async function openCapturePage({ width, height }) {
   const browser = await chromium.launch({ channel: BROWSER_CHANNEL, headless: true, args: [...BROWSER_ARGS] });
-  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+  let page;
+  try {
+    page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+  } catch (error) {
+    // A browser without a page would outlive the script; close it before reporting why the page could not open.
+    await browser.close();
+    throw error;
+  }
   const errors = [];
   const warnings = [];
   page.on('console', (message) => {
@@ -63,8 +71,21 @@ export async function seekReady(page, t, timeout = READY_TIMEOUT_MS) {
   return page.evaluate('window.__sculpture ?? null');
 }
 
+/** The timeline position `url` asks for with `t=`, or null when it asks for none or names a `step=` (which wins over `t=`). */
+export function requestedT(url) {
+  const params = new URL(url).searchParams;
+  if (params.has('step')) return null;
+  const text = params.get('t');
+  if (text === null || text.trim() === '') return null;
+  const t = Number(text);
+  return Number.isFinite(t) ? t : null;
+}
+
+/** Positions within this much of each other count as the same `t`: the page publishes the player's double, the URL a decimal string. */
+export const T_TOLERANCE = 1e-6;
+
 /**
- * Captures `url` to `file`. Returns `{ status, errors, warnings, facts }` with `status` one of `ready`, `IGNORED` (the page ignored a parameter, so this is not the shot that was asked for) or `TIMEOUT`.
+ * Captures `url` to `file`. Returns `{ status, errors, warnings, facts }` with `status` one of `ready`, `IGNORED` (the page ignored a parameter, so this is not the shot that was asked for), `WRONG-T` (the page rendered another position than `t=` asked for) or `TIMEOUT`.
  * The PNG is written whatever the status, so a failed shot can still be looked at.
  */
 export async function capture(capturePage, url, file) {
@@ -79,6 +100,11 @@ export async function capture(capturePage, url, file) {
     if (ignored.length > 0) {
       status = 'IGNORED';
       errors.push(...ignored);
+    }
+    const asked = requestedT(url);
+    if (asked !== null && status === 'ready' && Math.abs((facts?.t ?? Number.NaN) - asked) > T_TOLERANCE) {
+      status = 'WRONG-T';
+      errors.push(`the page rendered t=${JSON.stringify(facts?.t)}, not the requested t=${String(asked)}`);
     }
   } catch (error) {
     status = 'TIMEOUT';

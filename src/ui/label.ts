@@ -68,9 +68,9 @@ function blows(count: number): string {
   return count === 1 ? 'one real blow' : `${String(count)} real blows`;
 }
 
-/** The detail line: the step's detail, the tool's names and the real blows one shown blow stands for. */
+/** The detail line: the tool's names and the real blows one shown blow stands for first, then the step's detail, so the bar's one-line clip (src/ui/style.css, `.detail`) cuts the citation's tail and never the tool or the figure. */
 export function formatDetail(step: Pick<StepInfo, 'detail' | 'blowsPerShown'>, names: ToolNames): string {
-  return `${step.detail} Tool: ${names.italian} (${names.english}). Each shown blow stands for ${blows(step.blowsPerShown)}.`;
+  return `${names.italian} (${names.english}); each shown blow stands for ${blows(step.blowsPerShown)}. ${step.detail}`;
 }
 
 /** The footer's time-lapse statement (docs/research/decisions.md, Time and scale). */

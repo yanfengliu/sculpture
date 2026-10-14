@@ -113,7 +113,7 @@ export interface ChipState {
 
 /** What the tools contribute to an instant of the making: pure functions of the blow and the phase, so the result at a time is reproducible. */
 export interface BlowCycle {
-  /** Tool poses at phase p in [0, 1) of the cycle around `blow`, after `previous` (null at a step's first blow). */
+  /** Tool poses at phase p in [0, 1) of the cycle around `blow`, after `previous`: the blow the tool comes from, or null when it comes from the bench (the first blow of a step whose tool the step before did not use). */
   posesAt(blow: Blow, previous: Blow | null, phase: number): readonly ToolPose[];
   /** Chips launched by `blow`, at `secondsSince` the strike; empty before the strike and once all have faded. */
   chipsAt(blow: Blow, secondsSince: number): readonly ChipState[];
@@ -157,11 +157,11 @@ export interface Making {
   setTime(t: number): void;
   readonly blowsApplied: number;
   readonly dirtyChunks: number;
-  /** Poses of the tools in use at `t` (the chisel and, when struck, the mallet); the page rests every other tool at its restPose. */
+  /** Poses of the tools in use at `t` (the chisel and, when struck, the mallet); at a rest position between two steps of one tool, that tool where its last blow left it; the page rests every other tool at its restPose. */
   readonly poses: readonly ToolPose[];
   readonly chips: readonly ChipState[];
-  /** The blow in progress at `t` and its cycle phase, or null at a rest position. */
-  readonly current: { readonly blow: Blow; readonly phase: number } | null;
+  /** The blow in progress at `t`, the blow its cycle approaches from (`previous`: the step's previous blow, the earlier step's last blow when the tool is carried on, null from the bench) and its cycle phase; null at a rest position. */
+  readonly current: { readonly blow: Blow; readonly previous: Blow | null; readonly phase: number } | null;
   /** The stock's meshes, one child per chunk; the page adds this to its scene and never edits it. */
   readonly stockObject: Object3D;
   /** Called whenever `dirtyChunks` reaches 0 after a change. */

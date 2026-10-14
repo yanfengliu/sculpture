@@ -3,6 +3,7 @@
  * Planning is step by step: a step's generator runs once, when the making first needs it, from the stock as the earlier steps left it, and the result is cached, so the blows at any `t` are the same whatever the history. Forward moves apply blows in index order; backward moves restore the undo boxes; the state is never snapshotted.
  * A forward move of fewer than JUMP_BLOWS blows applies on the calling thread at once. A longer one is a jump: its blows go chunk by chunk to the carve workers (src/timeline/jump.ts), the cursor stays until every chunk is back, `dirtyChunks` counts the chunks still out, and planning and the move toward `t` resume when the jump lands; with no pool (the tests) the jump runs in-process and `setTime` returns with the state applied.
  * Step `i` at local progress `f = clamp(t - i, 0, 1)` plays in visible cycles (src/timeline/cycles.ts): cycle `c` has the window `[c / cycles, (c + 1) / cycles)`, its blows apply in order when the position passes STRIKE_PHASE of that window, so at an integer `t` every blow of the completed steps is applied; the blow in progress is the cycle's first blow at the position's phase inside the window. Chips of a struck cycle count seconds from its strike, and a young step still shows the chips of the previous step's last strikes; at an integer `t` nothing is in flight.
+ * A cycle approaches from the previous cycle's first blow; a step's first cycle approaches from the last cycle of the step before when the tool is unchanged and from the bench otherwise (`previousOf`); at the integer between two steps of one tool the tool is held where that last cycle left it (`heldPoses`), so nothing jumps across a step boundary.
  * Everything observable is a pure function of `t`: the grids, the chunk meshes, the poses and the chips, which src/timeline/making.test.ts asserts after random histories.
  */
 import type { Material, Object3D } from 'three';
@@ -223,22 +224,48 @@ class MakingImpl implements EngineMaking {
     return { step, cycle, phase: Math.min(Math.max(position - cycle, 0), 1 - Number.EPSILON), position, cycles, count };
   }
 
-  get current(): { readonly blow: Blow; readonly phase: number } | null {
+  get current(): { readonly blow: Blow; readonly previous: Blow | null; readonly phase: number } | null {
     const p = this.progress();
     if (p === null) return null;
-    const blow = this.plans[p.step]?.[p.cycle * p.cycles.group];
-    return blow === undefined ? null : { blow, phase: p.phase };
+    const index = p.cycle * p.cycles.group;
+    const blow = this.plans[p.step]?.[index];
+    return blow === undefined ? null : { blow, previous: this.previousOf(p.step, index, p.cycles.group), phase: p.phase };
   }
 
-  /** The tools in use; at a rest position none, and the page rests every tool not posed. */
+  /** The tools in use; at a rest position the tool the next step carries on, where its last blow left it (`heldPoses`); the page rests every tool not posed. */
   get poses(): readonly ToolPose[] {
     const p = this.progress();
-    if (p === null) return [];
-    const plan = this.plans[p.step] ?? [];
-    const blow = plan[p.cycle * p.cycles.group];
+    if (p === null) return this.heldPoses();
+    const index = p.cycle * p.cycles.group;
+    const blow = this.plans[p.step]?.[index];
     if (blow === undefined) return [];
-    const previous = p.cycle > 0 ? (plan[(p.cycle - 1) * p.cycles.group] ?? null) : null;
-    return this.blowCycle.posesAt(blow, previous, p.phase);
+    return this.blowCycle.posesAt(blow, this.previousOf(p.step, index, p.cycles.group), p.phase);
+  }
+
+  /** The blow the cycle around blow `index` of step `step` approaches from: the first blow of the step's previous cycle (`group` blows back); else the first blow of the last cycle of the step before when that step used the same tool, which is carried on rather than set down (docs/design/spec.md, Tools); else null, the bench. */
+  private previousOf(step: number, index: number, group: number): Blow | null {
+    if (index > 0) return this.plans[step]?.[Math.max(0, index - group)] ?? null;
+    if (step <= 0 || this.defs[step - 1]?.tool !== this.defs[step]?.tool) return null;
+    return this.lastCycleBlow(step - 1);
+  }
+
+  /** The first blow of a planned step's last visible cycle, where its tool is shown at the step's end; null when the step is unplanned or empty. */
+  private lastCycleBlow(step: number): Blow | null {
+    const plan = this.plans[step];
+    if (plan === null || plan === undefined || plan.length === 0) return null;
+    const cycles = this.cyclesOf(step);
+    return plan[(cycles.cycles - 1) * cycles.group] ?? null;
+  }
+
+  /** At an integer `t = k` inside the timeline where steps `k - 1` and `k` use one tool and both have blows: that tool and its mallet where step `k - 1`'s last cycle left them, the pose step `k`'s first blow starts from, so nothing jumps across the boundary (the 3.8 m jump to the bench of 2026-10-11, pinned in making.test.ts). Empty at every other rest position: the tools are down. */
+  private heldPoses(): readonly ToolPose[] {
+    const k = this.time;
+    if (!Number.isInteger(k) || k <= 0 || k >= this.N) return [];
+    if ((this.plans[k]?.length ?? 0) === 0 || this.defs[k - 1]?.tool !== this.defs[k]?.tool) return [];
+    const last = this.lastCycleBlow(k - 1);
+    if (last === null) return [];
+    const cycles = this.cyclesOf(k - 1);
+    return this.blowCycle.posesAt(last, this.previousOf(k - 1, (cycles.cycles - 1) * cycles.group, cycles.group), 1 - Number.EPSILON);
   }
 
   get chips(): readonly ChipState[] {
