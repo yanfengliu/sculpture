@@ -1,6 +1,6 @@
 /**
  * Keyboard shortcuts (docs/design/spec.md, Page): Space play/pause, → step forward, ← step back, Shift+Space play backward, Home start, End end.
- * Keys typed into a text field or a select, and Space or Enter on a focused button (which the button handles itself), are left alone.
+ * Keys typed into a text field or a select, and Space or Enter on a focused button (which the button handles itself), are left alone. On the focused scrubber (a range input) only its own keys are, the arrows, Home, End and the page keys: Space, which a range input does nothing with, still plays and pauses.
  */
 
 export interface KeyboardActions {
@@ -14,6 +14,7 @@ export interface KeyboardActions {
 
 function leaveAlone(target: EventTarget | null, key: string): boolean {
   if (!(target instanceof HTMLElement)) return false;
+  if (target instanceof HTMLInputElement && target.type === 'range') return key !== ' ';
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement || target.isContentEditable) return true;
   return target instanceof HTMLButtonElement && (key === ' ' || key === 'Enter');
 }
