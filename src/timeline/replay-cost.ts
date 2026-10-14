@@ -1,6 +1,6 @@
 /**
  * How long the page's worker pool takes to replay a run of blows (docs/design/spec.md, Budgets; Undo and replay): the build (src/timeline/plan-build.ts) places a snapshot inside a step wherever a segment's replay would otherwise exceed SEGMENT_SECONDS, and the Making weighs a snapshot load against a replay or an undo with the same figures.
- * The estimate is deterministic, so a rebuild places the snapshots where the last build did: a jump carves each chunk its blows touch in one worker job (src/timeline/jump.ts), so a run of blows costs the larger of its kernel time spread over the pool and its busiest chunk's kernel time, plus the main thread's share per chunk job and per blow. Kernel time is the cells of each blow's dilated box inside each chunk times its tool's nanoseconds per cell, measured single-threaded in Node over the David plan of 2026-10-14 (KERNEL_NS_PER_CELL). The pool's figures are set on the safe side: the segments of that plan sum to 19.2 s estimated, and the page's eight workers replayed the whole plan in about 14 s, so a segment estimated at SEGMENT_SECONDS replays in about 0.7 s on this machine (scripts/build-plan.mjs logs every segment's estimate).
+ * The estimate is deterministic, so a rebuild places the snapshots where the last build did: a jump carves each chunk its blows touch in one worker job (src/timeline/jump.ts), so a run of blows costs the larger of its kernel time spread over the pool and its busiest chunk's kernel time, plus the main thread's share per chunk job and per blow. Kernel time is the cells of each blow's dilated box inside each chunk times its tool's nanoseconds per cell, measured single-threaded in Node over the David plan of 2026-10-14 (KERNEL_NS_PER_CELL). The pool's figures are set on the safe side: the segments of that plan sum to 19.2 s estimated, and the page's eight workers replayed the whole plan in about 14 s, so an estimate runs about 1.4 times the replay on this machine (scripts/build-plan.mjs logs every segment's estimate).
  */
 import type { GridSpec } from '../contracts/grid';
 import type { Blow, ToolId } from '../contracts/making';
@@ -11,8 +11,8 @@ import type { Grid } from '../stock/grid';
 import { CHUNK_CELLS } from '../stock/mesher';
 import type { SnapshotEntry } from './plan-file';
 
-/** A segment between two snapshots replays in about this long on the page's pool. */
-export const SEGMENT_SECONDS = 1;
+/** A segment between two snapshots is estimated to replay in about this long on the page's pool (about 0.35 s measured on this machine): with 1 s the slowest of the spec's random jumps took 3.1 s while the other worktrees ran their suites (2026-10-14), the replay being the part of a jump the snapshots can shorten. */
+export const SEGMENT_SECONDS = 0.5;
 /** What a snapshot load is taken to cost the page beyond the replay after it: the fetch, the inflate and SHA-256 check in a worker and the write into the grids of a 12 to 20 MB snapshot; a load at t = N was ready about 1 s after the first frame on 2026-10-14, remeshing included. */
 export const SNAPSHOT_LOAD_SECONDS = 0.35;
 /** How fast the undo log restores bytes, remeshing included (about 175 MB from t = N to 0 in 1.9 to 2.7 s, measured 2026-10-13 and 14). */

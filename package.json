@@ -25,6 +25,7 @@
     "model:verify": "node scripts/verify-plan.mjs",
     "shots": "node scripts/capture-shots.mjs",
     "fps": "node scripts/capture-fps.mjs",
+    "jumps": "node scripts/measure-jumps.mjs",
     "sweep": "node scripts/sweep.mjs",
     "video": "node scripts/export-video.mjs",
     "audit:runtime": "npm audit --omit=dev --audit-level=high",
