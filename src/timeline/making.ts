@@ -242,6 +242,7 @@ class MakingImpl implements EngineMaking, TimelineView {
     this.jump = null;
     this.remesher.dispose();
     this.carver?.dispose();
+    this.source?.dispose?.();
   }
 
   planAll(): void {

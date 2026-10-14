@@ -62,6 +62,7 @@ async function main() {
     header,
     values,
     log: (line) => log(line),
+    sha256,
     store: (file, bytes) => {
       rawTotal += bytes.byteLength;
       const copy = bytes.slice();

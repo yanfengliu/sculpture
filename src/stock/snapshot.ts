@@ -7,6 +7,7 @@
  * The grid is cut into TILE³ tiles (ceil(n / TILE) per axis, so the lattice's last plane is covered too), in tile order x fastest; a tile is all air with finish 0 (TILE_AIR), all deep stone with finish 0 (TILE_DEEP), or runs (TILE_RUNS) over its cells in x-fastest order clipped to the grid: a run of deep stone with finish 0 (RUN_DEEP), of band cells stored as values (RUN_VALUES), or of air with one finish code (RUN_AIR + code; air keeps the code of the last tool that touched it while it was in the band). Only the band cells carry values, so a snapshot costs about three bytes per band cell before gzip.
  * `applySnapshot` writes a snapshot into a carve state, cell by cell, and returns the chunks whose window holds a cell that changed, so only those are remeshed; the bytes it writes are exactly the encoded state (src/stock/snapshot.test.ts).
  */
+import { FINISH } from '../contracts/grid';
 import type { CarveState } from './carve';
 import { type CellBox, chunksTouching } from './chunks';
 import type { Grid } from './grid';
@@ -23,6 +24,8 @@ export const RUN_DEEP = 0;
 export const RUN_VALUES = 1;
 export const RUN_AIR = 2;
 const MAX_RUN = 0xffff;
+/** The highest finish code (src/contracts/grid.ts, FINISH): a run class or value past it is not a snapshot's. */
+const MAX_FINISH = Math.max(...Object.values(FINISH));
 
 export interface SnapshotInfo {
   readonly blow: number;
@@ -65,6 +68,12 @@ class Words {
     this.array[this.count] = value;
     this.count += 1;
   }
+}
+
+/** The most bytes a snapshot of a grid of `size` cells can hold: its header, a byte per tile, and at most one run and one value per cell. */
+export function maxSnapshotBytes(size: readonly [number, number, number]): number {
+  const [tx, ty, tz] = tileCounts(size);
+  return HEADER_WORDS * 4 + tx * ty * tz + 6 * size[0] * size[1] * size[2];
 }
 
 function tileCounts(size: readonly [number, number, number]): [number, number, number] {
@@ -229,6 +238,7 @@ export function applySnapshot(bytes: Uint8Array, state: CarveState, figure: Grid
       for (let cx = 0; cx < tx; cx += 1, tile += 1) {
         const [i0, i1, j0, j1, k0, k1] = tileRange(size, cx, cy, cz);
         const kind = bytes[kindsAt + tile] ?? TILE_AIR;
+        if (kind !== TILE_AIR && kind !== TILE_DEEP && kind !== TILE_RUNS) throw new Error(`snapshot at blow ${String(info.blow)}: tile ${String(tile)} has kind ${String(kind)}, which is none of ${String(TILE_AIR)} (air), ${String(TILE_DEEP)} (deep stone) and ${String(TILE_RUNS)} (runs)`);
         // The box of the tile's changed cells.
         let bi0 = i1;
         let bi1 = -1;
@@ -251,6 +261,7 @@ export function applySnapshot(bytes: Uint8Array, state: CarveState, figure: Grid
                 left = lengths[run] ?? 0;
                 run += 1;
                 if (left === 0) throw new Error(`snapshot at blow ${String(info.blow)} has an empty run in tile ${String(tile)}`);
+                if (cls > RUN_AIR + MAX_FINISH) throw new Error(`snapshot at blow ${String(info.blow)}: run ${String(run - 1)} in tile ${String(tile)} has class ${String(cls)}, past air with the last finish code (${String(RUN_AIR + MAX_FINISH)})`);
               }
               const end = Math.min(i1, i + left);
               const to = base + end;
@@ -258,6 +269,7 @@ export function applySnapshot(bytes: Uint8Array, state: CarveState, figure: Grid
                 for (let index = base + i; index < to; index += 1, value += 1) {
                   const s = (residuals[value] ?? 0) + (figureValues[index] ?? 0);
                   const f = bytes[finishAt + value] ?? 0;
+                  if (s < -limit || s > limit || f > MAX_FINISH) throw new Error(`snapshot at blow ${String(info.blow)}: value ${String(value)} gives stock ${String(s)} and finish ${String(f)}, outside the clamp ±${String(limit)} or past the last finish code ${String(MAX_FINISH)}`);
                   if (values[index] !== s || finish[index] !== f) {
                     values[index] = s;
                     finish[index] = f;

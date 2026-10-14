@@ -14,11 +14,12 @@ import { syntheticFigure } from './david/synthetic';
 import { loadFigureGrid } from './stock/grid';
 import type { Grid } from './stock/grid';
 import { defaultWorkerCount } from './stock/pool';
+import { maxSnapshotBytes } from './stock/snapshot';
 import { createSnapshotLoader } from './stock/snapshot-loader';
 import type { CarrySeconds } from './timeline/carry';
 import { advanceWithCarry } from './timeline/carry';
 import { createMaking, type PlanSource } from './timeline/making';
-import { decodedPlanProblem, decodePlan, type PlanHeader, planHeaderProblem } from './timeline/plan-file';
+import { decodedPlanProblem, decodePlan, type PlanHeader, planHeaderProblem, sweptProblem } from './timeline/plan-file';
 import { createPlayer } from './timeline/player';
 import { createBlowCycle } from './tools/blow-cycle';
 import { TOOL_CATALOG } from './tools/catalog';
@@ -80,6 +81,10 @@ function fetchPlanFile(query: ViewerQuery): Promise<[unknown, ArrayBuffer]> | nu
   return Promise.all([read(DAVID_PLAN).then((r) => r.json() as Promise<unknown>), read(DAVID_PLAN_DATA).then((r) => r.arrayBuffer())]);
 }
 
+function hex(bytes: ArrayBuffer): string {
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 /** The plan file's plan and snapshots when they were built for this grid and these steps by this planner (src/timeline/plan-file.ts), else why not: the making then plans in the page. */
 async function planFor(fetched: Promise<[unknown, ArrayBuffer]> | null, header: GridHeader | undefined): Promise<PlanSource | string> {
   if (fetched === null || header === undefined) return 'the figure is not the David grid';
@@ -88,10 +93,13 @@ async function planFor(fetched: Promise<[unknown, ArrayBuffer]> | null, header: 
     const problem = planHeaderProblem(parsed, { gridSha256: header.sha256, steps: DAVID_STEPS.map((step) => step.id) });
     if (problem !== null) return `${DAVID_PLAN} does not fit: ${problem}`;
     const plan = parsed as PlanHeader;
+    const digest = hex(await crypto.subtle.digest('SHA-256', data));
+    if (digest !== plan.planSha256) return `${DAVID_PLAN_DATA} has SHA-256 ${digest} and its header says ${plan.planSha256}`;
     const decoded = decodePlan(new Uint8Array(data));
-    const mismatch = decodedPlanProblem(decoded, plan);
-    if (mismatch !== null) return `${DAVID_PLAN_DATA} does not fit its header: ${mismatch}`;
-    return { blows: decoded.blows, swept: decoded.swept, snapshots: plan.snapshots, load: createSnapshotLoader(MODEL_DIRECTORY) };
+    const mismatch = decodedPlanProblem(decoded, plan) ?? sweptProblem(decoded.swept, header.size[0] * header.size[1] * header.size[2]);
+    if (mismatch !== null) return `${DAVID_PLAN_DATA} does not fit its header or the grid: ${mismatch}`;
+    const loader = createSnapshotLoader(MODEL_DIRECTORY, maxSnapshotBytes(header.size));
+    return { blows: decoded.blows, swept: decoded.swept, snapshots: plan.snapshots, load: (entry) => loader.load(entry), dispose: () => { loader.dispose(); } };
   } catch (error: unknown) {
     return `${DAVID_PLAN} could not be read (${error instanceof Error ? error.message : String(error)})`;
   }

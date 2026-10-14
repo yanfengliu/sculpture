@@ -9,6 +9,7 @@ import { type BlowCycle, type StageDef, type StepDef, STRIKE_PHASE } from '../co
 import { chunkLayout } from '../stock/chunks';
 import type { Grid, WorldBox } from '../stock/grid';
 import type { ChunkMesher } from '../stock/remesh';
+import { FNV_OFFSET, fnvHex } from '../stock/digest';
 import { encodeSnapshot } from '../stock/snapshot';
 import type { Cycles } from './cycles';
 import { createMaking, type EngineMaking, type MakingOptions } from './making';
@@ -28,6 +29,8 @@ export interface BuildPlanOptions {
   readonly gridSha256: string;
   /** Stores one snapshot's bytes (before gzip) under `file` and says what the table records of it. */
   readonly store: (file: string, bytes: Uint8Array) => { readonly gzipBytes: number; readonly sha256: string };
+  /** SHA-256 of some bytes, hex: the plan data's, recorded in its header. */
+  readonly sha256: (bytes: Uint8Array) => string;
   readonly segmentSeconds?: number;
   readonly log?: (line: string) => void;
 }
@@ -128,6 +131,7 @@ export function buildPlan(options: BuildPlanOptions): BuiltPlan {
 
   const blows = steps.map((_, s) => making.blowsOf(s));
   const swept = steps.map((_, s) => making.sweepOf(s)?.list ?? new Uint32Array(0));
+  const bytes = encodePlan({ blows, swept });
   const header: PlanHeader = {
     format: PLAN_FORMAT,
     planVersion: PLAN_VERSION,
@@ -137,8 +141,33 @@ export function buildPlan(options: BuildPlanOptions): BuiltPlan {
     planDigest: making.planDigest,
     sweptDigest: sweptDigestOf(swept),
     sweptCells: swept.map((list) => list.length),
+    planSha256: options.sha256(bytes),
     snapshots: table,
   };
   making.dispose();
-  return { header, bytes: encodePlan({ blows, swept }) };
+  return { header, bytes };
+}
+
+/** FNV-1a over a grid's 16-bit values and a finish grid's bytes, folded into `hash`. */
+function hashGrids(hash: number, values: Int16Array, finish: Uint8Array): number {
+  let h = hash;
+  for (let n = 0; n < values.length; n += 1) h = Math.imul(h ^ ((values[n] ?? 0) & 0xffff), 0x01000193) >>> 0;
+  for (let n = 0; n < finish.length; n += 1) h = Math.imul(h ^ (finish[n] ?? 0), 0x01000193) >>> 0;
+  return h;
+}
+
+/**
+ * What a plan file built by this planner would hold, as one string: the plan digest, the swept cells' digest and a hash of the stock and finish halfway through every step and at its end, replayed on `making` (which must be a fresh Making that plans for itself). src/timeline/plan-file.test.ts keeps PLAN_VERSION's on the synthetic figure: a change to the planner, the carving or the sweep that changes any step's halfway or end state changes it, also when the end of the making stays the same.
+ * Bound: states between the halfway point and the end of a step are read only through the end state, so a change seen only there and undone by the step's end is missed.
+ */
+export function planFingerprint(making: EngineMaking): string {
+  let hash = FNV_OFFSET;
+  for (let k = 0; k < making.N; k += 1) {
+    for (const t of [k + 0.5, k + 1]) {
+      making.setTime(t);
+      hash = hashGrids(hash, making.stock.values, making.finish);
+    }
+  }
+  const swept = making.steps.map((_, s) => making.sweepOf(s)?.list ?? new Uint32Array(0));
+  return `${making.planDigest}-${sweptDigestOf(swept)}-${fnvHex(hash)}`;
 }

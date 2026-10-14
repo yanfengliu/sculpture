@@ -3,7 +3,7 @@
  *   1. Round trip: on lattices of 70×45×33 and 65×97×40 cells (edge tiles clipped on every axis, and a z extent one past the chunk layout's last 32 cells, the plane `chunkLayout` leaves beyond its chunks), after seeded blows of the point, the claw, the drill, the rasp and the gilding leaf (stone cut to the band, air left with the finish of the last tool, the leaf's paint on the claw's texture only), a snapshot written into a fresh untouched block gives the stock and finish bytes exactly, wherever the cells lie.
  *   2. Only what differs is dirtied: written into a state that differs from it in a few cells, a snapshot changes exactly those cells, counts the tiles that held them and returns exactly the chunks whose 33³ mesh window holds one (`chunksTouching` of each changed cell); written into the state it was taken from, it changes nothing and dirties nothing.
  *   3. Uniform tiles cost a byte: a tile of air or of deep stone with finish 0 holds no runs, and the snapshot of the untouched block is mostly such tiles.
- *   4. Bytes that are not a snapshot for this lattice are refused, before any cell is written, with what is wrong: another magic or version, a truncated file, another grid size.
+ *   4. Bytes that are not a snapshot for this lattice are refused, before any cell is written, with what is wrong: another magic or version, a truncated file, another grid size; a snapshot stays within `maxSnapshotBytes`. Bytes no encoder writes (a tile kind past the three, a run class past air with the last finish code, a value outside the stock's clamp) are refused while writing, which the Making answers by going back to the untouched block (src/timeline/plan-build.test.ts).
  * Bounds: random blows on small lattices, not a plan (src/timeline/plan-build.test.ts checks the build's snapshots against the Making on the synthetic figure); the residual against the figure is exercised with the figure the snapshot was taken on, which the page guarantees by the grid's SHA-256 in the plan file.
  */
 import { describe, expect, it } from 'vitest';
@@ -12,7 +12,7 @@ import type { Blow, ToolId, Vec3 } from '../contracts/making';
 import { applyBlow, type CarveState } from './carve';
 import { chunkLayout, chunksTouching } from './chunks';
 import { blockGrid, createFinishGrid, Grid, type WorldBox } from './grid';
-import { applySnapshot, encodeSnapshot, snapshotInfo, TILE } from './snapshot';
+import { applySnapshot, encodeSnapshot, maxSnapshotBytes, snapshotInfo, TILE } from './snapshot';
 import { BULK_CUT_SIZE_M } from './tool-volumes';
 
 function mulberry32(seed: number): () => number {
@@ -185,5 +185,26 @@ describe('snapshots', () => {
     const other = lattice([65, 97, 40]);
     expect(() => applySnapshot(bytes, freshState(other), other.figure)).toThrow(/70×45×33 grid/);
     expect(Buffer.from(target.stock.values.buffer).toString('base64')).toBe(before);
+    expect(bytes.byteLength).toBeLessThanOrEqual(maxSnapshotBytes(c.figure.spec.size));
+  });
+
+  it('refuses a tile kind, a run class or a value no encoder writes, while writing', () => {
+    const c = lattice([70, 45, 33]);
+    const carved = freshState(c);
+    carve(carved, c, 11, 60);
+    const bytes = encodeSnapshot(carved.stock, carved.finish, c.figure, 60);
+    const info = snapshotInfo(bytes);
+    const residualAt = 48 + info.runs * 2;
+    const kindsAt = residualAt + info.values * 2;
+    const classesAt = kindsAt + info.tiles;
+    const badKind = bytes.slice();
+    badKind[kindsAt] = 255;
+    expect(() => applySnapshot(badKind, freshState(c), c.figure)).toThrow(/tile 0 has kind 255, which is none of 0/);
+    const badClass = bytes.slice();
+    badClass[classesAt] = 200;
+    expect(() => applySnapshot(badClass, freshState(c), c.figure)).toThrow(/has class 200, past air with the last finish code/);
+    const badValue = bytes.slice();
+    new DataView(badValue.buffer).setInt16(residualAt, 32000, true);
+    expect(() => applySnapshot(badValue, freshState(c), c.figure)).toThrow(/outside the clamp/);
   });
 });

@@ -12,11 +12,12 @@ export interface DavidPlanOptions {
   /** The grid's Int16 values, inflated and checked against the header's SHA-256. */
   readonly values: Int16Array;
   readonly store: BuildPlanOptions['store'];
+  readonly sha256: BuildPlanOptions['sha256'];
   readonly log: (line: string) => void;
 }
 
 export function buildDavidPlan(options: DavidPlanOptions): BuiltPlan {
   const { header } = options;
   const figure = new Grid({ cell: header.cell, size: header.size, origin: header.origin, band: header.band }, options.values);
-  return buildPlan({ figure, header, steps: DAVID_STEPS, stages: STAGES, name: 'david', gridSha256: header.sha256, store: options.store, log: options.log });
+  return buildPlan({ figure, header, steps: DAVID_STEPS, stages: STAGES, name: 'david', gridSha256: header.sha256, store: options.store, sha256: options.sha256, log: options.log });
 }

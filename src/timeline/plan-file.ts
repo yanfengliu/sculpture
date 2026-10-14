@@ -7,8 +7,8 @@
  * - per blow BLOW_NUMBERS Float64 (point, normal, direction, size, stroke), so every number keeps its IEEE-754 bits and the plan digest is the in-page plan's;
  * - the swept cells, global cell indices in increasing order per step (W Uint32);
  * - per blow its tool's code in TOOL_IDS (B bytes).
- * The page uses the file only when the header's format, PLAN_VERSION, grid SHA-256 and step ids match what it runs and the digests of the blows and the swept cells it decoded equal the header's (`planFileProblem`, `checkDecoded`); otherwise it plans in the page and says why.
- * PLAN_VERSION names the planner and the replay the files were built with: src/timeline/plan-file.test.ts holds a table from each version to the synthetic 2 cm making's digests and fails, asking for a new version, when the planner, the carving or the sweep changes what they produce.
+ * The page uses the file only when the header's format, PLAN_VERSION, grid SHA-256 and step ids match what it runs, the data file's SHA-256 is the header's, and the plan it decoded holds the header's length and digests, a snapshot table inside its steps and swept lists of distinct cells inside the grid (`planHeaderProblem`, `decodedPlanProblem`, `sweptProblem`); otherwise it plans in the page and says why. The decoder checks the steps partition the blows and the swept cells before it builds a blow.
+ * PLAN_VERSION names the planner and the replay the files were built with: src/timeline/plan-file.test.ts holds a table from each version to the synthetic 2 cm making's fingerprint (src/timeline/plan-build.ts, `planFingerprint`) and fails, asking for a new version, when the planner, the carving or the sweep changes what they produce.
  */
 import type { Blow } from '../contracts/making';
 import { TOOL_IDS } from '../stock/carve-jobs';
@@ -52,6 +52,8 @@ export interface PlanHeader {
   readonly sweptDigest: string;
   /** Cells each step's end sweep took off in the build, for the record. */
   readonly sweptCells: readonly number[];
+  /** SHA-256 of the `.plan.bin` bytes, hex: binds the blows to their steps, which the digests alone do not. */
+  readonly planSha256: string;
   /** Ascending by blow; the first is the untouched block at blow 0, and every step boundary has one. */
   readonly snapshots: readonly SnapshotEntry[];
 }
@@ -66,6 +68,8 @@ export interface PlanSource {
   readonly snapshots: readonly SnapshotEntry[];
   /** A snapshot's inflated bytes: at once (the tests) or later (the page's loader, src/stock/snapshot-loader.ts). */
   load(entry: SnapshotEntry): Uint8Array | Promise<Uint8Array>;
+  /** Releases what the loader holds (the page's worker); the Making calls it when it is disposed. */
+  dispose?(): void;
 }
 
 export interface DecodedPlan {
@@ -135,6 +139,16 @@ export function decodePlan(bytes: Uint8Array): DecodedPlan {
   const sweptAt = numbersAt + blowCount * BLOW_NUMBERS * 8;
   const toolsAt = sweptAt + sweptCount * 4;
   if (bytes.byteLength !== toolsAt + blowCount) throw new Error(`plan file of ${String(steps)} steps, ${String(blowCount)} blows and ${String(sweptCount)} swept cells needs ${String(toolsAt + blowCount)} bytes; it holds ${String(bytes.byteLength)}`);
+  // The steps must partition the blows and the swept cells, in order, before a blow is built: overlapping steps would multiply the work.
+  let next = 0;
+  let cells = 0;
+  for (let s = 0; s < steps; s += 1) {
+    const at = PLAN_HEADER_WORDS * 4 + s * 12;
+    if (view.getUint32(at, true) !== next) throw new Error(`plan file step ${String(s)} starts at blow ${String(view.getUint32(at, true))}; the steps before it end at ${String(next)}`);
+    next += view.getUint32(at + 4, true);
+    cells += view.getUint32(at + 8, true);
+  }
+  if (next !== blowCount || cells !== sweptCount) throw new Error(`plan file steps hold ${String(next)} blows and ${String(cells)} swept cells; the file holds ${String(blowCount)} and ${String(sweptCount)}`);
   const blows: Blow[][] = [];
   const swept: Uint32Array[] = [];
   let cell = 0;
@@ -143,7 +157,6 @@ export function decodePlan(bytes: Uint8Array): DecodedPlan {
     const first = view.getUint32(at, true);
     const count = view.getUint32(at + 4, true);
     const sweptHere = view.getUint32(at + 8, true);
-    if (first + count > blowCount || cell + sweptHere > sweptCount) throw new Error(`plan file step ${String(s)} runs past the file: blows ${String(first)} to ${String(first + count)} of ${String(blowCount)}, swept cells to ${String(cell + sweptHere)} of ${String(sweptCount)}`);
     const list: Blow[] = [];
     for (let b = first; b < first + count; b += 1) {
       const n = (k: number): number => view.getFloat64(numbersAt + (b * BLOW_NUMBERS + k) * 8, true);
@@ -185,7 +198,7 @@ export function planHeaderProblem(parsed: unknown, expected: { readonly gridSha2
   if (typeof h.gridSha256 !== 'string' || h.gridSha256.toLowerCase() !== expected.gridSha256.toLowerCase()) return `it was built on the grid with SHA-256 ${JSON.stringify(h.gridSha256)}, and the loaded grid's is ${expected.gridSha256}`;
   const steps = h.steps;
   if (!Array.isArray(steps) || steps.length !== expected.steps.length || steps.some((id, n) => id !== expected.steps[n])) return `its steps (${Array.isArray(steps) ? steps.join(', ') : 'none'}) are not the page's (${expected.steps.join(', ')})`;
-  if (typeof h.planDigest !== 'string' || typeof h.sweptDigest !== 'string' || typeof h.planLength !== 'number') return 'it lacks the plan length or digests';
+  if (typeof h.planDigest !== 'string' || typeof h.sweptDigest !== 'string' || typeof h.planLength !== 'number' || typeof h.planSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(h.planSha256)) return 'it lacks the plan length, the digests or the SHA-256 of the data file';
   const snapshots = h.snapshots;
   if (!Array.isArray(snapshots) || snapshots.length === 0) return 'its snapshot table is empty';
   let last = -1;
@@ -199,7 +212,7 @@ export function planHeaderProblem(parsed: unknown, expected: { readonly gridSha2
   return null;
 }
 
-/** Why a decoded plan does not match its header (null when it does): another step count, length or digest. */
+/** Why a decoded plan does not match its header (null when it does): another step count, length or digest, or a snapshot outside the step it names. */
 export function decodedPlanProblem(plan: DecodedPlan, header: PlanHeader): string | null {
   if (plan.blows.length !== header.steps.length) return `the plan file holds ${String(plan.blows.length)} steps and the header names ${String(header.steps.length)}`;
   const length = plan.blows.reduce((sum, list) => sum + list.length, 0);
@@ -208,5 +221,27 @@ export function decodedPlanProblem(plan: DecodedPlan, header: PlanHeader): strin
   if (digest !== header.planDigest) return `the plan file's blows digest to ${digest} and the header says ${header.planDigest}`;
   const swept = sweptDigestOf(plan.swept);
   if (swept !== header.sweptDigest) return `the plan file's swept cells digest to ${swept} and the header says ${header.sweptDigest}`;
+  const ends: number[] = [];
+  plan.blows.reduce((end, list) => {
+    ends.push(end + list.length);
+    return end + list.length;
+  }, 0);
+  for (const entry of header.snapshots) {
+    const end = ends[entry.step];
+    const start = entry.step === 0 ? 0 : ends[entry.step - 1];
+    if (end === undefined || start === undefined || entry.blow < start || entry.blow > end) return `snapshot ${entry.file} at blow ${String(entry.blow)} names step ${String(entry.step)}, which holds blows ${String(start)} to ${String(end)}`;
+  }
+  return null;
+}
+
+/** Why the swept lists cannot be taken off a grid of `cells` cells (null when they can): each list must hold distinct cells in increasing order inside the grid, or undo would restore a cell twice. */
+export function sweptProblem(swept: readonly Uint32Array[], cells: number): string | null {
+  for (let s = 0; s < swept.length; s += 1) {
+    const list = swept[s] ?? new Uint32Array(0);
+    for (let n = 0; n < list.length; n += 1) {
+      const index = list[n] ?? 0;
+      if (index >= cells || (n > 0 && index <= (list[n - 1] ?? 0))) return `step ${String(s)}'s swept cell ${String(n)} is ${String(index)}, which is not past the cell before it (${String(list[n - 1])}) and inside the grid's ${String(cells)} cells`;
+    }
+  }
   return null;
 }
