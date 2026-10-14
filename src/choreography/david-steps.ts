@@ -11,7 +11,7 @@ import { gild } from './generators/gild';
 import { holes } from './generators/holes';
 import { abrading, rasping } from './generators/rasping';
 import { scoop } from './generators/scoop';
-import { BACK, CROWN, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HAIR_BUT_CROWN, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, relief, union } from './regions';
+import { BACK, CROWN, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HAIR_BUT_CROWN, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, NOSTRILS_MARK, PUPILS_MARK, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, facePair, onHeadRing, relief, union } from './regions';
 
 /** The bulk cuts of the heavy point: one shown blow stands for a field of real pits, so its crater is flat-floored (src/stock/tool-volumes.ts); the pitch keeps neighbouring craters overlapping. */
 const BULK = { pitch: 0.2, size: 0.15, angle: 85 } as const;
@@ -70,33 +70,16 @@ function step(spec: StepSpec): StepDef {
   return spec.focus === undefined ? def : { ...def, focus: spec.focus };
 }
 
-/** The hairline, the curls, the pupils and the nostrils, world metres near the surface of the head as placed by src/david/frame.ts; the drill generator moves each onto the figure. */
-const HAIRLINE_PATH: readonly [number, number, number][] = [
-  [-0.19, 4.86, 0.12],
-  [-0.12, 4.9, 0.21],
-  [-0.03, 4.92, 0.25],
-  [0.06, 4.92, 0.25],
-  [0.14, 4.9, 0.21],
-  [0.2, 4.86, 0.12],
-];
-const CURLS_PATH: readonly [number, number, number][] = [
-  [-0.22, 5.02, 0.0],
-  [-0.16, 5.05, 0.15],
-  [0.0, 5.07, 0.22],
-  [0.16, 5.05, 0.15],
-  [0.22, 5.02, 0.0],
-  [0.16, 5.03, -0.15],
-  [0.0, 5.04, -0.21],
-  [-0.16, 5.03, -0.15],
-];
-const PUPILS: readonly [number, number, number][] = [
-  [-0.03, 4.76, 0.27],
-  [0.07, 4.76, 0.26],
-];
-const NOSTRILS: readonly [number, number, number][] = [
-  [0.01, 4.6, 0.3],
-  [0.05, 4.6, 0.3],
-];
+/**
+ * The drill's landmarks on the head, built from the probed tables of ./regions.ts (HAIR_AXIS, the hairline, the head's radii and FACE_AZIMUTH), so every target lies on the David's surface and lands in its step's region; the values read off photographs before (review F16) were centred near x 0 facing +z, 10 cm off a head whose axis is at x −0.323 and whose face looks toward azimuth 38, so the generator moved them to the wrong part of the head or dropped them.
+ * The hairline path runs the face side of the hairline from the left temple to the right (azimuth 337.5 to 90), 1 cm above it so its holes fall in HAIR; the curls ring runs 8 cm above the hairline round the whole head, open at the nape (from 202.5 round to 180): the generator drills every segment's start and the last segment's end, so a ring closed on its first vertex would get two holes at the seam. The pupils and the nostrils are the face marks' pairs. Exported for the David-grid case of ./david-steps.test.ts.
+ */
+export const DAVID_LANDMARKS: Readonly<Record<'hairline' | 'curls' | 'pupils' | 'nostrils', readonly [number, number, number][]>> = {
+  hairline: [337.5, 0, 22.5, 45, 67.5, 90].map((azimuth) => onHeadRing(azimuth, 'hairline')),
+  curls: Array.from({ length: 16 }, (_, n) => onHeadRing((202.5 + n * 22.5) % 360, 'curls')),
+  pupils: facePair(PUPILS_MARK),
+  nostrils: facePair(NOSTRILS_MARK),
+};
 const FINGER_GAPS: readonly [number, number, number][] = [
   [0.26, 4.15, 0.22],
   [0.29, 4.08, 0.22],
@@ -309,7 +292,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     shown: 300,
     realPerShown: 3,
     focus: { kind: 'tip', distance: 1.2 },
-    plan: (ctx) => holes(ctx, { paths: [HAIRLINE_PATH, CURLS_PATH], pitch: 0.02, depth: 0.015, runningAngle: 40 }),
+    plan: (ctx) => holes(ctx, { paths: [DAVID_LANDMARKS.hairline, DAVID_LANDMARKS.curls], pitch: 0.02, depth: 0.015, runningAngle: 40 }),
   }),
   step({
     id: 'pupils-and-nostrils',
@@ -325,7 +308,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     shown: 12,
     realPerShown: 1,
     focus: { kind: 'tip', distance: 1.0 },
-    plan: (ctx) => holes(ctx, { points: [...PUPILS, ...NOSTRILS], pitch: 0.02, depth: 0.012, runningAngle: 40 }),
+    plan: (ctx) => holes(ctx, { points: [...DAVID_LANDMARKS.pupils, ...DAVID_LANDMARKS.nostrils], pitch: 0.02, depth: 0.012, runningAngle: 40 }),
   }),
   step({
     id: 'fingers-sling-stump',
