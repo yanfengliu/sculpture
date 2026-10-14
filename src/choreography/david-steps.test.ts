@@ -1,18 +1,26 @@
 /**
- * Plan integrity of the David steps (src/choreography/david-steps.ts) against docs/design/choreography.md, over the synthetic figure at 2 cm cells. What a green run proves, and its bounds:
- *   The 21 step ids are the contract's, in its order; every stage id of StageId appears in order and matches src/choreography/stages.ts; every step cites technique.md and keeps the title and detail lengths; every step changes the stock or the finish; every blow lies inside the block and within reach of a scaffold deck or plank bridge (src/tools/scaffold.ts through src/tools/blow-cycle.ts); every blow's tool axis points into the surface at an angle inside the tool catalog's documented range (the point's bulk range at or above BULK_CUT_SIZE_M), measured against the blow's own stored normal; blows within a stroke are consecutive and stroke indices unique in a step; two fresh Makings give the same length and digest; the calendar runs forward from 9 September 1501 to 8 September 1504 without overlap.
- * Bounds: the plan is judged by its data, not by its look, and on the synthetic mannequin, not the David grid; the angle check trusts the stored normal, so a normal that is not the stock's gradient passes here and is the carve tests' claim; the blow budget at 8 mm is the slow test's claim.
+ * Plan integrity of the David steps (src/choreography/david-steps.ts) against docs/design/choreography.md, over the synthetic figure at 2 cm cells, and the drill's landmarks on the David grid. What a green run proves, and its bounds:
+ *   1. The 21 step ids are the contract's, in its order; every stage id of StageId appears in order and matches src/choreography/stages.ts; every step cites technique.md and keeps the title and detail lengths; every step changes the stock or the finish; every blow lies inside the block and within reach of a scaffold deck or plank bridge (src/tools/scaffold.ts through src/tools/blow-cycle.ts); every blow's tool axis points into the surface at an angle inside the tool catalog's documented range (the point's bulk range at or above BULK_CUT_SIZE_M), measured against the blow's own stored normal; blows within a stroke are consecutive and stroke indices unique in a step; two fresh Makings give the same length and digest; the calendar runs forward from 9 September 1501 to 8 September 1504 without overlap.
+ *   2. On the David grid (public/model/david.json beside its data, loaded from disk; skipped with a logged reason until `npm run model` builds it): every target of DAVID_LANDMARKS (the hairline path, the curls ring, the pupils and the nostrils) lies within 2 cm of the figure's surface, the holes generator's search (nearestOnFigure, 15 cm reach, 1 cm spacing) lands it, and the landing with the figure's gradient there is inside the step's region, HAIR for the hairline and the curls and FACE for the pupils and the nostrils, so the drill drops none of them as it dropped the photo-read targets of review F16; each target's move and landing region are logged (shown with --reporter=verbose).
+ * Bounds: the plan is judged by its data, not by its look, and on the synthetic mannequin, not the David grid; the angle check trusts the stored normal, so a normal that is not the stock's gradient passes here and is the carve tests' claim; the blow budget at 8 mm is the slow test's claim; the landmark case pins the targets to this grid build (cell 8 mm, the Scan the World mesh), says nothing about whether a hole reads as a pupil or a curl at 8 mm, and runs the search on the figure alone, so a hole the stock would refuse (stockAbove) is the plan's claim; no network.
  */
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 
-import type { BlowCycle, StageId, ToolPose } from '../contracts/making';
+import type { BlowCycle, RegionDef, StageId, ToolPose } from '../contracts/making';
 import { BLOCK_M } from '../david/frame';
 import { syntheticFigure } from '../david/synthetic';
+import { loadFigureGrid } from '../stock/grid';
 import { createMaking, type EngineMaking } from '../timeline/making';
 import { isReachable } from '../tools/blow-cycle';
 import { BULK_CUT_SIZE_M, TOOL_CATALOG } from '../tools/catalog';
-import { DAVID_STEPS } from './david-steps';
+import { DAVID_LANDMARKS, DAVID_STEPS } from './david-steps';
+import { nearestOnFigure } from './generators/surface';
+import { FACE, HAIR, inside } from './regions';
 import { STAGES } from './stages';
 
 const STAGE_ORDER: readonly StageId[] = ['setup', 'layout', 'roughing', 'coarse-claw', 'fine-claw', 'drilling', 'rasping', 'polishing', 'on-site'];
@@ -123,4 +131,47 @@ describe('David steps', () => {
     expect(b.planLength).toBe(a.planLength);
     expect(b.planDigest).toBe(a.planDigest);
   }, 180_000);
+});
+
+const DAVID_HEADER = fileURLToPath(new URL('../../public/model/david.json', import.meta.url));
+const hasDavid = existsSync(DAVID_HEADER);
+if (!hasDavid) console.log(`david-steps.test.ts: ${DAVID_HEADER} is not built (npm run model), so the landmark case is skipped`);
+
+describe.skipIf(!hasDavid)('the drill landmarks on the David grid', () => {
+  const fetchFromDisk: typeof fetch = (input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const path = join(dirname(DAVID_HEADER), url.replace(/^.*[\\/]/, ''));
+    return Promise.resolve(new Response(new Uint8Array(readFileSync(path)).buffer, { status: 200 }));
+  };
+  /** Each landmark set with the region its step drills in. */
+  const CASES: readonly (readonly [keyof typeof DAVID_LANDMARKS, RegionDef])[] = [
+    ['hairline', HAIR],
+    ['curls', HAIR],
+    ['pupils', FACE],
+    ['nostrils', FACE],
+  ];
+
+  it("lie within 2 cm of the surface and land in their step's region through the holes generator's search", async () => {
+    const { grid } = await loadFigureGrid(DAVID_HEADER, fetchFromDisk);
+    const lines: string[] = [];
+    for (const [name, region] of CASES) {
+      const targets = DAVID_LANDMARKS[name];
+      expect(targets.length, `${name} has no targets`).toBeGreaterThan(0);
+      for (const target of targets) {
+        const label = `${name} target (${target.map((c) => c.toFixed(3)).join(', ')})`;
+        const distance = grid.sample(target[0], target[1], target[2]);
+        expect(Math.abs(distance), `${label} is ${(distance * 1000).toFixed(1)} mm from the surface`).toBeLessThanOrEqual(0.02);
+        const landing = nearestOnFigure(grid, target, 0.15, 0.01);
+        expect(landing, `${label} finds no surface within 15 cm`).not.toBeNull();
+        if (landing === null) continue;
+        const normal = grid.gradient(landing[0], landing[1], landing[2]);
+        const moved = Math.hypot(landing[0] - target[0], landing[1] - target[1], landing[2] - target[2]);
+        const regions = [HAIR, FACE].filter((candidate) => inside(candidate, landing, normal)).map((candidate) => candidate.label);
+        const landed = regions.length === 0 ? 'neither hair nor face' : regions.join(' and ');
+        lines.push(`${label} moved ${(moved * 1000).toFixed(1)} mm, landed in ${landed}`);
+        expect(inside(region, landing, normal), `${label} landed in ${landed}, not ${region.label}`).toBe(true);
+      }
+    }
+    console.log(lines.join('\n'));
+  }, 60_000);
 });

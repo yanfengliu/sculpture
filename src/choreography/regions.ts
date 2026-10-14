@@ -1,7 +1,7 @@
 /**
  * The regions of docs/design/choreography.md as boxes in world metres on the figure placed by src/david/frame.ts (coordinator-owned).
  * The figure faces +z; its left is +x. Bands were read off the pipeline's silhouettes of the fetched mesh (output/model/front.png, left.png, back.png, 215 px per metre) and the reference photographs in docs/research/references.md, so every number here is an inference to check against captures.
- * The sling and the stump are masks read from the David grid itself (public/model/david.json, 8 mm cells): the strap a tube around a polyline on its surface, the stump a stack of horizontal slices; their comments give the probe's evidence.
+ * The sling and the stump are masks read from the David grid itself (public/model/david.json, 8 mm cells): the strap a tube around a polyline on its surface, the stump a stack of horizontal slices; their comments give the probe's evidence. The hairline, the head's radii and the face marks are read from the same grid, for HAIR and FACE and for the drill's landmarks in ./david-steps.ts.
  */
 import type { RegionDef, Vec3 } from '../contracts/making';
 import { BLOCK_M } from '../david/frame';
@@ -111,7 +111,26 @@ export const HEAD = box('head', 4.36, TOP);
  * The hairline on the David grid, probed 2026-10-13 (a read-only probe under tmp/, not kept): the head's surface cells above y 4.7 have their centroid at x -0.323, z -0.008, which is the head's axis; around it, per 22.5 degrees of azimuth (0 along +x, 90 along +z), the height where the surface's roughness (the mean magnitude of the figure field's Laplacian over 1 cm of height) steps from the smooth skin (5 to 30 per metre) to the curls (60 to 140) is the hairline.
  * The face looks toward azimuth 25 to 45 (turned about 50 degrees from +z toward the figure's left): there the forehead is smooth to 4.93 and the curls begin at 4.95 (ratios of 4 to 6, the clearest steps); at azimuth 90 and 338 the step is at 4.84 to 4.86; at 113 to 158 and at 315 the hair comes down to 4.70 to 4.75 (the ears sit under the curls there); from 180 to 293 the surface is rough all the way down to 4.61, the lowest height probed, so the hair reaches the nape and the table takes the neck's top there. Between table entries the height is interpolated.
  */
-const HAIR_AXIS: readonly [number, number] = [-0.323, -0.008];
+export const HAIR_AXIS: readonly [number, number] = [-0.323, -0.008];
+/** The azimuth of a point around HAIR_AXIS in degrees, 0 along +x and 90 along +z, in [0, 360). */
+export function azimuthOf(point: Vec3): number {
+  const azimuth = (Math.atan2(point[2] - HAIR_AXIS[1], point[0] - HAIR_AXIS[0]) * 180) / Math.PI;
+  return azimuth < 0 ? azimuth + 360 : azimuth;
+}
+/** A row per AZIMUTH_STEP of azimuth from 0 to 360, the last row repeating the first: the azimuth, then the values at it. */
+type AzimuthTable = readonly (readonly number[])[];
+const AZIMUTH_STEP = 22.5;
+/** Column `column` of `table` at `azimuth` (any angle in degrees), interpolated between the rows either side. */
+function byAzimuth(table: AzimuthTable, azimuth: number, column: number): number {
+  const wrapped = ((azimuth % 360) + 360) % 360;
+  const n = Math.min(table.length - 2, Math.floor(wrapped / AZIMUTH_STEP));
+  const a = table[n] ?? [0];
+  const b = table[n + 1] ?? a;
+  const t = Math.min(1, Math.max(0, (wrapped - (a[0] ?? 0)) / AZIMUTH_STEP));
+  const va = a[column] ?? 0;
+  const vb = b[column] ?? va;
+  return va + (vb - va) * t;
+}
 const HAIRLINE_BY_AZIMUTH: readonly (readonly [number, number])[] = [
   [0, 4.93],
   [22.5, 4.95],
@@ -131,16 +150,73 @@ const HAIRLINE_BY_AZIMUTH: readonly (readonly [number, number])[] = [
   [337.5, 4.86],
   [360, 4.93],
 ];
+/** The hairline's height at an azimuth around the head's axis, interpolated between the table's entries. */
+export function hairlineAtAzimuth(azimuth: number): number {
+  return byAzimuth(HAIRLINE_BY_AZIMUTH, azimuth, 1);
+}
 /** The hairline's height at a point, from its azimuth around the head's axis. */
 export function hairlineAt(point: Vec3): number {
-  let azimuth = (Math.atan2(point[2] - HAIR_AXIS[1], point[0] - HAIR_AXIS[0]) * 180) / Math.PI;
-  if (azimuth < 0) azimuth += 360;
-  const step = 22.5;
-  const n = Math.min(HAIRLINE_BY_AZIMUTH.length - 2, Math.floor(azimuth / step));
-  const a = HAIRLINE_BY_AZIMUTH[n] ?? [0, 4.93];
-  const b = HAIRLINE_BY_AZIMUTH[n + 1] ?? a;
-  const t = Math.min(1, Math.max(0, (azimuth - a[0]) / step));
-  return a[1] + (b[1] - a[1]) * t;
+  return hairlineAtAzimuth(azimuthOf(point));
+}
+/**
+ * The head's surface radius from HAIR_AXIS on the David grid, probed 2026-10-13 (a read-only script under tmp/, not kept, on the 8 mm grid): a horizontal ray from the axis at each table azimuth and height, marched outward in millimetre steps to the figure's first zero crossing and bisected to 0.1 mm. The first crossing is the head's own surface under the overhanging locks, where the drill's holes sit, not the locks' outer faces (at azimuth 45, 1 cm above the hairline, the forehead is at 25.6 cm and the curl over it reaches 30.3).
+ * The head is no cylinder, so each ring has its own column: 1 cm above the hairline (where the hairline holes run, inside HAIR, whose boundary the hairline is) the radius runs from 17 cm beside the right ear (azimuth 135 to 157.5) to 32 cm through the hair mass at the nape (225 to 270, where the table's hairline is the neck's top); 8 cm above the hairline the curls over the forehead stand 10 cm proud of the skin below them (azimuth 90: 31.3 against 21.7) and the lock over the left temple reaches 31 cm (azimuth 0). Between table azimuths the radius is interpolated, which a landmark on a table azimuth never needs.
+ */
+export const HEAD_RINGS = { hairline: 0.01, curls: 0.08 } as const;
+export type HeadRing = keyof typeof HEAD_RINGS;
+/** Per table azimuth: the radius 1 cm above the hairline, then 8 cm above it, metres. */
+export const HEAD_RADIUS_BY_AZIMUTH: readonly (readonly [number, number, number])[] = [
+  [0, 0.307, 0.313],
+  [22.5, 0.271, 0.318],
+  [45, 0.256, 0.342],
+  [67.5, 0.258, 0.249],
+  [90, 0.217, 0.313],
+  [112.5, 0.199, 0.222],
+  [135, 0.173, 0.183],
+  [157.5, 0.172, 0.187],
+  [180, 0.188, 0.272],
+  [202.5, 0.307, 0.296],
+  [225, 0.321, 0.296],
+  [247.5, 0.329, 0.311],
+  [270, 0.311, 0.311],
+  [292.5, 0.214, 0.204],
+  [315, 0.211, 0.215],
+  [337.5, 0.219, 0.293],
+  [360, 0.307, 0.313],
+];
+/** The head's surface radius from HAIR_AXIS at an azimuth, at a ring's height above the hairline. */
+export function headRadiusAt(azimuth: number, ring: HeadRing): number {
+  return byAzimuth(HEAD_RADIUS_BY_AZIMUTH, azimuth, ring === 'hairline' ? 1 : 2);
+}
+/** The point at `radius` from HAIR_AXIS at `azimuth` (degrees, 0 along +x, 90 along +z) and height `y`. */
+export function onHead(azimuth: number, y: number, radius: number): [number, number, number] {
+  const a = (azimuth * Math.PI) / 180;
+  return [HAIR_AXIS[0] + Math.cos(a) * radius, y, HAIR_AXIS[1] + Math.sin(a) * radius];
+}
+/** The point of the head's surface at `azimuth` on `ring`: the ring's height above the hairline there, at the probed radius. */
+export function onHeadRing(azimuth: number, ring: HeadRing): [number, number, number] {
+  return onHead(azimuth, hairlineAtAzimuth(azimuth) + HEAD_RINGS[ring], headRadiusAt(azimuth, ring));
+}
+/**
+ * The face on the David grid, from the same probe over azimuths −25 to 95 and heights 4.30 to 5.10: the nose's ridge (the largest radius at each height) lies at azimuth 37 to 38 from the tip (y 4.69 to 4.70, 28.4 cm) to the bridge (4.83), and the eye sockets, the hollows either side of it at 4.77 to 4.83, at 23 to 26 and 51 to 55, so the face looks toward azimuth 38, turned 52 degrees from +z toward the figure's left: the hairline probe's 25 to 45 made exact. The chin's front is at 4.52, the lips 4.60 to 4.66, the brow ridge 4.84 to 4.86 and the curls from 4.96.
+ * A mark is a pair of drill targets: the height below the hairline at FACE_AZIMUTH (4.95), the azimuth offset of each side's target and the surface radius there, the figure's left (toward +x) first. The pupils sit 16 cm below the hairline, 15 degrees either side, on the sockets' floors (radius 20.0 and 20.2 cm; the hollow is 20.0 to 20.3 against 21.5 to 22 beside it); the nostrils 26 cm below, 9 degrees either side, under the wings of the nose (22.1 and 23.4 cm), where the figure's gradient faces forward and down (z 0.81 and 0.95) so FACE holds, while the grooves against the columella, 6 to 8 degrees out, face sideways (z 0.1 to 0.2) and FACE rejects them.
+ */
+export const FACE_AZIMUTH = 38;
+/** A pair of drill targets on the face, see FACE_AZIMUTH. */
+export interface FaceMark {
+  /** Metres below the hairline at FACE_AZIMUTH. */
+  readonly below: number;
+  /** Degrees of azimuth either side of FACE_AZIMUTH. */
+  readonly offset: number;
+  /** The probed surface radius from HAIR_AXIS at each target, metres: the one toward +x, then the other. */
+  readonly radii: readonly [number, number];
+}
+export const PUPILS_MARK: FaceMark = { below: 0.16, offset: 15, radii: [0.2, 0.202] };
+export const NOSTRILS_MARK: FaceMark = { below: 0.26, offset: 9, radii: [0.221, 0.234] };
+/** The two targets of a face mark on the head's surface, the one toward +x (the figure's left) first. */
+export function facePair(mark: FaceMark): [[number, number, number], [number, number, number]] {
+  const y = hairlineAtAzimuth(FACE_AZIMUTH) - mark.below;
+  return [onHead(FACE_AZIMUTH - mark.offset, y, mark.radii[0]), onHead(FACE_AZIMUTH + mark.offset, y, mark.radii[1])];
 }
 /** The crown and the curls: the head above the hairline; keeps its tooth texture. */
 export const HAIR: RegionDef = { label: 'hair', min: [-WIDE, 4.61, -DEEP], max: [WIDE, TOP, DEEP], contains: (point) => point[1] >= hairlineAt(point) };

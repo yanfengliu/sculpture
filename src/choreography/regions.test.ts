@@ -4,7 +4,8 @@
  *   2. SLING's and STUMP's boxes hold their data (every path point plus its radius, every slice's bounds); both predicates ignore the normal, so the same point answers the same whichever way it faces; FLESH rejects a point inside SLING, STUMP or HAIR.
  *   3. On the synthetic figure at 2 cm, over every figure-surface cell of the block, a cell is in FLESH exactly when it is above the rock and in none of HAIR, SLING and STUMP: the exclusion is those three predicates and nothing else.
  *   4. On the David grid (public/model/david.json; skipped with a logged reason until `npm run model` builds it): every sling path point lies within 6 mm of the figure's surface; the surface inside SLING is 0.05 to 0.5 m² and inside STUMP 1.0 to 2.0 m² (surface cells with |sdf| under half a cell, times the cell's area; the probe of 2026-10-11 measured 0.41 and 1.55 against 1.14 and 1.63 for the boxes before); a deltoid point 15 cm from the strap is outside SLING; the calf's back at y 1.3, where the old box took it, is outside STUMP; the stump's face toward the shin at y 0.6, which the old box's facing test dropped, is inside STUMP.
- * Bounds: the mannequin has no strap and no stump, so 1 to 3 are the predicates' geometry; 4 pins the masks to this grid build (cell 8 mm, the Scan the World mesh) and says nothing about how the gilding looks; the areas are envelopes, not the strap's true area; no network.
+ *   5. The head tables' helpers: `hairlineAtAzimuth` and `headRadiusAt` return a table row's own value at its azimuth and the mean of two rows halfway between them, and wrap 360 and negative angles round; `onHead` puts a point at the given height, azimuth (read back by `azimuthOf`) and radius from HAIR_AXIS; `onHeadRing` at the ring's height above the hairline there and its probed radius; `facePair` mirrors its two targets about FACE_AZIMUTH at the mark's height below the hairline, each at its own radius.
+ * Bounds: the mannequin has no strap and no stump, so 1 to 3 are the predicates' geometry; 4 pins the masks to this grid build (cell 8 mm, the Scan the World mesh) and says nothing about how the gilding looks; the areas are envelopes, not the strap's true area; 5 is the helpers' arithmetic and says nothing about where the tables' values fall on the David, which is the landmark case of david-steps.test.ts; no network.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -16,7 +17,7 @@ import type { Vec3 } from '../contracts/making';
 import { syntheticFigure } from '../david/synthetic';
 import { FIXED_POINT } from '../contracts/grid';
 import { type Grid, loadFigureGrid } from '../stock/grid';
-import { BASE, FLESH, HAIR, inside, SLING, SLING_PATH, stack, STUMP, STUMP_SLICES, tube, type Slice } from './regions';
+import { azimuthOf, BASE, FACE_AZIMUTH, facePair, FLESH, HAIR, HAIR_AXIS, hairlineAtAzimuth, HEAD_RADIUS_BY_AZIMUTH, HEAD_RINGS, headRadiusAt, inside, onHead, onHeadRing, SLING, SLING_PATH, stack, STUMP, STUMP_SLICES, tube, type Slice } from './regions';
 
 const UP: Vec3 = [0, 1, 0];
 const DOWN: Vec3 = [0, -1, 0];
@@ -114,6 +115,44 @@ describe('the sling and the stump as regions', () => {
     });
     expect(checked).toBeGreaterThan(10_000);
     expect(excluded).toBeGreaterThan(0);
+  });
+});
+
+describe('the head tables', () => {
+  const radiusFromAxis = (p: Vec3): number => Math.hypot(p[0] - HAIR_AXIS[0], p[2] - HAIR_AXIS[1]);
+
+  it('interpolate by azimuth and wrap round', () => {
+    const between = hairlineAtAzimuth(56.25);
+    expect(between).toBeCloseTo((hairlineAtAzimuth(45) + hairlineAtAzimuth(67.5)) / 2, 12);
+    expect(hairlineAtAzimuth(360)).toBe(hairlineAtAzimuth(0));
+    expect(hairlineAtAzimuth(-22.5)).toBe(hairlineAtAzimuth(337.5));
+    const row = HEAD_RADIUS_BY_AZIMUTH[4];
+    const next = HEAD_RADIUS_BY_AZIMUTH[5];
+    if (row === undefined || next === undefined) throw new Error('the head radius table has fewer than six rows');
+    expect(headRadiusAt(row[0], 'hairline')).toBe(row[1]);
+    expect(headRadiusAt(row[0], 'curls')).toBe(row[2]);
+    expect(headRadiusAt((row[0] + next[0]) / 2, 'curls')).toBeCloseTo((row[2] + next[2]) / 2, 12);
+    expect(headRadiusAt(row[0] + 360, 'hairline')).toBe(row[1]);
+  });
+
+  it('place points at their azimuth, height and radius from the axis', () => {
+    for (const azimuth of [0, 38, 123.4, 270, 359]) {
+      const p = onHead(azimuth, 4.8, 0.25);
+      expect(p[1]).toBe(4.8);
+      expect(radiusFromAxis(p)).toBeCloseTo(0.25, 12);
+      expect(azimuthOf(p)).toBeCloseTo(azimuth, 8);
+    }
+    const ring = onHeadRing(90, 'curls');
+    expect(ring[1]).toBeCloseTo(hairlineAtAzimuth(90) + HEAD_RINGS.curls, 12);
+    expect(radiusFromAxis(ring)).toBeCloseTo(headRadiusAt(90, 'curls'), 12);
+    expect(azimuthOf(ring)).toBeCloseTo(90, 8);
+    const [left, right] = facePair({ below: 0.1, offset: 20, radii: [0.2, 0.22] });
+    expect(left[1]).toBeCloseTo(hairlineAtAzimuth(FACE_AZIMUTH) - 0.1, 12);
+    expect(right[1]).toBe(left[1]);
+    expect(azimuthOf(left)).toBeCloseTo(FACE_AZIMUTH - 20, 8);
+    expect(azimuthOf(right)).toBeCloseTo(FACE_AZIMUTH + 20, 8);
+    expect(radiusFromAxis(left)).toBeCloseTo(0.2, 12);
+    expect(radiusFromAxis(right)).toBeCloseTo(0.22, 12);
   });
 });
 
