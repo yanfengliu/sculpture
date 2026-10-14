@@ -4,17 +4,20 @@
  *   2. Each removing tool struck straight into a flat face removes the volume its closed form says, within 15 percent, on a local grid fine enough for the tool (1 mm for the small tools, 4 mm for the bulk crater, 2 mm for the sculptor's cone); the painting tools remove nothing and paint their finish on the face.
  *   3. Undoing the recorded boxes in reverse restores the stock and finish bytes exactly, and the undo and the result name the same dirty chunks.
  *   4. The gilding leaf paints over tooth texture (claw, fine claw, roundel, drill) and never over polished, rasped or untouched stone (TOOL_PAINT_OVER); the other painting tools mark whatever they touch.
- * Bounds: the closed forms are the ones in src/stock/tool-volumes.ts, so this checks the carved shape against the stated geometry, not against a real chisel mark; the 45-degree strokes of the plan are exercised only by the random blows.
+ *   5. Every tool volume's box is a bound of its shape at a slanted axis: with the tool axis 45 degrees off the normal and along the cube diagonal, the distance sampled on a lattice (at most 2 mm, no coarser than a hundredth of the box) over the box dilated by 5 cm is never negative outside the box, and is negative somewhere inside it (the reviewed revision's cube of the crater's reach was 36 mm short at 45 degrees; docs/work/0_making-of/reviews/0_integration.md, Bulk-crater bounds).
+ *   6. A rasp blow on one face of a 7 cm hollow between two figure slabs, where the figure is near enough that the slab follows its level sets, leaves the far half of the hollow and the facing slab untouched (stock and finish), while it cuts the face it struck.
+ * Bounds: the closed forms are the ones in src/stock/tool-volumes.ts, so this checks the carved shape against the stated geometry, not against a real chisel mark; the 45-degree strokes of the plan are exercised only by the random blows; the bound check samples a lattice, so a shape poking out of its box by less than the lattice step between samples would pass; the hollow is flat-faced, so a curved hollow's reach is not measured.
  */
 import { describe, expect, it } from 'vitest';
 
 import { FINISH, FIXED_POINT } from '../contracts/grid';
-import type { Blow, ToolId } from '../contracts/making';
+import type { Blow, ToolId, Vec3 } from '../contracts/making';
+import { STOCK_BAND_CELLS } from '../david/frame';
 import { syntheticFigure } from '../david/synthetic';
 import { applyBlow, type CarveState, TOOL_FINISH, TOOL_PAINT_OVER, undoBlow } from './carve';
 import { chunkLayout } from './chunks';
 import { blockGrid, createFinishGrid, frameBlockBox, Grid } from './grid';
-import { closedFormVolume, TOOL_VOLUMES } from './tool-volumes';
+import { closedFormVolume, TOOL_VOLUMES, toolVolume } from './tool-volumes';
 
 const TOOLS: readonly ToolId[] = ['charcoal', 'point', 'two-tooth', 'claw', 'fine-claw', 'roundel', 'flat', 'drill', 'rasp', 'file', 'pumice', 'polish', 'gilding'];
 
@@ -192,5 +195,107 @@ describe('tool volumes on a flat face', () => {
     expect(TOOL_PAINT_OVER.gilding & (1 << FINISH.rasp)).toBe(0);
     expect(TOOL_PAINT_OVER.gilding & (1 << FINISH.block)).toBe(0);
     for (const code of [FINISH.claw, FINISH.fineClaw, FINISH.roundel, FINISH.drill]) expect(TOOL_PAINT_OVER.gilding & (1 << code)).not.toBe(0);
+  });
+});
+
+describe('tool volume bounds at a slanted axis', () => {
+  const normal: Vec3 = [0, 1, 0];
+  const axes: ReadonlyArray<{ name: string; direction: Vec3 }> = [
+    { name: '45 degrees off the normal', direction: unit(1, -1, 0) },
+    { name: 'the cube diagonal', direction: unit(1, -1, 1) },
+  ];
+  // One blow per shape of src/stock/tool-volumes.ts: the bulk crater, the sculptor's cone, the wedges, the combing patch, the scoop, the drill, the rubbing slabs and the paint footprints.
+  const shapes: ReadonlyArray<{ tool: ToolId; size: number }> = [
+    { tool: 'point', size: 0.06 },
+    { tool: 'point', size: 0.03 },
+    { tool: 'two-tooth', size: 0.012 },
+    { tool: 'claw', size: 0.008 },
+    { tool: 'fine-claw', size: 0.004 },
+    { tool: 'fine-claw', size: 0.04 },
+    { tool: 'roundel', size: 0.004 },
+    { tool: 'flat', size: 0.01 },
+    { tool: 'drill', size: 0.015 },
+    { tool: 'rasp', size: 0.03 },
+    { tool: 'file', size: 0.02 },
+    { tool: 'pumice', size: 0.004 },
+    { tool: 'charcoal', size: 0 },
+    { tool: 'polish', size: 0 },
+    { tool: 'gilding', size: 0 },
+  ];
+  const PAD = 0.05;
+
+  for (const { name, direction } of axes) {
+    for (const { tool, size } of shapes) {
+      it(`${tool} at ${String(size)} m, axis ${name}: never negative outside its box`, () => {
+        const blow: Blow = { tool, point: [0.013, 0.021, -0.007], normal, direction, size, stroke: 0 };
+        // The figure is far from the point, so the rubbing slabs take the tangent plane, not the figure's level sets, and the sampled figure value is not read.
+        const volume = toolVolume(blow, 1, 0.128);
+        const extent = Math.max(volume.max[0] - volume.min[0], volume.max[1] - volume.min[1], volume.max[2] - volume.min[2]);
+        expect(extent).toBeGreaterThan(0);
+        const step = Math.max(0.002, extent / 100);
+        let outside = 0;
+        let inside = 0;
+        let worst = Number.POSITIVE_INFINITY;
+        for (let x = volume.min[0] - PAD; x <= volume.max[0] + PAD; x += step) {
+          for (let y = volume.min[1] - PAD; y <= volume.max[1] + PAD; y += step) {
+            for (let z = volume.min[2] - PAD; z <= volume.max[2] + PAD; z += step) {
+              const d = volume.distance(x, y, z, 1);
+              const inBox = x >= volume.min[0] && x <= volume.max[0] && y >= volume.min[1] && y <= volume.max[1] && z >= volume.min[2] && z <= volume.max[2];
+              if (inBox) {
+                if (d < 0) inside += 1;
+              } else if (d < 0) {
+                outside += 1;
+                if (d < worst) worst = d;
+              }
+            }
+          }
+        }
+        expect(outside, `${String(outside)} samples outside the box are inside the volume, the deepest ${String(worst)} m`).toBe(0);
+        expect(inside).toBeGreaterThan(0);
+      });
+    }
+  }
+});
+
+/** Two parallel slabs of figure `gap` apart along y, face A at y = 0 facing up and face B at y = gap facing down, with uncut stone everywhere, the hollow included; the figure band is 16 cells, wide enough that a blow on face A follows the figure's level sets. */
+function hollow(cell: number, extent: number, gap: number): { state: CarveState; figure: Grid } {
+  const n = Math.round(extent / cell);
+  const spec = { cell, size: [n, n, n] as const, origin: [-extent / 2, gap / 2 - extent / 2, -extent / 2] as const, band: 16 };
+  const figure = new Grid(spec);
+  figure.fill((_x, y) => Math.min(y, gap - y));
+  const stock = new Grid({ ...spec, band: STOCK_BAND_CELLS });
+  stock.fill(() => -1);
+  return { state: { stock, finish: createFinishGrid(spec), chunks: chunkLayout(spec) }, figure };
+}
+
+describe('a rubbing tool in a hollow', () => {
+  it('rasps the face it strikes and never the facing surface 7 cm away', () => {
+    const cell = 0.004;
+    const gap = 0.07;
+    const { state, figure } = hollow(cell, 0.24, gap);
+    expect(figure.sample(0, 0, 0)).toBeLessThan(0.1 * figure.spec.band * cell);
+    const before = state.stock.values.slice();
+    const tilt = 10 * (Math.PI / 180);
+    const blow: Blow = { tool: 'rasp', point: [0, 0, 0], normal: [0, 1, 0], direction: unit(Math.cos(tilt), -Math.sin(tilt), 0), size: 0.03, stroke: 0 };
+    const result = applyBlow(state, figure, blow, 0);
+    expect(result.changed).toBeGreaterThan(0);
+    const cellOf = (x: number, y: number, z: number): number => state.stock.index(Math.round((x - state.stock.spec.origin[0]) / cell), Math.round((y - state.stock.spec.origin[1]) / cell), Math.round((z - state.stock.spec.origin[2]) / cell));
+    expect(state.stock.values[cellOf(0, cell, 0)]).toBeGreaterThan(-state.stock.limit);
+    const { nx, ny, nz } = state.stock;
+    let farChanged = 0;
+    let farCells = 0;
+    for (let k = 0; k < nz; k += 1) {
+      for (let j = 0; j < ny; j += 1) {
+        const y = state.stock.spec.origin[1] + j * cell;
+        if (y < gap / 2) continue;
+        for (let i = 0; i < nx; i += 1) {
+          const index = state.stock.index(i, j, k);
+          farCells += 1;
+          if (state.stock.values[index] !== before[index] || state.finish[index] !== 0) farChanged += 1;
+        }
+      }
+    }
+    expect(farCells).toBeGreaterThan(0);
+    expect(farChanged, `${String(farChanged)} cells in the far half of the hollow or the facing slab changed`).toBe(0);
   });
 });
