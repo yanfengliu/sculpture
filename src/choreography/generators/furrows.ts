@@ -166,7 +166,7 @@ function higher(a: Column, b: Column): boolean {
 }
 
 /** Plans one phase's blows over a face model; `strokeBase` numbers the strokes across phases and the count after is returned. */
-function planPhase(ctx: PlanContext, scratch: ScratchStock, model: FaceModel, options: FurrowsOptions, region: RegionDef, random: () => number, blows: Blow[], strokeBase: number, mark: (pass: number) => void): number {
+function planPhase(ctx: PlanContext, scratch: ScratchStock, model: FaceModel, options: FurrowsOptions, region: RegionDef, random: () => number, blows: Blow[], strokeBase: number, mark: (pass: number, runStart?: Vec3) => void): number {
   const { frame, raster } = model;
   const cell = scratch.cell;
   const margin = options.margin ?? ctx.margin;
@@ -240,7 +240,7 @@ function planPhase(ctx: PlanContext, scratch: ScratchStock, model: FaceModel, op
             const removed = scratch.carve(blow, margin);
             if (scratch.struckStone(removed)) {
               blows.push(blow);
-              mark(pass);
+              mark(pass, model.pointAt(column.u, column.v, 0));
               struck += 1;
               model.refreshAround(u, v, options.size * 2 + raster);
             }
@@ -278,6 +278,8 @@ export interface FurrowMark {
   readonly phase: number;
   readonly pass: number;
   readonly kind: 'bulk' | 'stroke' | 'floor';
+  /** For a stroke, where its run began: the run's first column on the face's plane, whose figure contour the run was turned from (the first blow kept may lie further along when the run's first cut met air). */
+  readonly runStart?: Vec3;
 }
 
 /** A step's point work: the phases, then the floor pass when `floor` is given (./floor.ts). */
@@ -310,7 +312,7 @@ export function planFurrows(ctx: PlanContext, phases: readonly FurrowsPhase[], f
         // Another face or phase has cut since this model last read the scratch.
         for (const column of model.columns) if (column.entry !== null) model.refresh(column, column.entry - scratch.cell);
       }
-      stroke = planPhase(ctx, scratch, model, phase.options, phase.region ?? ctx.region, random, blows, stroke, (pass) => marks.push({ face, phase: index, pass, kind }));
+      stroke = planPhase(ctx, scratch, model, phase.options, phase.region ?? ctx.region, random, blows, stroke, (pass, runStart) => marks.push(runStart === undefined ? { face, phase: index, pass, kind } : { face, phase: index, pass, kind, runStart }));
     }
   });
   if (floor !== undefined) {

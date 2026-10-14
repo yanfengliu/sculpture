@@ -25,7 +25,7 @@ import { FACE, HAIR, inside } from './regions';
 import { STAGES } from './stages';
 
 const STAGE_ORDER: readonly StageId[] = ['setup', 'layout', 'roughing', 'coarse-claw', 'fine-claw', 'drilling', 'rasping', 'polishing', 'on-site'];
-/** The step ids of docs/design/choreography.md, in its order. */
+/** The step ids of docs/design/choreography.md, in its order, with the two setup steps of 1464 to 1466 added on 2026-10-14 ahead of its table. */
 const CONTRACT_IDS = [
   'agostino',
   'hole-between-legs',

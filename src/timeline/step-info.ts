@@ -6,7 +6,7 @@ import { type StepDef, type StepInfo, WORK_HOURS_PER_DAY } from '../contracts/ma
 const TITLE_LIMIT = 48;
 const DETAIL_LIMIT = 200;
 
-/** Throws on a step id that is not kebab-case or is used twice, a title or detail over its limit, a weight or rate that is not positive, a direct count that is not a whole number of at least 1, or a calendar date that does not parse. */
+/** Throws on a step id that is not kebab-case or is used twice, a title or detail over its limit, a weight or rate that is not positive, a direct count that is not a whole number of at least 1, a calendar day that is not YYYY-MM-DD or does not exist, or a span that runs backward. */
 export function checkSteps(steps: readonly StepDef[]): void {
   const seen = new Set<string>();
   for (const step of steps) {
@@ -18,8 +18,16 @@ export function checkSteps(steps: readonly StepDef[]): void {
     if (!(step.weight > 0)) throw new Error(`step "${step.id}" needs a positive weight`);
     if (!(step.rate > 0) || !Number.isFinite(step.rate)) throw new Error(`step "${step.id}" has a rate of ${String(step.rate)} real blows a second; give a positive number (docs/research/decisions.md, the real-blows rule)`);
     if (step.realPerShown !== undefined && !(Number.isInteger(step.realPerShown) && step.realPerShown >= 1)) throw new Error(`step "${step.id}" gives ${String(step.realPerShown)} real blows per shown blow; a direct count is a whole number of at least 1`);
-    if (!Number.isFinite(Date.parse(step.calendar.from)) || !Number.isFinite(Date.parse(step.calendar.to))) throw new Error(`step "${step.id}" has the calendar ${step.calendar.from} to ${step.calendar.to}; give ISO dates (YYYY-MM-DD)`);
+    if (!isIsoDay(step.calendar.from) || !isIsoDay(step.calendar.to)) throw new Error(`step "${step.id}" has the calendar ${step.calendar.from} to ${step.calendar.to}; give days that exist as YYYY-MM-DD`);
+    if (step.calendar.to < step.calendar.from) throw new Error(`step "${step.id}" runs backward, from ${step.calendar.from} to ${step.calendar.to}; give the earlier day first`);
   }
+}
+
+/** Whether `iso` is a day written YYYY-MM-DD that exists: Date.parse rolls 1501-02-30 over to 2 March and reads other forms as local time. */
+function isIsoDay(iso: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === iso;
 }
 
 /** Days a calendar span covers, at least one (a step dated on a single day is a day's work). */

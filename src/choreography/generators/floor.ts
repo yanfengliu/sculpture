@@ -1,7 +1,7 @@
 /**
  * The floor pass (docs/research/technique.md, Stage 2: the legs and the base taken down): at the end of a point step that finishes its part of the block, the stone still standing on the block's floor farther than the step's margin from the figure is chopped off, so no stub or sheet of waste stands on the floor beside the base when the claws begin (the floor stubs of the slow test, 2026-10-14).
  * The pass reads the floor band of the scratch (./scratch.ts, FloorBand), the stock's lowest FLOOR_ROWS rows at the stock's own resolution, carved with every blow the step plans: the 2 cm scratch the layers read averages a sheet one 8 mm cell thick away, and the craters of two neighbouring columns leave such sheets where their rims meet (measured: 10 to 30 cells, one cell thick, 3 to 9 rows tall, at the block's edges and behind the base).
- * Every leftover cell of the band inside the step's box, in scan order, gets a chop unless an earlier chop took it: a bulk cut struck down and in at 45 degrees from the side among the step's faces whose air is nearest, the point driven along the diagonal so the shaft rises clear of the floor, with the shaft's first SHAFT_CLEARANCE of air checked. A chop that takes nothing from the band (the margin holds the stone, or the cut misses it) is left out of the plan.
+ * Every leftover cell of the band inside the step's box, in scan order, gets a chop unless an earlier chop took it: a bulk cut struck down and in at 45 degrees from the side among the step's faces whose air is nearest, the point driven along the diagonal so the shaft rises clear of the floor, with the shaft's first SHAFT_CLEARANCE of air checked. A cell is skipped when no side opens to air within EXIT_REACH or every open side's shaft meets stone, and the pass stops after MAX_CHOPS; a later step's floor pass meets what is left (after sides-point at 8 mm on the mannequin, 5 cells under a 4 cm sheet that back-point then takes). A chop that takes nothing from either lattice (the margin holds the stone, or the cut misses it) is left out of the plan. The band holds the stone at the step's margin, which is what the engine applies, so a cell is never counted as left over when the engine has taken it.
  */
 import { FIXED_POINT } from '../../contracts/grid';
 import type { Blow, PlanContext, RegionDef, SdfSampler, Vec3 } from '../../contracts/making';
@@ -63,7 +63,6 @@ export function clearFloor(ctx: PlanContext, scratch: ScratchStock, box: RegionD
   const i1 = Math.min(nx - 1, Math.floor((box.max[0] - origin[0]) / cell));
   const k0 = Math.max(0, Math.ceil((box.min[2] - origin[2]) / cell));
   const k1 = Math.min(nz - 1, Math.floor((box.max[2] - origin[2]) / cell));
-  const empty = 0.5 * cell * cell * cell;
   let stroke = strokeBase;
   let chops = 0;
   for (let k = k0; k <= k1; k += 1) {
@@ -88,8 +87,7 @@ export function clearFloor(ctx: PlanContext, scratch: ScratchStock, box: RegionD
         const point: Vec3 = [at[0] + best.out[0] * best.exit, at[1] + best.out[1] * best.exit, at[2] + best.out[2] * best.exit];
         const lean = random() < 0.5 ? frame.row : ([-frame.row[0], -frame.row[1], -frame.row[2]] as const);
         const blow = blowAt('point', point, best.out, lean, options.angle, options.size, stroke);
-        scratch.carve(blow, ctx.margin);
-        if (scratch.floorRemoved < empty) continue;
+        if (!scratch.struckStone(scratch.carve(blow, ctx.margin))) continue;
         blows.push(blow);
         onBlow?.(blow);
         stroke += 1;

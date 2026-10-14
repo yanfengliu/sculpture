@@ -2,6 +2,7 @@
  * A scratch stock for planning (docs/design/spec.md, Blows, strokes and steps; the review of 81acb40, F11 and C2.4: blows planned against a step's starting stock struck air): a copy of the stock the step starts from, on its own lattice, that a generator carves with every blow it plans. Each blow is then placed on the surface the blows before it leave, its normal is that surface's gradient, and a blow that would remove nothing is seen before it is planned and left out.
  * The copy is carved by the engine's own kernel (src/stock/carve-kernel.ts) with no finish and the undo record thrown away, so the planner's surface is, cell for cell, the surface the engine will make when it applies the same blows in the same order (src/choreography/shaft.test.ts replays the plan and compares).
  * The lattice is the stock's own, or a coarser one the generator asks for (`cell`): the roughing's craters are 36 cm wide and its furrows 10 to 30 cm long, so the point's work needs no finer surface than 2 cm, and at the page's 8 mm the full copy cost the roughing steps 2 to 4 s each to plan (2026-10-13 measurement, docs/devlog/summary.md). A coarse scratch is the stock and the figure sampled at its own cell centres (trilinear, so the surface lies where the fine grid puts it to within the interpolation), with the figure copy cached per figure grid and cell size since the figure never changes. The Making applies the planned blows on the real grid whatever lattice planned them, so the replay is the same bytes for the same plan; only the plan itself depends on the lattice, deterministically.
+ * Beside a coarse lattice a scratch may keep a floor band (`floorRows`): the stock's lowest rows at its own resolution, carved with every blow, where ./floor.ts finds the sheets one 8 mm cell thick that the 2 cm lattice averages away (the floor stubs of 2026-10-14).
  * The figure and the stock must be grids on one lattice, which is what the Making passes; a generator given plain samplers cannot build a scratch and says so.
  */
 import type { GridSpec } from '../../contracts/grid';
@@ -96,6 +97,8 @@ export class ScratchStock implements SdfSampler {
   readonly floor: FloorBand | null;
   /** Metres cubed the last `carve` took from the floor band. */
   floorRemoved = 0;
+  /** The step's margin, metres: the band is carved at it whatever margin a phase plans with, since the Making applies every blow of a step at the step's margin (src/timeline/making.ts), and the band must hold what the engine will hold. */
+  private readonly stepMargin: number;
   private readonly target: KernelTarget;
   private readonly floorTarget: KernelTarget | null;
   private readonly sink = new UndoSink();
@@ -115,6 +118,7 @@ export class ScratchStock implements SdfSampler {
     }
     const grid = this.grid;
     this.cell = grid.cell;
+    this.stepMargin = ctx.margin;
     this.target = { values: grid.values, finish: null, figure: figureValues, nx: grid.nx, ny: grid.ny, nz: grid.nz, offset: [0, 0, 0], origin: grid.spec.origin, cell: grid.cell, limit: grid.limit, globalNx: grid.nx, globalNy: grid.ny };
     const j0 = (options.floorRows ?? 0) > 0 ? lowestStoneRow(stock) : -1;
     if (j0 < 0) {
@@ -145,7 +149,7 @@ export class ScratchStock implements SdfSampler {
     return length < 1e-12 ? [0, 1, 0] : [gx / length, gy / length, gz / length];
   }
 
-  /** Carves `blow` at the step's `margin` into the scratch, and into the floor band where its box reaches the band's rows, and returns the volume it removed from the scratch, metres cubed (`floorRemoved` holds the band's). */
+  /** Carves `blow` at `margin` (the phase's) into the scratch, and at the step's margin into the floor band where its box reaches the band's rows, and returns the volume it removed from the scratch, metres cubed (`floorRemoved` holds the band's). */
   carve(blow: Blow, margin: number): number {
     const volume = volumeOf(this.figure, blow);
     this.floorRemoved = 0;
@@ -162,7 +166,7 @@ export class ScratchStock implements SdfSampler {
       if (fine !== null && fine.min[1] < floor.j0 + floor.rows && fine.max[1] >= floor.j0) {
         this.resetSink();
         const local = { min: [fine.min[0], Math.max(0, fine.min[1] - floor.j0), fine.min[2]] as const, max: [fine.max[0], Math.min(floor.rows - 1, fine.max[1] - floor.j0), fine.max[2]] as const };
-        this.floorRemoved = carveCells(floorTarget, volume, local, kernelParams(blow, margin, floor.spec.cell), sink).removed;
+        this.floorRemoved = carveCells(floorTarget, volume, local, kernelParams(blow, this.stepMargin, floor.spec.cell), sink).removed;
       }
     }
     return result.removed;
@@ -176,9 +180,10 @@ export class ScratchStock implements SdfSampler {
     sink.finish.count = 0;
   }
 
-  /** Whether a cut removing `removed` metres cubed counts as a blow on stone. */
+  /** Whether the last cut, which took `removed` metres cubed from the scratch, counts as a blow on stone: it took half a cell's volume from either lattice, the scratch or the floor band. A cut dropped from the plan stays carved in both, so a rule that read one lattice alone would hide from the other a sliver the engine keeps (the review of 2026-10-14). */
   struckStone(removed: number): boolean {
-    return removed >= EMPTY_CELLS * this.cell * this.cell * this.cell;
+    const fine = this.floor?.spec.cell ?? this.cell;
+    return removed >= EMPTY_CELLS * this.cell * this.cell * this.cell || this.floorRemoved >= EMPTY_CELLS * fine * fine * fine;
   }
 }
 

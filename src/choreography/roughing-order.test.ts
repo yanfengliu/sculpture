@@ -1,9 +1,9 @@
 /**
  * The plan-order gate for the owner's report "chipping away row by row?" (docs/learning/defect-register.md, second entry; fleet R17): the three roughing steps of the front on the synthetic figure at 2 cm, planned again with the planner's marks (src/choreography/generators/furrows.ts, planFurrows) from the stock each step starts from, held to the record's order (docs/research/technique.md, Stage 2: the highest points first, the furrows along the form). What a green run proves, and its bounds:
  *   1. The instrument is the plan the page plays: the replanned blows equal the Making's own for each step, blow for blow.
- *   2. Highest points first: in every layer of bulk craters (one pass over one face, at least MIN_LAYER blows), the first blow lies where the figure stands highest under the face: the figure's depth below the block's face at the first blow, found by this test's own march along the face's inward axis, is within the shallowest FIRST_SHARE of the depths under the layer's blows.
+ *   2. Highest points first: every step has a layer of bulk craters of at least MIN_LAYER blows to judge, and in every such layer (one pass over one face), the first blow lies where the figure stands highest under the face: the figure's depth below the block's face at the first blow, found by this test's own march along the face's inward axis, is within the shallowest FIRST_SHARE of the depths under the layer's blows.
  *   3. Outward spread: in every such layer the mean distance in the face's plane from the layer's first blow grows from the layer's first quarter of blows to its last.
- *   4. The furrows follow the form: every run of the sculptor's 45-degree point whose contour is defined (the figure's normal under the run's first blow leans at least CONTOUR_LEAN into the face's plane) runs within CONTOUR_DEGREES of that contour, and under AXIS_SHARE of the runs lie within AXIS_DEGREES of a world axis.
+ *   4. The furrows follow the form: every run of the sculptor's 45-degree point whose contour is defined (the figure's normal under the run's start, its first column as the planner marks it, leans at least CONTOUR_LEAN into the face's plane) runs within CONTOUR_DEGREES of that contour, and under AXIS_SHARE of the runs lie within AXIS_DEGREES of a world axis.
  *   5. The checks are live: the same layers in raster order (rows from the top, then left to right) fail claim 2, and the same runs turned to the world's x axis fail claim 4.
  * Bounds: the synthetic mannequin at 2 cm and the front's three roughing steps; the sides and the back run the same code but are not checked here; layers are the planner's own passes (its marks), so a planner that mislabels its passes would hide a raster inside one; the look stays the owner's check through the captures and the video.
  */
@@ -79,13 +79,16 @@ function spread(layer: readonly Blow[]): { first: number; last: number } {
   return { first: mean(d.slice(0, q)), last: mean(d.slice(d.length - q)) };
 }
 
-/** The run's line in the face's plane: the tool axis without its part along the blow's normal, then without z. */
+/** The run's line in the face's plane, recovered exactly from the blow: the tool axis without its part along the blow's normal is the run's direction projected onto the plane the normal leaves (src/choreography/generators/surface.ts, blowAt), so adding the multiple of the normal that brings it back into the face's plane (z = 0 for the front) gives the run's direction; projecting it straight onto the plane instead turned it by up to 6 degrees where the normal leaned. */
 function runLine(blow: Blow): [number, number] {
   const { direction: d, normal: n } = blow;
   const along = d[0] * n[0] + d[1] * n[1] + d[2] * n[2];
   const u: Vec3 = [d[0] - along * n[0], d[1] - along * n[1], d[2] - along * n[2]];
-  const length = Math.hypot(u[0], u[1]);
-  return length < 1e-9 ? [1, 0] : [u[0] / length, u[1] / length];
+  const back = Math.abs(n[2]) > 1e-6 ? -u[2] / n[2] : 0;
+  const x = u[0] + back * n[0];
+  const y = u[1] + back * n[1];
+  const length = Math.hypot(x, y);
+  return length < 1e-9 ? [1, 0] : [x / length, y / length];
 }
 
 /** The contour in the face's plane under (x, y): perpendicular to the figure normal's part in the plane, at the margin surface below the face; null where that part is under CONTOUR_LEAN or no figure lies below. */
@@ -127,8 +130,10 @@ describe('the roughing order on the synthetic figure at 2 cm', () => {
       expect(plan.marks.length).toBe(plan.blows.length);
       const zFace = def.region.max[2];
       const zEnd = def.region.min[2];
+      let judged = 0;
       for (const layer of layersOf(plan.blows, plan.marks)) {
         if (layer.blows.length < MIN_LAYER) continue;
+        judged += 1;
         const higher = higherThanFirst(m.figure, layer.blows, zFace, zEnd);
         const s = spread(layer.blows);
         const f = layer.blows[0]?.point ?? [0, 0, 0];
@@ -139,16 +144,19 @@ describe('the roughing order on the synthetic figure at 2 cm', () => {
         const raster = [...layer.blows].sort((a, b) => b.point[1] - a.point[1] || a.point[0] - b.point[0]);
         if (higherThanFirst(m.figure, raster, zFace, zEnd) > FIRST_SHARE) rasterFailures.push(`${id} ${layer.key}`);
       }
-      const runs = new Map<number, Blow>();
+      if (judged === 0) failures.push(`${id}: no layer of ${String(MIN_LAYER)} blows or more to judge, so the step's order went unchecked`);
+      const runs = new Map<number, { blow: Blow; start: Vec3 }>();
       plan.blows.forEach((blow, n) => {
-        if (plan.marks[n]?.kind === 'stroke' && !runs.has(blow.stroke)) runs.set(blow.stroke, blow);
+        const mark = plan.marks[n];
+        if (mark?.kind === 'stroke' && !runs.has(blow.stroke)) runs.set(blow.stroke, { blow, start: mark.runStart ?? blow.point });
       });
       const deviations: number[] = [];
-      for (const first of runs.values()) {
+      for (const { blow: first, start } of runs.values()) {
         runsTotal += 1;
         const line = runLine(first);
         if (degreesBetweenLines(line, [1, 0]) <= AXIS_DEGREES || degreesBetweenLines(line, [0, 1]) <= AXIS_DEGREES) runsOnAxis += 1;
-        const contour = contourAt(m.figure, first.point[0], first.point[1], def.margin, zFace, zEnd);
+        // The contour where the run began, which the planner turned it from; the first blow kept may lie further along the run.
+        const contour = contourAt(m.figure, start[0], start[1], def.margin, zFace, zEnd);
         if (contour === null) continue;
         runsJudged += 1;
         const off = degreesBetweenLines(line, contour);

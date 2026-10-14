@@ -85,7 +85,7 @@ export class FaceModel {
   private readonly ii: number;
   private readonly faceAt: number;
   private readonly uMin: number;
-  /** The box's lower edge along the column axis: a jittered crater is kept above it, so none is centred under the block's floor. */
+  /** The box's lower edge along the column axis: a jittered crater is kept above it, so none is centred under the block's floor (for the top face, whose column axis is z, the edge is the box's back, outside the block, where the clamp does nothing). */
   readonly vMin: number;
   /** The line of row 0 along the column axis, and the signed step from one row's line to the next (rows run top first, so the step is negative when the column axis points down). */
   private readonly v0: number;
