@@ -107,10 +107,45 @@ export const HIGH_POINTS = box('high-points', 1.3, 3.2, -WIDE, WIDE, -DEEP, DEEP
 export const CHEST_AND_FACE = box('chest-and-face', 3.2, TOP, -WIDE, WIDE, -DEEP, DEEP, facing(2, 1, 0.2));
 /** The head with its hair. */
 export const HEAD = box('head', 4.36, TOP);
-/** The crown and the curls; keeps its tooth texture. */
-export const HAIR = box('hair', 4.78, TOP, -WIDE, WIDE, -DEEP, DEEP, facing(1, 1, -0.2));
-/** Eyes, nose and mouth. */
-export const FACE = box('face', 4.5, 4.82, -WIDE, WIDE, -DEEP, DEEP, facing(2, 1, 0.3));
+/**
+ * The hairline on the David grid, probed 2026-10-13 (a read-only probe under tmp/, not kept): the head's surface cells above y 4.7 have their centroid at x -0.323, z -0.008, which is the head's axis; around it, per 22.5 degrees of azimuth (0 along +x, 90 along +z), the height where the surface's roughness (the mean magnitude of the figure field's Laplacian over 1 cm of height) steps from the smooth skin (5 to 30 per metre) to the curls (60 to 140) is the hairline.
+ * The face looks toward azimuth 25 to 45 (turned about 50 degrees from +z toward the figure's left): there the forehead is smooth to 4.93 and the curls begin at 4.95 (ratios of 4 to 6, the clearest steps); at azimuth 90 and 338 the step is at 4.84 to 4.86; at 113 to 158 and at 315 the hair comes down to 4.70 to 4.75 (the ears sit under the curls there); from 180 to 293 the surface is rough all the way down to 4.61, the lowest height probed, so the hair reaches the nape and the table takes the neck's top there. Between table entries the height is interpolated.
+ */
+const HAIR_AXIS: readonly [number, number] = [-0.323, -0.008];
+const HAIRLINE_BY_AZIMUTH: readonly (readonly [number, number])[] = [
+  [0, 4.93],
+  [22.5, 4.95],
+  [45, 4.95],
+  [67.5, 4.85],
+  [90, 4.84],
+  [112.5, 4.75],
+  [135, 4.7],
+  [157.5, 4.7],
+  [180, 4.61],
+  [202.5, 4.61],
+  [225, 4.61],
+  [247.5, 4.61],
+  [270, 4.61],
+  [292.5, 4.61],
+  [315, 4.72],
+  [337.5, 4.86],
+  [360, 4.93],
+];
+/** The hairline's height at a point, from its azimuth around the head's axis. */
+export function hairlineAt(point: Vec3): number {
+  let azimuth = (Math.atan2(point[2] - HAIR_AXIS[1], point[0] - HAIR_AXIS[0]) * 180) / Math.PI;
+  if (azimuth < 0) azimuth += 360;
+  const step = 22.5;
+  const n = Math.min(HAIRLINE_BY_AZIMUTH.length - 2, Math.floor(azimuth / step));
+  const a = HAIRLINE_BY_AZIMUTH[n] ?? [0, 4.93];
+  const b = HAIRLINE_BY_AZIMUTH[n + 1] ?? a;
+  const t = Math.min(1, Math.max(0, (azimuth - a[0]) / step));
+  return a[1] + (b[1] - a[1]) * t;
+}
+/** The crown and the curls: the head above the hairline; keeps its tooth texture. */
+export const HAIR: RegionDef = { label: 'hair', min: [-WIDE, 4.61, -DEEP], max: [WIDE, TOP, DEEP], contains: (point) => point[1] >= hairlineAt(point) };
+/** Eyes, nose and mouth, up to the brow under the hairline (the probe of 2026-10-13 put the eyes and brow at 4.91 to 4.94). */
+export const FACE: RegionDef = { label: 'face', min: [-WIDE, 4.5, -DEEP], max: [WIDE, 4.95, DEEP], contains: (point, normal) => normal[2] > 0.3 && point[1] < hairlineAt(point) };
 /** The hand at the shoulder, holding the sling. */
 export const LEFT_HAND = box('left-hand', 3.95, 4.4, 0.05, 0.6, -0.3, DEEP);
 /** The hand at the thigh, with the stone. */
@@ -228,6 +263,11 @@ export function inside(region: RegionDef, point: Vec3, normal: Vec3): boolean {
   return region.contains === undefined ? true : region.contains(point, normal);
 }
 
+/** `region` without the points of `cut`. */
+export function minus(region: RegionDef, cut: RegionDef): RegionDef {
+  return { label: `${region.label}-but-${cut.label}`, min: region.min, max: region.max, contains: (point, normal) => inside(region, point, normal) && !inside(cut, point, normal) };
+}
+
 /** The union of regions, over the box that holds them all. */
 export function union(label: string, ...regions: readonly RegionDef[]): RegionDef {
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
@@ -249,8 +289,10 @@ export const WHOLE_BUT_CROWN: RegionDef = { label: 'whole-but-crown', min: WHOLE
 
 /** The sides and the back together, reached last in the same order of tools. */
 export const SIDES_AND_BACK = union('sides-and-back', LEFT_SIDE, RIGHT_SIDE, BACK);
-/** Where the roundel scoops: the head's hollows and the two hands. */
-export const HOLLOWS = union('hollows', HEAD, LEFT_HAND, RIGHT_HAND);
+/** Where the roundel scoops: the head's hollows under the crown's crust, and the two hands. */
+export const HOLLOWS = union('hollows', minus(HEAD, CROWN), LEFT_HAND, RIGHT_HAND);
+/** The hair under the crown's crust, for the touches on site. */
+export const HAIR_BUT_CROWN = minus(HAIR, CROWN);
 /** What the files and the last touches refine. */
 export const DETAILS = union('details', FACE, LEFT_HAND, RIGHT_HAND);
 /** What was gilded in 1504. */
@@ -264,4 +306,4 @@ export function relief(region: RegionDef, side: 'front' | 'back'): RegionDef {
   return region.contains === undefined ? result : { ...result, contains: region.contains };
 }
 
-export const REGIONS: readonly RegionDef[] = [WHOLE, FRONT, BACK, LEFT_SIDE, RIGHT_SIDE, HIGH_POINTS, CHEST_AND_FACE, HEAD, HAIR, FACE, LEFT_HAND, RIGHT_HAND, SLING, STUMP, BASE, FLESH, NODO, CROWN, WHOLE_BUT_CROWN, SIDES_AND_BACK, HOLLOWS, DETAILS, GILT];
+export const REGIONS: readonly RegionDef[] = [WHOLE, FRONT, BACK, LEFT_SIDE, RIGHT_SIDE, HIGH_POINTS, CHEST_AND_FACE, HEAD, HAIR, FACE, LEFT_HAND, RIGHT_HAND, SLING, STUMP, BASE, FLESH, NODO, CROWN, WHOLE_BUT_CROWN, SIDES_AND_BACK, HOLLOWS, HAIR_BUT_CROWN, DETAILS, GILT];
