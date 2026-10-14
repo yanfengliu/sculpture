@@ -4,6 +4,7 @@
  * A forward move of fewer than JUMP_BLOWS blows applies on the calling thread at once. A longer one is a jump: its blows go chunk by chunk to the carve workers (src/timeline/jump.ts), the cursor stays until every chunk is back, `dirtyChunks` counts the chunks still out, and planning and the move toward `t` resume when the jump lands; with no pool (the tests) the jump runs in-process and `setTime` returns with the state applied.
  * Step `i` at local progress `f = clamp(t - i, 0, 1)` plays in visible cycles (src/timeline/cycles.ts): cycle `c` has the window `[c / cycles, (c + 1) / cycles)`, its blows apply in order when the position passes STRIKE_PHASE of that window, so at an integer `t` every blow of the completed steps is applied; the blow in progress is the cycle's first blow at the position's phase inside the window. Chips of a struck cycle count seconds from its strike, and a young step still shows the chips of the previous step's last strikes; at an integer `t` nothing is in flight.
  * A cycle approaches from the previous cycle's first blow; a step's first cycle approaches from the last cycle of the step before when the tool is unchanged and from the bench otherwise (`previousOf`); at the integer between two steps of one tool the tool is held where that last cycle left it (`heldPoses`), so nothing jumps across a step boundary.
+ * A forward move never crosses a step boundary in one go: it stops at the end of the step it is in, serial or jump, and there the sweep of src/stock/sweep.ts takes off every piece of stock connected to neither the figure nor the base, filed in that step's last blow's undo box (undoing that blow puts the pieces back), before the next step is planned from the swept stock.
  * Everything observable is a pure function of `t`: the grids, the chunk meshes, the poses and the chips, which src/timeline/making.test.ts asserts after random histories.
  */
 import type { Material, Object3D } from 'three';
@@ -16,9 +17,11 @@ import { chunkLayout } from '../stock/chunks';
 import { FNV_OFFSET, fnvBlow, fnvHex, seedOf } from '../stock/digest';
 import { blockGrid, createFinishGrid, frameBlockBox, type Grid, latticeBlockBox, type WorldBox } from '../stock/grid';
 import { type ChunkMesher, createDeferredMesher, createSyncMesher, Remesher } from '../stock/remesh';
+import { StockSweeper } from '../stock/sweep';
 import { MAX_CHIP_SECONDS } from '../tools/chip-burst';
 import { blowsStruck, type Cycles, cyclesOf } from './cycles';
 import { createDeferredCarver, createSyncCarver, figureChunkOf, type Jump, type JumpBlow, type JumpOutcome, startJump } from './jump';
+import { checkSteps, stepInfo } from './step-info';
 
 export interface MakingOptions {
   /** The figure's distance grid; the stock takes its lattice. */
@@ -50,15 +53,25 @@ export interface EngineMaking extends Making {
   readonly remesher: Remesher;
   /** Bytes held by the undo log. */
   readonly undoBytes: number;
+  /** The block's lowest stone row at t = 0, a cell index along y: what the sweep counts as standing on the ground. */
+  readonly baseRow: number;
   /** Blows of a planned step, for tests and tools. */
   blowsOf(step: number): readonly Blow[];
   /** The visible cycles of a planned step. */
   cyclesOf(step: number): Cycles;
+  /** Cells the step's end sweep took off, once the cursor has reached that end; 0 before. */
+  sweptCells(step: number): number;
+  /** The step's end sweep as last run: its cells, milliseconds and chunks relabelled; null until the cursor has reached the step's end. */
+  sweepOf(step: number): SweepRecord | null;
   dispose(): void;
 }
 
-const TITLE_LIMIT = 48;
-const DETAIL_LIMIT = 200;
+export interface SweepRecord {
+  readonly cells: number;
+  readonly millis: number;
+  readonly relabelled: number;
+}
+
 /** Seconds of playing time at 1× looked back for chips, into the previous step when the current one is young: the longest any chip lives, so no chip of a struck cycle is dropped before it has faded. */
 const CHIP_WINDOW_SECONDS = MAX_CHIP_SECONDS;
 /** Blows of a cycle that launch chips, spread over the cycle's run, so a long run does not flood the pool. */
@@ -68,18 +81,6 @@ export const JUMP_BLOWS = 48;
 
 export function createMaking(options: MakingOptions): EngineMaking {
   return new MakingImpl(options);
-}
-
-function checkSteps(steps: readonly StepDef[]): void {
-  const seen = new Set<string>();
-  for (const step of steps) {
-    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(step.id)) throw new Error(`step id "${step.id}" is not kebab-case`);
-    if (seen.has(step.id)) throw new Error(`step id "${step.id}" is used twice`);
-    seen.add(step.id);
-    if (step.title.length > TITLE_LIMIT) throw new Error(`step "${step.id}" has a title of ${String(step.title.length)} characters; the limit is ${String(TITLE_LIMIT)}`);
-    if (step.detail.length > DETAIL_LIMIT) throw new Error(`step "${step.id}" has a detail of ${String(step.detail.length)} characters; the limit is ${String(DETAIL_LIMIT)}`);
-    if (!(step.weight > 0)) throw new Error(`step "${step.id}" needs a positive weight`);
-  }
 }
 
 interface Progress {
@@ -111,6 +112,8 @@ class MakingImpl implements EngineMaking {
   /** First blow index of each step; for an unplanned step, the count planned before it. */
   private readonly starts: number[];
   private readonly undo: UndoBox[] = [];
+  private readonly sweeper: StockSweeper;
+  private readonly sweeps: (SweepRecord | null)[];
   private jump: Jump | null = null;
   private wantAll = false;
   private cursor = 0;
@@ -132,6 +135,8 @@ class MakingImpl implements EngineMaking {
     this.stock = blockGrid(options.figure.spec, block);
     this.finish = createFinishGrid(options.figure.spec);
     this.state = { stock: this.stock, finish: this.finish, chunks: chunkLayout(options.figure.spec) };
+    this.sweeper = new StockSweeper(this.state, this.figure);
+    this.sweeps = options.steps.map(() => null);
     const workers = options.workers ?? 0;
     let mesher = options.mesher ?? createSyncMesher();
     let carver: ChunkCarver | null = options.carver === 'in-process' ? createSyncCarver(this.figure, this.state) : (options.carver ?? null);
@@ -144,12 +149,12 @@ class MakingImpl implements EngineMaking {
       );
     }
     this.carver = carver;
-    this.jumpBlows = options.jumpBlows ?? JUMP_BLOWS;
+    this.jumpBlows = Math.max(1, options.jumpBlows ?? JUMP_BLOWS);
     this.remesher = new Remesher(this.state, options.material, mesher);
     this.stockObject = this.remesher.group;
     this.plans = options.steps.map(() => null);
     this.starts = options.steps.map(() => 0);
-    this.steps = options.steps.map((step) => info(step, 0, 0));
+    this.steps = options.steps.map((step) => stepInfo(step, 0, 0));
     this.remesher.markAllDirty();
     // The first step is planned at once, so the page has its blows and the tool at rest from the first frame.
     this.advance();
@@ -179,8 +184,20 @@ class MakingImpl implements EngineMaking {
     return this.undoSize;
   }
 
+  get baseRow(): number {
+    return this.sweeper.baseRow;
+  }
+
   blowsOf(step: number): readonly Blow[] {
     return this.plans[step] ?? [];
+  }
+
+  sweptCells(step: number): number {
+    return this.sweeps[step]?.cells ?? 0;
+  }
+
+  sweepOf(step: number): SweepRecord | null {
+    return this.sweeps[step] ?? null;
   }
 
   cyclesOf(step: number): Cycles {
@@ -349,7 +366,7 @@ class MakingImpl implements EngineMaking {
     this.starts[s] = start;
     for (const blow of blows) this.digest = fnvBlow(this.digest, blow);
     this.planned += blows.length;
-    this.steps = this.steps.map((entry, index) => (index === s ? info(def, start, blows.length) : entry));
+    this.steps = this.steps.map((entry, index) => (index === s ? stepInfo(def, start, blows.length) : entry));
   }
 
   private stepOfBlow(index: number): number {
@@ -372,28 +389,62 @@ class MakingImpl implements EngineMaking {
     return out;
   }
 
-  /** Applies or undoes blows until `target` are applied; false when the move went to the workers as a jump and is still out. */
+  /** The plan index where the step holding blow `index` ends. */
+  private stepEndAt(index: number): number {
+    const step = this.stepOfBlow(index);
+    const end = (this.starts[step] ?? 0) + (this.plans[step]?.length ?? 0);
+    if (end <= index) throw new Error(`blow ${String(index)} is not planned; the plan holds ${String(this.planned)} blows`);
+    return end;
+  }
+
+  /** Chunks whose cells changed: to remesh, and to label again before the next sweep. */
+  private dirty(ids: readonly number[]): void {
+    this.remesher.markDirty(ids);
+    this.sweeper.markDirty(ids);
+  }
+
+  /** Applies or undoes blows until `target` are applied, a step at a time with the sweep at each step's end; false when a move went to the workers as a jump and is still out. */
   private moveTo(target: number): boolean {
     while (this.cursor > target) {
       const box = this.undo.pop();
       if (box === undefined) break;
       this.undoSize -= undoBytes(box);
-      this.remesher.markDirty(undoBlow(this.state, box));
+      this.dirty(undoBlow(this.state, box));
       this.cursor -= 1;
     }
-    if (this.cursor >= target) return true;
-    if (this.carver !== null && target - this.cursor >= this.jumpBlows) return this.launchJump(target);
-    for (const { blow, margin } of this.blowsBetween(this.cursor, target)) {
-      const result = applyBlow(this.state, this.figure, blow, margin);
-      this.undo.push(result.undo);
-      this.undoSize += undoBytes(result.undo);
-      this.remesher.markDirty(result.dirty);
-      this.cursor += 1;
+    while (this.cursor < target) {
+      const stop = Math.min(target, this.stepEndAt(this.cursor));
+      if (this.carver !== null && stop - this.cursor >= this.jumpBlows) {
+        if (!this.launchJump(stop)) return false;
+        continue;
+      }
+      for (const { blow, margin } of this.blowsBetween(this.cursor, stop)) {
+        const result = applyBlow(this.state, this.figure, blow, margin);
+        this.undo.push(result.undo);
+        this.undoSize += undoBytes(result.undo);
+        this.dirty(result.dirty);
+        this.cursor += 1;
+      }
+      this.sweepAtEnd();
     }
     return true;
   }
 
-  /** Sends blows [cursor, target) to the carver; true when the carver finished at once (the in-process one). */
+  /** When the blow just applied ended its step, takes the loose stock off and files the swept bytes after that blow's own parts in its undo box, so the box restores both; the next step then plans from the swept stock. */
+  private sweepAtEnd(): void {
+    const step = this.stepOfBlow(this.cursor - 1);
+    if (this.cursor !== (this.starts[step] ?? 0) + (this.plans[step]?.length ?? 0)) return;
+    const box = this.undo[this.undo.length - 1];
+    if (box === undefined) return;
+    const result = this.sweeper.sweep();
+    this.sweeps[step] = { cells: result.cells, millis: result.millis, relabelled: result.relabelled };
+    if (result.cells === 0) return;
+    this.undo[this.undo.length - 1] = { parts: [...box.parts, ...result.parts] };
+    this.undoSize += undoBytes({ parts: result.parts });
+    this.dirty(result.dirty);
+  }
+
+  /** Sends blows [cursor, target) to the carver, never past the end of the cursor's step; true when the carver finished at once (the in-process one). */
   private launchJump(target: number): boolean {
     if (this.carver === null) return true;
     let synchronous = true;
@@ -423,22 +474,7 @@ class MakingImpl implements EngineMaking {
       this.undoSize += undoBytes(box);
       this.cursor += 1;
     }
-    this.remesher.markDirty(outcome.dirty);
+    this.dirty(outcome.dirty);
+    if (outcome.undo.length > 0) this.sweepAtEnd();
   }
-}
-
-function info(step: StepDef, firstBlow: number, blowCount: number): StepInfo {
-  return {
-    id: step.id,
-    stage: step.stage,
-    title: step.title,
-    detail: step.detail,
-    tool: step.tool,
-    blowsPerShown: step.blowsPerShown,
-    weight: step.weight,
-    calendar: step.calendar,
-    ...(step.focus === undefined ? {} : { focus: step.focus }),
-    firstBlow,
-    blowCount,
-  };
 }
