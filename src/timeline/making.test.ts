@@ -1,6 +1,6 @@
 /**
  * The Making (src/timeline/making.ts) on a 6 cm synthetic block with four inline steps. What a green run proves, and its bounds:
- *   1. Determinism: after a seeded random history of 50 plays, reversals, steps and scrubs, the hashes of the stock grid, the finish grid, every chunk's positions, the poses and the chips equal those of a fresh Making set straight to the same `t`, checked at 10 points of the history and at the end, in under 3 s (about 1.2 s alone; the bound leaves room for the other test files running beside it).
+ *   1. Determinism: after a seeded random history of 50 plays, reversals, steps and scrubs, the hashes of the stock grid, the finish grid, every chunk's positions, the poses and the chips equal those of a fresh Making set straight to the same `t`, checked at 10 points of the history and at the end, in under 3 s of this test file's CPU time (1.9 to 2.2 s under the full suite on 2026-10-14; the bound reads CPU time because wall time under the suite's parallel load reached 3.35 s with the same code, and the other test files running beside it do not inflate this file's CPU).
  *   2. Rest positions: at every integer `t` the first `t` steps are complete, `current` is null and nothing is in flight; no tool is posed except, between two steps of one tool, that tool where its last blow left it; at `t = N` then `t = 0` the stock and finish are the untouched block again and the undo log is empty.
  *   3. Planning: steps are planned in order from the state the earlier steps leave (a later step's blows land on the surface the earlier one cut), `planAll` fills the plan, `planLength` and `planDigest` agree between two Makings and `steps[i]` carries the blow ranges.
  *   4. Blow `k` of a step applies when the position passes STRIKE_PHASE of its window `[k / count, (k + 1) / count)`, the blow in progress is the window's blow at its phase, and chips come from struck blows only.
@@ -104,7 +104,7 @@ function hashOf(making: EngineMaking): string {
 
 describe('making', () => {
   it('is a pure function of t after a random history of plays, reversals, steps and scrubs', () => {
-    const start = performance.now();
+    const start = process.cpuUsage();
     const making = fresh();
     const N = making.N;
     const random = mulberry32(2026);
@@ -128,7 +128,10 @@ describe('making', () => {
       }
     }
     expect(checks.length).toBe(10);
-    expect(performance.now() - start).toBeLessThan(3000);
+    const used = process.cpuUsage(start);
+    const cpuMs = (used.user + used.system) / 1000;
+    console.log(`determinism case: ${cpuMs.toFixed(0)} ms of this test file's CPU`);
+    expect(cpuMs).toBeLessThan(3000);
   });
 
   it('rests at integer t with the first t steps complete, and returns to the untouched block', () => {
