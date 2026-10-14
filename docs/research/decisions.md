@@ -36,7 +36,7 @@ Each entry: the question, the choice, the reason and the evidence, with the date
 
 - **The plank enclosure is cut away from outside** (2026-10-11, from the page worker's handoff): the turata's planks face inward only, so the back, left and right presets see the block through the walls while their posts and rails stay visible. The record gives no wall height, and a closed shed would blind three presets.
 - **Video frames go to ffmpeg as JPEG** (2026-10-11): Playwright's bundled ffmpeg is built without a PNG decoder or the image2 demuxer, so `scripts/export-video.mjs` pipes JPEG frames (quality 95) through image2pipe; engine-options.md section 7's PNG command cannot run on that binary.
-- **The carry from the bench is a time stretch** (2026-10-11): rather than extra blows, the first blow of a step holds its approach window for the tools' `approachSeconds` during forward playback, so the tool crosses the yard at a hand's speed; nothing changes at integer `t`.
+- **The carry from the bench is a time stretch** (2026-10-11): rather than extra blows, the first blow of a step holds its approach window for the tools' `approachSeconds` during forward playback, so the tool crosses the yard at a hand's speed; nothing changes at integer `t`. A tool the next step keeps is not set down between the two steps (2026-10-13, after review): the making hands the cycle the earlier step's last blow as `previous` and, at the integer between them, holds the tool where that blow left it, so the pose is continuous across the boundary; the review had measured a 3.8 m jump to the bench at `t = 3`.
 
 ## Figure
 

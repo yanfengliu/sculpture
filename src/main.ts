@@ -8,16 +8,17 @@ import type { Material, Object3D } from 'three';
 import { DAVID_STEPS } from './choreography/david-steps';
 import { STAGES } from './choreography/stages';
 import type { GridHeader } from './contracts/grid';
-import type { Making } from './contracts/making';
-import { BASE_SECONDS } from './contracts/making';
+import type { Making, Vec3 } from './contracts/making';
 import { DEFAULT_CELL_M } from './david/frame';
 import { syntheticFigure } from './david/synthetic';
 import { loadFigureGrid } from './stock/grid';
 import type { Grid } from './stock/grid';
 import { defaultWorkerCount } from './stock/pool';
+import type { CarrySeconds } from './timeline/carry';
+import { advanceWithCarry } from './timeline/carry';
 import { createMaking } from './timeline/making';
 import { createPlayer } from './timeline/player';
-import { APPROACH_END, createBlowCycle } from './tools/blow-cycle';
+import { createBlowCycle } from './tools/blow-cycle';
 import { TOOL_CATALOG } from './tools/catalog';
 import type { CatalogId } from './tools/catalog';
 import { ChipPool } from './tools/chips';
@@ -29,6 +30,7 @@ import type { MakingBundle, RenderedTool } from './viewer/bundle';
 import { buildFacts, factsSignature, publishFacts } from './viewer/facts';
 import { DEFAULT_FOLLOW_DISTANCE, createFollow, framingFor, viewDirectionFor } from './viewer/follow';
 import { createMarbleMaterial } from './viewer/marble';
+import { poseProblem } from './viewer/orbit-limits';
 import { DEFAULT_PRESET, FOLLOW_VIEW, PRESETS, findPreset, isPresetId } from './viewer/presets';
 import type { CameraPose, ViewerQuery } from './viewer/query';
 import { readViewerQuery } from './viewer/query';
@@ -74,13 +76,13 @@ async function createMakingForQuery(query: ViewerQuery, material: Material, prob
     blowCycle,
     toolMeshes,
     toolNames: (tool) => ({ italian: TOOL_CATALOG[tool].italian, english: TOOL_CATALOG[tool].english }),
-    carrySeconds: (blow) => blowCycle.approachSeconds(blow, null),
+    carrySeconds: (blow, previous) => blowCycle.approachSeconds(blow, previous),
     source: figure.header?.source ?? null,
   };
 }
 
-/** `step=` (end of that step) wins over `t=`; a step the making does not have is reported and skipped. */
-function initialPosition(query: ViewerQuery, making: Making, problems: string[]): number {
+/** The position the query sets, or null when it sets none: `step=` (end of that step) wins over `t=`; a step the making does not have is reported and skipped. */
+function initialPosition(query: ViewerQuery, making: Making, problems: string[]): number | null {
   if (query.step !== null) {
     if (query.step.kind === 'index') {
       if (query.step.index >= 1 && query.step.index <= making.N) return query.step.index;
@@ -92,30 +94,37 @@ function initialPosition(query: ViewerQuery, making: Making, problems: string[])
       problems.push(`query parameter step=${JSON.stringify(wanted)} was ignored: it takes a step id (${making.steps.map((step) => step.id).join(', ')}) or a 1-based index.`);
     }
   }
-  if (query.t !== null) return Math.min(making.N, Math.max(0, query.t));
-  return 0;
+  if (query.t !== null) {
+    if (query.t > making.N) problems.push(`query parameter t=${JSON.stringify(String(query.t))} was clamped to N=${String(making.N)}, the end of the timeline: it takes a number from 0 to ${String(making.N)}.`);
+    return Math.min(making.N, Math.max(0, query.t));
+  }
+  return null;
 }
 
-/** `cam=` wins over `view=`; `view=follow` frames the blow in progress at the initial position. */
-function initialCamera(query: ViewerQuery, making: Making, problems: string[]): { pose: CameraPose; view: string } {
+/** `cam=` wins over `view=` when the orbit's limits keep it (src/viewer/orbit-limits.ts), else it is reported and `view=` stands; `view=follow` starts from the default pose and is framed by `applyFollowView` once the making is at the position. */
+function initialCamera(query: ViewerQuery, problems: string[]): { pose: CameraPose; view: string } {
   const fallback = { pose: findPreset(DEFAULT_PRESET)?.pose ?? PRESETS[0]?.pose ?? { position: [7, 4, 8], target: [0, 2.5, 0] }, view: DEFAULT_PRESET };
-  if (query.cam !== null) return { pose: query.cam, view: 'free' };
-  if (query.view === null) return fallback;
-  if (query.view === FOLLOW_VIEW) {
-    const current = making.current;
-    if (current !== null) return { pose: framingFor(current.blow.point, DEFAULT_FOLLOW_DISTANCE, viewDirectionFor(current.blow.normal)), view: FOLLOW_VIEW };
-    problems.push(`query parameter view="follow" was ignored: no blow is in progress at t=${String(making.t)}; it takes a t inside a step.`);
-    return fallback;
+  if (query.cam !== null) {
+    const problem = poseProblem(query.cam);
+    if (problem === null) return { pose: query.cam, view: 'free' };
+    problems.push(`query parameter cam=${JSON.stringify([...query.cam.position, ...query.cam.target].join(','))} was ignored: ${problem}.`);
   }
+  if (query.view === null) return fallback;
+  if (query.view === FOLLOW_VIEW) return { pose: fallback.pose, view: FOLLOW_VIEW };
   const preset = findPreset(query.view);
   if (preset !== undefined) return { pose: preset.pose, view: preset.id };
   problems.push(`query parameter view=${JSON.stringify(query.view)} was ignored: it takes one of ${PRESETS.map((item) => item.id).join(', ')} or follow.`);
   return fallback;
 }
 
+/** The follow distance of the step at `t`: its focus distance, or the default (docs/design/spec.md, Page, View menu). */
+function focusDistance(making: Making, t: number): number {
+  return making.steps[Math.min(making.N - 1, Math.floor(t))]?.focus?.distance ?? DEFAULT_FOLLOW_DISTANCE;
+}
+
 function attributionOf(bundle: MakingBundle): Attribution | null {
   const source = bundle.source;
-  return source === null ? null : { text: source.attribution, url: source.url, licenceUrl: source.licenceUrl };
+  return source === null ? null : { text: source.attribution, url: source.url, licence: source.licence, licenceUrl: source.licenceUrl };
 }
 
 const query = readViewerQuery();
@@ -124,12 +133,14 @@ const marble = createMarbleMaterial({ flat: query.finish });
 const bundle = await createMakingForQuery(query, marble.material, problems);
 const { making } = bundle;
 const player = createPlayer(making.steps.map((step) => step.weight));
-player.seek(initialPosition(query, making, problems));
-making.setTime(player.t);
-const camera = initialCamera(query, making, problems);
+const position = initialPosition(query, making, problems);
+player.seek(position ?? 0);
+// The making stays at t = 0 until the first frame has rendered: the replay to the position runs from the second frame on (see the frame loop), so a load at t = N shows the block within the grid's load time instead of after the whole replay (Claude 3.1).
+const camera = initialCamera(query, problems);
 for (const problem of problems) console.warn(problem);
 
 const viewer = createViewer(document.body, { shot: query.shot, pose: camera.pose });
+viewer.yard.setEnabled(query.yard);
 const isGroup = (object: Object3D): object is Group => object instanceof Group;
 const rig = createToolRig({
   meshes: bundle.toolMeshes,
@@ -149,17 +160,18 @@ viewer.controls.addEventListener('start', () => {
 let lastSignature = '';
 /** Publishes the facts when any of them changed: every frame, and right after a control acts, so a test that reads them after a click never sees the frame before it. */
 function publish(): void {
-  const facts = buildFacts(making, player, { view, follow: follow.enabled, finish: marble.flat, queryProblems: problems });
+  const facts = buildFacts(making, player, { view, follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled, hiddenSpans: viewer.yard.hidden, queryProblems: problems });
   const signature = factsSignature(facts);
   if (signature === lastSignature) return;
   lastSignature = signature;
   publishFacts(facts);
 }
 
-/** A control action: runs, then publishes the facts it changed. */
+/** A control action: runs, brings the making to the player's position, then publishes the facts it changed, so a read right after a control never sees the player ahead of the stock. */
 function act<A extends unknown[]>(run: (...args: A) => void): (...args: A) => void {
   return (...args) => {
     run(...args);
+    if (player.t !== making.t) making.setTime(player.t);
     publish();
   };
 }
@@ -179,12 +191,13 @@ const actions = {
   stepForward: act(() => {
     player.stepForward();
   }),
+  // Play at the end and Play backward at the start do nothing: a jump to the other end would replay the whole plan in one frame (Claude 3.1), and the start and end buttons are there for that choice.
   playPause: act(() => {
     if (player.playing !== null) {
       player.pause();
       return;
     }
-    if (player.t >= making.N) player.seek(0);
+    if (player.t >= making.N) return;
     player.play('forward');
   }),
   playBackward: act(() => {
@@ -192,7 +205,7 @@ const actions = {
       player.pause();
       return;
     }
-    if (player.t <= 0) player.seek(making.N);
+    if (player.t <= 0) return;
     player.play('backward');
   }),
   seek: act((t: number) => {
@@ -220,11 +233,15 @@ const actions = {
   toggleFinish: act(() => {
     marble.setFlat(!marble.flat);
   }),
+  toggleYard: act(() => {
+    viewer.yard.setEnabled(!viewer.yard.enabled);
+  }),
 };
 
 const ui = query.noui ? null : createUi(document.body, { making, presets: PRESETS, attribution: attributionOf(bundle), toolNames: bundle.toolNames, actions });
 installKeyboard(actions);
-if (query.autoplay) player.play('forward');
+// The page plays on load only when the query set no position (spec, Page, First load): a valid t= or step= is a place to look at, not a start.
+if (query.autoplay && position === null) player.play('forward');
 
 let readyFrames = 0;
 if (query.shot) {
@@ -236,33 +253,53 @@ if (query.shot) {
     making.setTime(player.t);
     // A follow shot re-frames the blow in progress at the new position, as a fresh load with view=follow would.
     const current = making.current;
-    if (view === FOLLOW_VIEW && current !== null) viewer.setPose(framingFor(current.blow.point, DEFAULT_FOLLOW_DISTANCE, viewDirectionFor(current.blow.normal)));
+    if (view === FOLLOW_VIEW && current !== null) viewer.setPose(framingFor(current.blow.point, focusDistance(making, player.t), viewDirectionFor(current.blow.normal)));
   };
 }
 
-/**
- * How much slower wall time runs while a step's first tool is carried from the bench: the approach window of its first blow (src/tools/blow-cycle.ts, APPROACH_END) is stretched to the hand's carry time, so a tool never crosses metres in a frame. 1 outside that window, backward, or in capture mode.
- */
-function carryScale(): number {
+/** The carry a step's first approach gets (src/timeline/carry.ts): the tools' carry time from the bench, or from the previous step's last blow when the tool is unchanged, so a tool never crosses metres in a frame; none in capture mode, where nothing plays. */
+const carry: CarrySeconds = query.shot ? null : (bundle.carrySeconds ?? null);
+
+/** What the follow camera frames at the player's position: the step's focus point, else the working tip, at the step's focus distance and from the side the blow's normal faces; null at a rest position without a focus point. */
+function followFraming(): { readonly target: Vec3; readonly distance: number; readonly direction: Vec3 | null } | null {
   const current = making.current;
-  const carry = bundle.carrySeconds;
-  if (query.shot || carry === undefined || current === null || current.phase >= APPROACH_END) return 1;
-  const forward = player.playing === 'forward' || (player.target !== null && player.target > player.t);
-  const step = making.steps[Math.floor(player.t)];
-  if (!forward || step === undefined || making.blowsApplied !== step.firstBlow) return 1;
-  const approachWall = (APPROACH_END * step.weight * BASE_SECONDS) / step.blowCount / player.speed;
-  const needed = carry(current.blow) / player.speed;
-  return needed > approachWall ? approachWall / needed : 1;
+  const focus = making.steps[Math.min(making.N - 1, Math.floor(player.t))]?.focus;
+  const distance = focusDistance(making, player.t);
+  const direction = current === null ? null : viewDirectionFor(current.blow.normal);
+  if (focus?.kind === 'point' && focus.point !== undefined) return { target: focus.point, distance, direction };
+  return current === null ? null : { target: current.blow.point, distance, direction };
+}
+
+let followPending = view === FOLLOW_VIEW;
+/** Frames the blow in progress for `view=follow` once the making is at the requested position; a position with no blow in progress is reported and the default preset stands. */
+function applyFollowView(): void {
+  followPending = false;
+  const current = making.current;
+  if (current !== null) {
+    viewer.setPose(framingFor(current.blow.point, focusDistance(making, player.t), viewDirectionFor(current.blow.normal)));
+    return;
+  }
+  const problem = `query parameter view="follow" was ignored: no blow is in progress at t=${String(player.t)}; it takes a t inside a step.`;
+  problems.push(problem);
+  console.warn(problem);
+  view = DEFAULT_PRESET;
 }
 
 viewer.start((seconds) => {
-  player.update(seconds * carryScale());
-  if (player.t !== making.t) making.setTime(player.t);
+  // The first frame draws the untouched block at once; from the second frame on the making follows the player, which replays to the requested position.
+  if (viewer.frames > 0) {
+    advanceWithCarry(seconds, player, making, carry);
+    if (player.t !== making.t) making.setTime(player.t);
+    if (followPending) applyFollowView();
+  }
   const current = making.current;
   rig.update(making.poses, current === null ? null : { tool: current.blow.tool, phase: current.phase });
   chips.update(making.chips);
-  if (!query.shot && player.moving) follow.update(seconds, current?.blow.point ?? null, DEFAULT_FOLLOW_DISTANCE);
-  ui?.update({ t: player.t, playing: player.playing, speed: player.speed, view: isPresetId(view) ? view : 'free', follow: follow.enabled, finish: marble.flat });
+  if (!query.shot && player.moving) {
+    const framing = followFraming();
+    follow.update(seconds, framing?.target ?? null, framing?.distance ?? DEFAULT_FOLLOW_DISTANCE, framing?.direction ?? null);
+  }
+  ui?.update({ t: player.t, playing: player.playing, speed: player.speed, view: isPresetId(view) ? view : 'free', follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled });
   publish();
   if (query.shot) {
     if (making.dirtyChunks === 0 && !player.moving) {

@@ -2,7 +2,7 @@
  * The only reader of the page URL (docs/design/spec.md, Query contract; `src/repo-conventions.test.ts` enforces it).
  *
  * Every parameter is parsed here into one typed object; the rest of the app takes it from that object and never touches the URL.
- * The viewer uses `shot` and `cam` today; `view`, `autoplay`, `noui`, `model`, `finish`, `t` and `step` are parsed and exposed for the page, timeline and model owners.
+ * The viewer uses `shot` and `cam` today; `view`, `autoplay`, `noui`, `model`, `finish`, `yard`, `t` and `step` are parsed and exposed for the page, timeline and model owners.
  * A value that does not fit its parameter is dropped to the parameter's default and named in `problems`, so a typo in a capture URL is reported, not silently a different shot.
  */
 
@@ -24,7 +24,7 @@ export interface ViewerQuery {
   readonly view: string | null;
   /** `cam=px,py,pz,tx,ty,tz`; wins over `view` when both are set. */
   readonly cam: CameraPose | null;
-  /** `autoplay=0` switches playing on load off; `shot=1` also switches it off. */
+  /** `autoplay=0` switches playing on load off; `shot=1` also switches it off, and so does a valid `t=` or `step=` (src/main.ts: a position set is a place to look at). */
   readonly autoplay: boolean;
   /** `noui=1`: hide the page chrome. */
   readonly noui: boolean;
@@ -32,6 +32,8 @@ export interface ViewerQuery {
   readonly model: ModelId;
   /** `finish=1`: show the finish grid as flat colours. */
   readonly finish: boolean;
+  /** `yard=0`: hide every yard structure (the enclosure, the scaffold, the bench, the model stand); the floor stays. */
+  readonly yard: boolean;
   /** `t=<number>`, a finite timeline position at or above 0; clamping to `[0, N]` is the timeline's job. */
   readonly t: number | null;
   /** `step=<id or 1-based index>`: position at the end of that step; wins over `t`. */
@@ -43,6 +45,8 @@ export interface ViewerQuery {
 export const DEFAULT_MODEL: ModelId = 'david';
 const MODELS: readonly ModelId[] = ['david', 'synthetic'];
 const CAM_COMPONENTS = 6;
+/** Every parameter the page reads (docs/design/spec.md, Query contract); any other key is reported, so a misspelt one is not silently a different shot. */
+export const KNOWN_PARAMETERS: readonly string[] = ['shot', 't', 'step', 'view', 'cam', 'model', 'finish', 'yard', 'autoplay', 'noui'];
 
 /** Parses a query string (`location.search`, with or without the leading `?`). Pure, so the unit tests cover it without a browser. */
 export function parseViewerQuery(search: string): ViewerQuery {
@@ -61,6 +65,11 @@ export function parseViewerQuery(search: string): ViewerQuery {
     return fallback;
   };
 
+  for (const key of new Set(params.keys())) {
+    const values = params.getAll(key);
+    if (!KNOWN_PARAMETERS.includes(key)) problems.push(`query parameter ${key}=${JSON.stringify(values[0] ?? '')} was ignored: the page reads only ${KNOWN_PARAMETERS.join(', ')}.`);
+    else if (values.length > 1) problems.push(`query parameter ${key} is given ${String(values.length)} times (${values.map((value) => JSON.stringify(value)).join(', ')}); the first is used.`);
+  }
   const shot = flag('shot', false);
   const autoplayFlag = flag('autoplay', true);
   const view = nonEmpty(params.get('view'));
@@ -69,7 +78,7 @@ export function parseViewerQuery(search: string): ViewerQuery {
   const t = parseT(params.get('t'), reject);
   const step = parseStep(params.get('step'));
 
-  return { shot, view, cam, autoplay: autoplayFlag && !shot, noui: flag('noui', false), model, finish: flag('finish', false), t, step, problems };
+  return { shot, view, cam, autoplay: autoplayFlag && !shot, noui: flag('noui', false), model, finish: flag('finish', false), yard: flag('yard', true), t, step, problems };
 }
 
 /** Reads the live page URL. The only place in `src/` that touches `location`. */

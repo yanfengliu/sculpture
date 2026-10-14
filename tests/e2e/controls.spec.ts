@@ -185,3 +185,23 @@ test('the finish toggle shows the finish codes with the legend and changes the c
   await expect(legend).toBeHidden();
   expect((await facts(page)).finish).toBe(false);
 });
+
+test('Play backward at the start and Play at the end do nothing; Play backward from the end runs', async ({ page }) => {
+  // The end button replays the whole plan: one of the suite's full jumps.
+  test.slow();
+  const backward = page.getByTestId('play-backward');
+  const playPause = page.getByTestId('play-pause');
+  await backward.click();
+  await expect(backward).toHaveAttribute('aria-pressed', 'false');
+  await waitFrames(page, 10);
+  expect(await facts(page)).toMatchObject({ playing: null, moving: false, t: 0 });
+  await page.getByRole('button', { name: 'Go to end' }).click();
+  const end = await waitUntilStill(page, 60_000);
+  expect(end.t).toBe(end.N);
+  await playPause.click();
+  await expect(playPause).toHaveAttribute('aria-label', 'Play');
+  await waitFrames(page, 10);
+  expect(await facts(page)).toMatchObject({ playing: null, moving: false, t: end.N });
+  await backward.click();
+  expect((await facts(page)).playing).toBe('backward');
+});

@@ -2,7 +2,7 @@
  * The marble (docs/research/engine-options.md, section 6, Marble; docs/research/technique.md, What is known of the David's surfaces).
  *
  * One MeshPhysicalMaterial: sheen for the soft grazing highlight, a little transmission as the cheap subsurface approximation, ior 1.55 for calcite, flat shading so the engine's chunks need no normals.
- * `onBeforeCompile` injects a 3D vein function (sine plus turbulence, evaluated at the fragment's world position, so every cut reveals the interior consistently) into `color_fragment`, and reads the per-vertex `finish` attribute (Uint8, the codes of `FINISH` in src/contracts/grid.ts) to pick the colour, roughness, metalness and a procedural stroke-mark normal pattern of the last tool that touched the surface there.
+ * `onBeforeCompile` injects a 3D vein function (sine plus turbulence, evaluated at the fragment's world position, so every cut reveals the interior consistently) into `color_fragment`, and reads the per-vertex `finish` attribute (Uint8, the codes of `FINISH` in src/contracts/grid.ts) to pick the colour, roughness, metalness and a procedural stroke-mark normal pattern of the last tool that touched the surface there. The code reaches the fragment as a `flat` varying, one code per triangle, so no fragment shows a tool between its vertices' codes.
  * The flat variant (`?finish=1`) paints each code as one flat colour from `FINISH_FLAT_COLOURS` for checking the finish grid by eye.
  */
 import * as THREE from 'three';
@@ -63,8 +63,9 @@ export interface Marble {
   setFlat(flat: boolean): void;
 }
 
+/** `vFinish` is `flat`: a finish code is a category, so a triangle whose vertices carry different codes takes its provoking vertex's code everywhere, never a blend that rounds to tools that touched neither vertex (the defect of 2026-10-11, pinned in marble.test.ts). */
 const DECLARATIONS = `
-varying float vFinish;
+flat varying float vFinish;
 varying vec3 vWorldPos;
 `;
 
