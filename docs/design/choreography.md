@@ -4,11 +4,11 @@ The step list the page plays, derived from `docs/research/technique.md` (the sta
 
 ## Calendar
 
-The two documented anchors are the start on 13 September 1501 and the half-done report of 28 February 1502 (168 days), and "nearly finished" on 25 January 1504 (696 days more). The technique note's inferred shares of time are scaled inside each span so the anchors hold: before the report, roughing takes 12/19 of the span and the coarse claw 7/19 (the coarse claw's 55 days below are the whole report-to-report remainder after the setup and layout days); after it, the fine claw 37/72, drilling 8/72, rasps 12/72 and polishing 15/72. The knot blows of 9 September 1501 open the calendar and the label counts days from them (Day 1; the formal start of 13 September is Day 5); the public showing of 23 June 1503 falls in the rasping stage; the statue leaves the Opera on 14 May 1504, and the on-site steps run from the ringhiera of 8 June 1504 to the unveiling of 8 September 1504.
+The two documented anchors are the start on 13 September 1501 and the half-done report of 28 February 1502 (168 days), and "nearly finished" on 25 January 1504 (696 days more). The technique note's inferred shares of time are scaled inside each span so the anchors hold: before the report, roughing takes 12/19 of the span and the coarse claw 7/19 (the coarse claw's 55 days below are the whole report-to-report remainder after the setup and layout days); after it, the fine claw 37/72, drilling 8/72, rasps 12/72 and polishing 15/72. Agostino di Duccio's roughing of 1464 to 1466 (the end date inferred, `docs/research/decisions.md`) and the hole between the legs open the making, and the label shows their years; the knot blows of 9 September 1501 open Michelangelo's calendar and the label counts days from them (Day 1; the formal start of 13 September is Day 5); the public showing of 23 June 1503 falls in the rasping stage; the statue leaves the Opera on 14 May 1504, and the on-site steps run from the ringhiera of 8 June 1504 to the unveiling of 8 September 1504.
 
 | Stage | From | To | Share |
 |---|---|---|---|
-| setup | 1501-09-09 | 1501-09-13 | the nodo and the start |
+| setup | 1464-08-18 | 1501-09-13 | Agostino's roughing and the hole between the legs (1464 to 1466), then the nodo and the start |
 | layout | 1501-09-13 | 1501-09-20 | 1 % (inferred) |
 | roughing | 1501-09-20 | 1502-01-04 | 12/19 of the first span |
 | coarse-claw | 1502-01-04 | 1502-02-28 | 7/19 of the first span, to "iam semifactum" |
@@ -39,36 +39,44 @@ Regions are boxes in world metres on the figure as placed by `src/david/frame.ts
 | stump | 0.4 to 2.0, x < -0.3 | normal z < 0.3 | the tree stump behind the right leg |
 | base | 0 to 0.5 | none | the rock; left rough |
 | flesh | 0.5 to 5.17 | none, minus hair, sling, stump and base | what is rasped and polished |
+| agostino | 0.3 to 2.6 | normal z > 0.2 | Agostino's lump: the legs, the feet and the lower trunk |
+| hole | 1.2 to 1.6, x -0.05 to 0.22 | none: it cuts through | the hole between the legs |
+| gaps | above the base | minus the crown | the hollows and the gaps between the limbs |
+| between-the-legs | 2.0 to 2.4, x -0.35 to 0.05 | none | the crease between the thighs, for the drill rows |
 
 ## Steps
 
-Margins are the stone left above the final surface at the end of the step, in millimetres, from the technique note's bounds. `blowsPerShown` is the number of real blows one shown blow stands for: the step's days times five working hours times the tool's documented rate (point one a second, toothed chisels one and a half, rasps and abrasives one stroke a second), divided by the shown blows the generator plans and rounded; where the record gives the count directly (the knot's one or two blows, a drawn mark, a drilled hole, a brush stroke) the step states it instead. The blows column is what the generators planned at 8 mm on the synthetic figure on 2026-10-11 (`src/choreography/david-steps.ts`, 18,848 in all; the David grid's counts differ a little with its shape). Weights set playback length and are sized so the blow rate stays within a few hundred a second at 1×: the whole making plays in about five minutes.
+Margins are the stone left above the final surface at the end of the step, in millimetres, from the technique note's bounds. `blowsPerShown` is the number of real blows one shown blow stands for: the step's days times five working hours times the tool's documented rate (point one a second, toothed chisels one and a half, rasps and abrasives one stroke a second), divided by the shown blows the generator plans and rounded; where the record gives the count directly (the knot's one or two blows, a drawn mark, a drilled hole, a brush stroke) the step states it instead. The blows column is what the generators plan on the David at 8 mm (`PLAN_VERSION` 2, 2026-10-14: 28,986 in all, read from `public/model/david.plan.bin`); the synthetic figure's counts differ with its shape (25,922 at 8 mm). Weights set playback length and are sized so the blow rate stays within a few hundred a second at 1×: the whole making plays in about five minutes.
 
 | # | Stage | Step id | Tool | Region | Margin | Blows (shown) | Weight | Source |
 |---|---|---|---|---|---|---|---|---|
-| 1 | setup | nodo | point | a 0.2 m box at the chest, front | 30 | 1 | 0.5 | technique.md stage 0; the 9 September entry |
-| 2 | layout | principal-view | charcoal | front face of the block | 0 (removes nothing) | 348 | 0.6 | technique.md stage 1; Cellini on drawing the principal view |
-| 3 | roughing | high-points | point | high-points, front relief | 30 | 680 | 0.85 | technique.md stage 2; Vasari's water rule, St Matthew's knee and hand |
-| 4 | roughing | chest-and-face | point | chest-and-face, front relief | 30 | 682 | 0.85 | technique.md stage 2 |
-| 5 | roughing | front-furrows | point | front relief | 20 | 1,964 | 2.5 | technique.md stage 2; the legs and base, then the sculptor's 45° stroke |
-| 6 | coarse-claw | two-tooth-front | two-tooth | front relief | 8 | 781 | 1.0 | technique.md stage 3; Vasari's order |
-| 7 | coarse-claw | claw-front | claw | front relief | 4 | 897 | 1.1 | technique.md stage 3; the 28 February 1502 valuation ends it |
-| 8 | fine-claw | sides-point | point | left-side and right-side, the top | 20 | 5,011 | 3.0 | technique.md stage 4; sides and back reached last (inferred: the point still opens them); the crown kept under its crust |
-| 9 | fine-claw | back-point | point | back relief | 20 | 242 | 0.5 | as 8; the sides pass has already opened the stone beside the figure |
-| 10 | fine-claw | sides-and-back-claw | claw | left-side, right-side, back | 4 | 1,443 | 1.75 | technique.md stage 4 |
-| 11 | fine-claw | fine-claw-all | fine-claw | whole but the crown | 1.5 | 1,531 | 1.9 | technique.md stage 4; the dente di cane traces of 2003 |
-| 12 | fine-claw | roundel-hollows | roundel | head, left-hand, right-hand | 1.5 | 69 | 0.4 | technique.md stage 4; the unghietto traces |
-| 13 | drilling | hairline-and-curls | drill | hair | 0 | 82 | 0.5 | technique.md stage 5; the Stanford head page |
-| 14 | drilling | pupils-and-nostrils | drill | face | 0 | 2 | 0.3 | technique.md stage 5 |
-| 15 | drilling | fingers-sling-stump | drill | left-hand, sling, stump | 0 | 23 | 0.4 | technique.md stage 5 (inferred for the David) |
-| 16 | rasping | rasp-flesh | rasp | flesh | 0.5 | 1,943 | 2.4 | technique.md stage 6 |
-| 17 | rasping | file-details | file | face, left-hand, right-hand | 0.2 | 303 | 0.5 | technique.md stage 6 |
-| 18 | polishing | pumice-flesh | pumice | flesh | 0 | 1,071 | 1.3 | technique.md stage 7; Cellini's white pumice |
-| 19 | polishing | tripoli-straw-leather | polish | flesh | 0 | 752 | 0.95 | technique.md stage 7; Vasari's straw bunches |
-| 20 | on-site | last-touches | file | face, hair | 1 | 16 | 0.3 | technique.md stage 8; Soderini and the nose (a file, since a toothed chisel on the polished face would leave claw marks over the polish) |
-| 21 | on-site | gilding | gilding | sling, stump | 0 | 1,007 | 1.3 | technique.md stage 8; the gilded broncone and sling |
+| 1 | setup | agostino | point | agostino: the legs, the feet and the lower trunk, front relief | 80 | 292 | 1.0 | technique.md stage 0; david-history.md, The block (Agostino had begun "only the trunk, lower limbs and feet") |
+| 2 | setup | hole-between-legs | point | hole: through between the thighs | 30 | 98 | 0.5 | technique.md stage 0; Vasari's Maestro Simone and the documents on Agostino |
+| 3 | setup | nodo | point | a 0.2 m box at the chest, front | 30 | 11 | 0.5 | technique.md stage 0; the 9 September entry |
+| 4 | layout | principal-view | charcoal | front face of the block | 0 (removes nothing) | 374 | 0.6 | technique.md stage 1; Cellini on drawing the principal view |
+| 5 | roughing | high-points | point | high-points, front relief | 30 | 605 | 0.85 | technique.md stage 2; Vasari's water rule, St Matthew's knee and hand |
+| 6 | roughing | chest-and-face | point | chest-and-face, front relief | 30 | 272 | 0.85 | technique.md stage 2 |
+| 7 | roughing | front-furrows | point | front relief | 20 | 748 | 2.5 | technique.md stage 2; the legs and base, then the sculptor's 45° stroke |
+| 8 | coarse-claw | two-tooth-front | two-tooth | front relief | 8 | 981 | 1.0 | technique.md stage 3; Vasari's order |
+| 9 | coarse-claw | claw-front | claw | front relief | 4 | 1,068 | 1.1 | technique.md stage 3; the 28 February 1502 valuation ends it |
+| 10 | fine-claw | sides-point | point | left-side and right-side, the top | 20 | 1,345 | 3.0 | technique.md stage 4; sides and back reached last (inferred: the point still opens them); the crown kept under its crust |
+| 11 | fine-claw | back-point | point | back relief | 20 | 128 | 0.5 | as above; the sides pass has already opened the stone beside the figure |
+| 12 | fine-claw | sides-and-back-claw | claw | left-side, right-side, back | 4 | 1,856 | 1.75 | technique.md stage 4 |
+| 13 | fine-claw | fine-claw-all | fine-claw | whole but the crown | 1.5 | 5,564 | 1.9 | technique.md stage 4; the dente di cane traces of 2003 |
+| 14 | fine-claw | fine-claw-gaps | fine-claw | gaps: the hollows and the gaps between the limbs, from the open side, not the crown | 1.5 | 558 | 0.5 | technique.md stage 4 |
+| 15 | fine-claw | roundel-hollows | roundel | head, left-hand, right-hand | 1.5 | 444 | 0.4 | technique.md stage 4; the unghietto traces |
+| 16 | drilling | hairline-and-curls | drill | hair | 0 | 124 | 0.5 | technique.md stage 5; the Stanford head page |
+| 17 | drilling | pupils-and-nostrils | drill | face | 0 | 4 | 0.3 | technique.md stage 5 |
+| 18 | drilling | fingers-sling-stump | drill | left-hand, sling, stump | 0 | 24 | 0.4 | technique.md stage 5 (inferred for the David) |
+| 19 | drilling | between-the-legs | drill | between-the-legs: the crease between the thighs | 0 | 18 | 0.3 | technique.md stage 5; tools.md, Trapano (running holes where the chisel cannot reach) |
+| 20 | rasping | rasp-flesh | rasp | flesh | 0.5 | 6,520 | 2.4 | technique.md stage 6 |
+| 21 | rasping | file-details | file | face, left-hand, right-hand | 0.2 | 2,430 | 0.5 | technique.md stage 6 |
+| 22 | polishing | pumice-flesh | pumice | flesh | 0 | 3,198 | 1.3 | technique.md stage 7; Cellini's white pumice |
+| 23 | polishing | tripoli-straw-leather | polish | flesh | 0 | 1,909 | 0.95 | technique.md stage 7; Vasari's straw bunches |
+| 24 | on-site | last-touches | file | face, hair | 1 | 29 | 0.3 | technique.md stage 8; Soderini and the nose (a file, since a toothed chisel on the polished face would leave claw marks over the polish) |
+| 25 | on-site | gilding | gilding | sling, stump | 0 | 386 | 1.3 | technique.md stage 8; the gilded broncone and sling |
 
-About 19,000 shown blows, under the plan budget of 60,000 and near the 20,000 the decisions note sizes the time-lapse on. Weights sum to about 23, so at `BASE_SECONDS` of 12 the making plays in about four and a half minutes at 1×. The hollows and the drilled gaps plan few blows on the synthetic mannequin, which has few creases; the David grid gives the roundel and the drill more to do.
+About 29,000 shown blows on the David, under the plan budget of 60,000. Weights sum to 25.2, so at `BASE_SECONDS` of 12 the making plays in about five minutes at 1×. The hollows and the drilled gaps plan few blows on the synthetic mannequin, which has few creases; the David grid gives the roundel and the drill more to do.
 
 ## What each step's detail says
 
@@ -78,5 +86,5 @@ Each `detail` names its tool in Italian and English, the real blows one shown bl
 
 - The two-tooth chisel's teeth, the claw's bands and the rasp's scratches are below the 8 mm grid and are shown by the finish attribute's shading, not by geometry.
 - Drill holes at 8 mm come out wider than the documented 3 to 8 mm bits; the drilling steps say so in their detail until the refinement boxes land.
-- The sling and stump regions are boxes, so a few blows of the gilding brush may touch neighbouring flesh; the generator confines the brush to cells whose finish is still claw or roundel texture, which is where the gilding bonded.
+- Every footprint tool (the fine claw's patch, the rasp, the file, the pumice, the polish, the gilding leaf) keeps its paint and cut inside its step's region: the planner tries each blow on the step's scratch and moves it inward or drops it (2026-10-14). Where a region is narrower than the footprint, as on the stump beside the calf, the leaf cannot lie, so the stump shows gold in patches; open.
 - The garland of 28 copper leaves on a brass thread was a separate object and is not shown.
