@@ -3,11 +3,13 @@
  * The planner reads them from the stock the step starts from, on a full-resolution scratch (./scratch.ts) it carves with every blow: a web cell is stone whose figure distance is more than the step's margin plus `reach` (half a cell when absent), inside the step's region (judged at the cell's nearest figure point) and above the block's floor. The cells are grouped into 6-connected clusters and visited as a tour from the highest (`clustersOf`).
  * Each cluster is worked from its open side: the seeds are its cells that touch air on the scratch, or, for a cluster sealed under waste stone, the first cells touching air within SEAL_LAYERS of it through stone farther than the margin from the figure, never through the figure; each seed's blow lands where the stock surface lies outward along the scratch's normal, and the tool is tried at the given angles and at LEANS directions round the normal. A candidate counts only when its shaft is clear of stone for SHAFT_CLEARANCE, and the one whose removed volume takes the most of the cluster's standing cells is struck and carved into the scratch; the cluster is worked until no candidate takes a cell of it or MAX_BLOWS_PER_CLUSTER is reached, so a web no chisel reaches with its shaft in air is left standing.
  * The carving rule stops every cut at the figure plus the step's margin (src/stock/carve-kernel.ts), so no blow cuts the statue; ./webs.test.ts holds the plan to its claims on a fixture.
+ * The fine claw's combing patch strikes a footprint of 12 by 8 cm, so a blow is kept only when its cut and paint stay inside the step's region (./confine.ts, as ./bands.ts keeps its footprint blows): the candidates are tried from the one that takes the most standing cells down, up to MAX_TRIES of them, and a cluster none of them can work inside the region is left. On the David the patches that cleared the webs on the head's top had cut 17,648 cells and painted 21,173 outside the region, most on the crown, whose crust stays untouched after the point (2026-10-14).
  */
 import { FIXED_POINT } from '../../contracts/grid';
 import type { Blow, PlanContext, ToolId, Vec3 } from '../../contracts/making';
 import { volumeOf } from '../../stock/carve';
 import type { Grid } from '../../stock/grid';
+import { Confiner } from './confine';
 import { ScratchStock } from './scratch';
 import { blowAt, cross, firstEntry, firstExit, inRegion, normalize, tangentOf } from './surface';
 
@@ -33,6 +35,8 @@ const SEAL_LAYERS = 4;
 const MAX_BLOWS_PER_CLUSTER = 16;
 /** A stroke is the blows of one cluster within this of its first blow, metres (the blow cycle's slide, src/tools/blow-cycle.ts, STROKE_SPAN). */
 const STROKE_SPAN = 0.15;
+/** Candidates tried for a blow that must keep inside the region, the most taking first. */
+const MAX_TRIES = 16;
 /** What a metre of climb costs the tour over a metre across, so the work runs down the figure (see `clustersOf`). */
 const RISE_COST = 3;
 
@@ -173,14 +177,13 @@ function shaftClear(scratch: ScratchStock, blow: Blow): boolean {
   return firstEntry(scratch, from, back, SHAFT_CLEARANCE, step) === null;
 }
 
-/** The best blow on the cluster's standing cells from its open side, or null when no candidate with its shaft in air takes any of them. */
-function bestBlow(scratch: ScratchStock, figure: Grid, options: WebOptions, standing: readonly number[], margin: number): Blow | null {
+/** The best blow on the cluster's standing cells from its open side, or null when no candidate with its shaft in air takes any of them. With `confiner` the candidates are tried on the scratch from the one that takes the most down, up to MAX_TRIES (./confine.ts), and the first whose cut and paint stay inside the region is returned, already carved; null when none does. */
+function bestBlow(scratch: ScratchStock, figure: Grid, options: WebOptions, standing: readonly number[], margin: number, confiner: Confiner | null): Blow | null {
   const grid = scratch.grid;
   const marginFixed = Math.round((margin / grid.cell) * FIXED_POINT);
   const seeds = openSeeds(grid, standing, (index) => (figure.values[index] ?? 0) > marginFixed);
   const every = Math.max(1, Math.ceil(seeds.length / MAX_SEEDS));
-  let best: Blow | null = null;
-  let bestTaken = 0;
+  const candidates: { blow: Blow; taken: number }[] = [];
   for (let s = 0; s < seeds.length; s += every) {
     const centre = worldOfIndex(grid, seeds[s] ?? 0);
     const out = scratch.normalAt(centre);
@@ -197,14 +200,15 @@ function bestBlow(scratch: ScratchStock, figure: Grid, options: WebOptions, stan
         const blow = blowAt(options.tool, point, normal, lean, angle, options.size, 0);
         if (!shaftClear(scratch, blow)) continue;
         const taken = takes(scratch, figure, blow, standing);
-        if (taken > bestTaken) {
-          best = blow;
-          bestTaken = taken;
-        }
+        if (taken > 0) candidates.push({ blow, taken });
       }
     }
   }
-  return best;
+  // The most taking first, and among equals the first found (the sort is stable), which is the blow a scan for the most would keep.
+  candidates.sort((a, b) => b.taken - a.taken);
+  if (confiner === null) return candidates[0]?.blow ?? null;
+  for (const { blow } of candidates.slice(0, MAX_TRIES)) if (confiner.trial(blow).inside) return blow;
+  return null;
 }
 
 /** Plans the blows that clear the webs of the step's region, cluster by cluster along the tour of `clustersOf`, each blow from the cluster's open side with the shaft in air and each cluster its own stroke while its blows stay within STROKE_SPAN of the first. */
@@ -212,6 +216,7 @@ export function webs(ctx: PlanContext, options: WebOptions): Blow[] {
   const scratch = new ScratchStock(ctx);
   const figure = scratch.figure;
   const grid = scratch.grid;
+  const confiner = Confiner.of(ctx, options.tool, options.size, grid);
   const blows: Blow[] = [];
   let stroke = -1;
   let strokeStart: Vec3 | null = null;
@@ -219,7 +224,7 @@ export function webs(ctx: PlanContext, options: WebOptions): Blow[] {
     for (let n = 0; n < MAX_BLOWS_PER_CLUSTER; n += 1) {
       const standing = cluster.filter((index) => (grid.values[index] ?? 0) < 0);
       if (standing.length === 0) break;
-      const blow = bestBlow(scratch, figure, options, standing, ctx.margin);
+      const blow = bestBlow(scratch, figure, options, standing, ctx.margin, confiner);
       if (blow === null) break;
       const apart = strokeStart === null || n === 0 ? Number.POSITIVE_INFINITY : Math.hypot(blow.point[0] - strokeStart[0], blow.point[1] - strokeStart[1], blow.point[2] - strokeStart[2]);
       if (apart > STROKE_SPAN) {
@@ -227,7 +232,8 @@ export function webs(ctx: PlanContext, options: WebOptions): Blow[] {
         strokeStart = blow.point;
       }
       const placed: Blow = { ...blow, stroke };
-      scratch.carve(placed, ctx.margin);
+      // A confined blow was carved when it was tried.
+      if (confiner === null) scratch.carve(placed, ctx.margin);
       blows.push(placed);
     }
   }

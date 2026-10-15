@@ -64,3 +64,15 @@ and its log showed all 729 runs within 10 degrees of a world axis (the bound is 
 **Red run:** `npx vitest run src/choreography/paint-confinement.test.ts` failed with `709 HAIR cells carry the rasp's code and 206 the file's after file-details: expected 915 to be +0`; its log read `67322 examined; by finish: block 856, point 58330, twoTooth 105, claw 1156, fineClaw 5629, drill 331, rasp 709, file 206; rasp 709 (one at 0.000, 4.765, -0.360), file 206 (one at -0.180, 4.945, 0.000)`. Restored, the run examined 67,253 HAIR cells with none carrying either code, and the file passes 2 of 2.
 
 **Commit:** the gate and the confinement it holds landed together on the `engine-a-paint` branch and were brought into `engine-a` (round 2, item 5).
+
+## Every footprint step keeps its paint and cut inside its region, the web-clearing step too (2026-10-14)
+
+**Gate:** `src/choreography/paint-confinement.test.ts`, its first case extended: walked step by step on the synthetic figure at 2 cm, every step whose tool strikes a footprint (`src/choreography/outside-region.ts`: fine-claw-all and fine-claw-gaps with the fine claw's patch, rasp-flesh, file-details, pumice-flesh, tripoli-straw-leather, last-touches and gilding) paints and cuts no cell outside its region, besides the HAIR claim of the section above; `src/choreography/david-steps.slow.test.ts` walks both figures at 8 mm the same way. Found by a probe of the David after the section above: fine-claw-gaps, the web-clearing step of the same round (`src/choreography/generators/webs.ts`), strikes the same patch without `bands.ts` and had cut 17,648 cells and painted 21,173 outside its region, 22,761 of them on the crown, whose crust stays untouched after the point; its candidates are now tried on the scratch like the band blows.
+
+**Mutation 1:** `bandConfiner` in `src/choreography/generators/bands.ts` returning null for every tool, as in the section above. Red: `fine-claw-all painted 484 and cut 327 cells outside whole-but-crown (one at 0.000, 5.165, -0.220); rasp-flesh painted 4508 and cut 3283 cells outside flesh (one at -0.500, 0.245, -0.600); file-details painted 2504 and cut 1131 cells outside details; pumice-flesh painted 3241 and cut 3742; tripoli-straw-leather painted 3748; last-touches painted 75 and cut 19; gilding painted 33`, with fine-claw-gaps at 0 and 0.
+
+**Mutation 2:** the confiner of `webs` in `src/choreography/generators/webs.ts` set to null. Red: `fine-claw-gaps painted 480 and cut 302 cells outside gaps (one at 0.000, 5.185, -0.240)`.
+
+Both restored, the file passes 2 of 2: every one of the eight steps 0 and 0, and 65,858 HAIR cells examined with neither code.
+
+**On the David at 8 mm**, a probe with the same reading (not kept): main at `42bfc46` painted between 982 and 64,680 cells outside the region in every footprint step (rasp-flesh 64,680, of them 29,498 on the sling, 18,972 on the stump and 13,361 in the hair; fine-claw-all 21,314, on the crown; gilding 16,961), and after the confinement none in any step.
