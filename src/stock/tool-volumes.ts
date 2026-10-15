@@ -1,11 +1,11 @@
 /**
  * The volume each tool removes with one blow, as a closed-form signed distance in world metres (negative inside the removed volume), from docs/research/tools.md and docs/research/engine-options.md section 4.
  * A blow's frame (src/stock/tool-frame.ts): `n` the outward stock normal, `d` the tool axis from handle to tip, `u` the push direction (the part of `d` along the surface) and `w = n × u` across the blade. Local coordinates: `a` along the push, `b` across, `c` above the surface.
- * Every shape here is 1-Lipschitz (a true distance or a lower bound of one built from maxima of distances), which the carving loop relies on to skip blocks of cells far from the volume.
+ * Every shape here is 1-Lipschitz (a true distance or a lower bound of one built from maxima of distances) or states its constant in `lipschitz` (the rubbing slab, the bulk crater), which the carving loop relies on to skip blocks of cells far from the volume.
  * Bounds are the tight axis-aligned box of each shape (a cylinder's box, not a cube of its reach), because the carving loop and the chunk jobs visit every cell of the box dilated by the band.
  */
 import type { Blow, ToolId, Vec3 } from '../contracts/making';
-import { blowFrame, cylinderBounds, extrude, type Frame, frameBounds, polygonDistance, roundedBox2 } from './tool-frame';
+import { blowFrame, blowSeed, cylinderBounds, extrude, type Frame, frameBounds, PIT_MEAN, PIT_SLOPE, pitDepth, polygonDistance, rotationRows, roundedBox2, seededUnit, turn } from './tool-frame';
 
 /** The removed volume's dimensions per tool, metres and radians. `source` names the line of docs/research/tools.md (or technique.md) the numbers come from. */
 export interface ToolVolumeSpec {
@@ -47,14 +47,32 @@ export const BULK_CUT_SIZE_M = 0.04;
  */
 export const PATCH_SIZE_M = 0.02;
 /** The combing patch's footprint, metres: a hand's breadth along the stroke by half across. */
-const PATCH_SPEC: ToolVolumeSpec = { width: 0.08, push: 0.12, angle: 45 * DEG, removes: true, source: 'technique.md, Stage 4: the dente di cane over the whole figure, one shown blow standing for a combed patch' };
+export const PATCH_SPEC: ToolVolumeSpec = { width: 0.08, push: 0.12, angle: 45 * DEG, removes: true, source: 'technique.md, Stage 4: the dente di cane over the whole figure, one shown blow standing for a combed patch' };
 /**
- * A bulk cut's crater: one shown bulk blow stands for about a thousand real ones (docs/research/decisions.md, Time and scale), so its removed volume is the union of a field of 90-degree pits, which tools.md (Subbia, The mark) describes as a pitted, crater-like crust: a flat-floored crater `BULK_RADIUS_RATIO × size` wide, not one pit. A departure from a single blow's cone, stated in the handoff.
+ * A bulk cut's crater: one shown bulk blow stands for about a thousand real ones (docs/research/decisions.md, Time and scale), so its removed volume is the union of a field of 90-degree pits, which tools.md (Subbia, The mark) describes as a pitted, crater-like crust: a crater of radius about `BULK_RADIUS_RATIO × size`, its rim ragged and its floor pitted, not one pit. A departure from a single blow's cone, stated in the handoff.
  * The floor meets the wall sharply: a rounded bottom edge left a ring of stock between neighbouring craters that the planner could not predict (src/choreography/generators/furrows.ts predicts the floors it has made) and that read as slivers.
  */
 export const BULK_RADIUS_RATIO = 1.2;
+/** The rim's wobble around the axis as a fraction of the radius, for the harmonics of 2, 3 and 5 lobes in turn, each at a seeded phase (2026-10-14): a field of pits ends in a ragged edge, not a circle. The sum, RIM_WOBBLE (0.2), is the most the rim moves out; it moves in to the radius over 1 + RIM_WOBBLE. */
+const RIM_AMPLITUDES = [0.1, 0.07, 0.03] as const;
+const RIM_ORDERS = [2, 3, 5] as const;
+export const RIM_WOBBLE = RIM_AMPLITUDES[0] + RIM_AMPLITUDES[1] + RIM_AMPLITUDES[2];
+/** The largest rate of the wobble around the axis, per radian: the sum of order × amplitude. */
+const RIM_SLOPE = RIM_ORDERS[0] * RIM_AMPLITUDES[0] + RIM_ORDERS[1] * RIM_AMPLITUDES[1] + RIM_ORDERS[2] * RIM_AMPLITUDES[2];
+/**
+ * The pits of a crater's floor and walls (tools.md, Subbia, The mark: a pitted, crater-like crust with 10 to 20 mm pits): one cone per PIT_PITCH cube of a lattice fixed in the stone and turned off the world's axes, its radius 0.25 to 0.42 of the pitch (pits 11 to 18 mm across) and the largest PIT_DEPTH deep (`pitDepth`, src/stock/tool-frame.ts), so a face or a floor cuts them at mixed sizes and depths.
+ * Fixed in the stone, not drawn per blow: where two shown craters overlap at one depth they stand for the same real pits, so their floors agree cell for cell and the later blow leaves the earlier floor's band alone. Pits drawn per blow rewrote that band wherever the new pit was the deeper and cost 28 percent more undo per bulk blow (src/stock/undo-budget.test.ts, 40.6 to 52.2 KB, 2026-10-14).
+ */
+const PIT_PITCH = 0.022;
+export const PIT_DEPTH = 0.005;
+/** The pit lattice's axes in world space over the pitch: the turn of the quaternion (0.29, −0.29, −0.29, −0.86), which leaves every lattice axis 47 to 71 degrees off every world axis, so no face of the block is parallel to a lattice plane. */
+const PIT_AXES = rotationRows(0.29, -0.29, -0.29, -0.86).map((axis) => axis.map((v) => v / PIT_PITCH));
+/** The lattice's own seed for the pits' radii and centres: a constant, since the field belongs to the stone, not to a blow. */
+const PIT_SEED = 0x2545f491;
 /** Corner radius of the rasp, file and pumice footprints as a fraction of the width. */
-const FOOTPRINT_ROUNDING = 0.3;
+export const FOOTPRINT_ROUNDING = 0.3;
+/** Corner radius of the charcoal, polish and gilding footprints as a fraction of the lesser half extent. */
+export const PAINT_ROUNDING = 0.5;
 /** Width of the feathered edge of a rasped patch as a fraction of the footprint's half width: the depth tapers to nothing there, as a rubbed patch does. */
 const FEATHER = 0.5;
 /** Above and below the surface, the painting tools reach one blow size, so both sides of a crossing edge are painted. */
@@ -71,7 +89,7 @@ export interface ToolVolume {
   readonly min: Vec3;
   readonly max: Vec3;
   readonly removes: boolean;
-  /** How much faster than 1 per metre the distance may change: 1 for the true distances; more for the surface-following slab, whose depth axis is the sampled figure field and whose edge tapers (the carving loop widens its skip and clamp margins by it). */
+  /** How much faster than 1 per metre the distance may change: 1 for the true distances; more for the surface-following slab, whose depth axis is the sampled figure field and whose edge tapers, and for the bulk crater, whose rim wobbles and whose floor is pitted (the carving loop widens its skip and clamp margins by it). */
   readonly lipschitz: number;
 }
 
@@ -81,8 +99,10 @@ export function closedFormVolume(tool: ToolId, size: number): number {
   switch (tool) {
     case 'point': {
       if (size >= BULK_CUT_SIZE_M) {
+        // The cylinder, its section widened by the ragged rim's mean area (1 plus the sum of the squared amplitudes, to second order), plus the pits' mean depth over the floor and the wall below the face.
         const radius = BULK_RADIUS_RATIO * size;
-        return Math.PI * radius * radius * size;
+        const rim = 1 + RIM_AMPLITUDES[0] ** 2 + RIM_AMPLITUDES[1] ** 2 + RIM_AMPLITUDES[2] ** 2;
+        return Math.PI * radius * radius * size * rim + PIT_MEAN * PIT_DEPTH * (Math.PI * radius * radius + 2 * Math.PI * radius * size);
       }
       const radius = size * Math.tan(spec.angle);
       const crush = CRUSH_RATIO * size;
@@ -126,7 +146,7 @@ export function toolVolume(blow: Blow, figureAtPoint: number, figureBand: number
   const size = blow.size;
   switch (blow.tool) {
     case 'point':
-      return size >= BULK_CUT_SIZE_M ? bulkCrater(f, size) : pointCone(f, size, spec);
+      return size >= BULK_CUT_SIZE_M ? bulkCrater(f, size, blowSeed(blow)) : pointCone(f, size, spec);
     case 'fine-claw':
       return size >= PATCH_SIZE_M ? surfaceSlab(f, size, PATCH_SPEC, figureAtPoint, figureBand) : bladeWedge(f, size, spec, false);
     case 'two-tooth':
@@ -146,49 +166,75 @@ export function toolVolume(blow: Blow, figureAtPoint: number, figureBand: number
   }
 }
 
-/** The bulk crater: a flat-floored cylinder along the tool axis, `size` deep from the blow point and reaching as far above it, so a fin or a cusp the neighbouring craters left standing inside its radius comes away with it (one shown blow stands for a field of pits, and the sculptor knocks such slivers off; src/stock/connectivity.test.ts), its floor meeting its wall sharply. */
-function bulkCrater(f: Frame, size: number): ToolVolume {
+/**
+ * The bulk crater: a flat-floored cylinder along the tool axis, `size` deep from the blow point and reaching as far above it, so a fin or a cusp the neighbouring craters left standing inside its radius comes away with it (one shown blow stands for a field of pits, and the sculptor knocks such slivers off; src/stock/connectivity.test.ts), its floor meeting its wall sharply.
+ * Its rim wobbles: the radius at angle θ around the axis is `radius × (1 + W(θ))`, W the harmonics of RIM_AMPLITUDES at phases drawn from the blow's own seed (`blowSeed`, so the main thread, the planner's scratch and the carve workers cut the same crater), taken in proportion to the distance from the axis inside the radius (`a = ρ − radius − min(ρ, radius) W`), so the wobble has no kink or blow-up at the axis. Its floor and walls are pitted: the distance less PIT_DEPTH times the stone's pit lattice (`pitDepth`, src/stock/tool-frame.ts), so a pit only deepens the cut.
+ * Slope: the radial term changes at most `hypot(1 + RIM_WOBBLE, RIM_SLOPE)` per metre (1.32), the height term 1 and at right angles to it, so the cylinder keeps the larger, and the pits add `PIT_SLOPE × PIT_DEPTH / PIT_PITCH` (0.54): 1.87 in all.
+ * `distance` runs the row form for one cell, so both give every cell the same float.
+ */
+function bulkCrater(f: Frame, size: number, seed: number): ToolVolume {
   const radius = BULK_RADIUS_RATIO * size;
   const halfHeight = size;
-  const centre = 0;
-  const dx = f.d[0];
-  const dy = f.d[1];
-  const dz = f.d[2];
-  const bounds = cylinderBounds([f.px + dx * centre, f.py + dy * centre, f.pz + dz * centre], f.d, radius, halfHeight);
-  return {
-    removes: true,
-    lipschitz: 1,
-    min: bounds.min,
-    max: bounds.max,
-    distance(x, y, z) {
-      const qx = x - f.px;
-      const qy = y - f.py;
-      const qz = z - f.pz;
-      const h = qx * dx + qy * dy + qz * dz;
-      const rr = qx * qx + qy * qy + qz * qz - h * h;
-      const a = (rr > 0 ? Math.sqrt(rr) : 0) - radius;
-      const b = Math.abs(h - centre) - halfHeight;
+  const { px, py, pz, w } = f;
+  const [dx, dy, dz] = f.d;
+  // Two axes across the tool axis: w is at right angles to it.
+  const [exx, exy, exz] = w;
+  const [eyx, eyy, eyz] = [dy * exz - dz * exy, dz * exx - dx * exz, dx * exy - dy * exx];
+  // The harmonics' cosine and sine weights at seeded phases, by `turn`, not Math.cos and Math.sin: Chrome and Node round those differently in the last bit (engine-b, 2026-10-14), and a crater the page carves after a snapshot Node built must be the crater Node carved.
+  const [w2c = 0, w2s = 0, w3c = 0, w3s = 0, w5c = 0, w5s = 0] = RIM_AMPLITUDES.flatMap((amplitude, n) => {
+    const [c, s] = turn(seededUnit(seed, n));
+    return [amplitude * c, amplitude * s];
+  });
+  const [[l1x = 0, l1y = 0, l1z = 0] = [], [l2x = 0, l2y = 0, l2z = 0] = [], [l3x = 0, l3y = 0, l3z = 0] = []] = PIT_AXES;
+  const bounds = cylinderBounds([px, py, pz], f.d, radius * (1 + RIM_WOBBLE) + PIT_DEPTH, halfHeight + PIT_DEPTH);
+  const row = (originX: number, first: number, cell: number, count: number, y: number, z: number, out: Float64Array): void => {
+    const qy = y - py;
+    const qz = z - pz;
+    const h0 = qy * dy + qz * dz;
+    const u0 = qy * exy + qz * exz;
+    const v0 = qy * eyy + qz * eyz;
+    const g10 = y * l1y + z * l1z;
+    const g20 = y * l2y + z * l2z;
+    const g30 = y * l3y + z * l3z;
+    for (let i = 0; i < count; i += 1) {
+      const x = originX + (first + i) * cell;
+      const qx = x - px;
+      const h = qx * dx + h0;
+      const u = qx * exx + u0;
+      const v = qx * eyx + v0;
+      const rho = Math.sqrt(u * u + v * v);
+      const taper = rho < radius ? rho : radius;
+      const b = (h < 0 ? -h : h) - halfHeight;
+      const inv = rho > 0 ? 1 / rho : 0;
+      // cos and sin of θ, 2θ, 3θ and 5θ by complex powers of (u + iv) / ρ.
+      const c1 = u * inv;
+      const s1 = v * inv;
+      const c2 = c1 * c1 - s1 * s1;
+      const s2 = 2 * c1 * s1;
+      const c3 = c2 * c1 - s2 * s1;
+      const s3 = c2 * s1 + s2 * c1;
+      const c5 = c3 * c2 - s3 * s2;
+      const s5 = c3 * s2 + s3 * c2;
+      const a = rho - radius - taper * (w2c * c2 + w2s * s2 + w3c * c3 + w3s * s3 + w5c * c5 + w5s * s5);
       const inside = a > b ? a : b;
       const oa = a > 0 ? a : 0;
       const ob = b > 0 ? b : 0;
-      return (inside < 0 ? inside : 0) + Math.sqrt(oa * oa + ob * ob);
+      const cylinder = (inside < 0 ? inside : 0) + Math.sqrt(oa * oa + ob * ob);
+      out[i] = cylinder - PIT_DEPTH * pitDepth(x * l1x + g10, x * l2x + g20, x * l3x + g30, PIT_SEED);
+    }
+  };
+  const one = new Float64Array(1);
+  return {
+    removes: true,
+    lipschitz: Math.hypot(1 + RIM_WOBBLE, RIM_SLOPE) + (PIT_SLOPE * PIT_DEPTH) / PIT_PITCH,
+    min: bounds.min,
+    max: bounds.max,
+    distance(x, y, z) {
+      row(x, 0, 0, 1, y, z, one);
+      return one[0] ?? 0;
     },
     distances(originX, first, cell, count, y, z, out) {
-      const qy = y - f.py;
-      const qz = z - f.pz;
-      const h0 = qy * dy + qz * dz;
-      const q0 = qy * qy + qz * qz;
-      for (let i = 0; i < count; i += 1) {
-        const qx = originX + (first + i) * cell - f.px;
-        const h = qx * dx + h0;
-        const rr = qx * qx + q0 - h * h;
-        const a = (rr > 0 ? Math.sqrt(rr) : 0) - radius;
-        const b = Math.abs(h - centre) - halfHeight;
-        const inside = a > b ? a : b;
-        const oa = a > 0 ? a : 0;
-        const ob = b > 0 ? b : 0;
-        out[i] = (inside < 0 ? inside : 0) + Math.sqrt(oa * oa + ob * ob);
-      }
+      row(originX, first, cell, count, y, z, out);
     },
   };
 }
@@ -420,7 +466,7 @@ function paintFootprint(f: Frame, spec: ToolVolumeSpec): ToolVolume {
       const a = rx * f.u[0] + ry * f.u[1] + rz * f.u[2];
       const b = rx * f.w[0] + ry * f.w[1] + rz * f.w[2];
       const c = rx * f.n[0] + ry * f.n[1] + rz * f.n[2];
-      return extrude(roundedBox2(a, b, hx, hy, Math.min(hx, hy) * 0.5), Math.abs(c) - PAINT_HALF_THICKNESS);
+      return extrude(roundedBox2(a, b, hx, hy, Math.min(hx, hy) * PAINT_ROUNDING), Math.abs(c) - PAINT_HALF_THICKNESS);
     },
   };
 }

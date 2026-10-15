@@ -187,7 +187,8 @@ describe('the sweep on pieces cut free by craters', () => {
   });
 
   it('sweeps nothing after blows that free nothing, labelling only what they touched', () => {
-    const cones: Blow[] = [-0.2, 0, 0.2].map((x) => ({ tool: 'point', point: [x, 0.76, 0.35], normal: [0, 1, 0], direction: [0, -1, 0], size: 0.02, stroke: 0 }));
+    // The cones strike the stone between the slits: until 2026-10-14 the outer two stood at x = ±0.2 in the slits' air and touched only the walls' band, and the crater's rim wobble (src/stock/tool-volumes.ts) moved the x = 0.35 slit's wall past the x = 0.2 cone.
+    const cones: Blow[] = [-0.1, 0, 0.1].map((x) => ({ tool: 'point', point: [x, 0.76, 0.35], normal: [0, 1, 0], direction: [0, -1, 0], size: 0.02, stroke: 0 }));
     apply(cones);
     const before = snapshot(state);
     const expected = expectedSweep(state, figure, baseRow);

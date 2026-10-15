@@ -1,12 +1,12 @@
 /**
  * Step definitions as the Making takes them in (docs/design/spec.md, Blows, strokes and steps): the checks on a `StepDef` list and the `StepInfo` the page reads, carried out of src/timeline/making.ts so that file keeps to its line bound.
  */
-import type { StepDef, StepInfo } from '../contracts/making';
+import { type StepDef, type StepInfo, WORK_HOURS_PER_DAY } from '../contracts/making';
 
 const TITLE_LIMIT = 48;
 const DETAIL_LIMIT = 200;
 
-/** Throws on a step id that is not kebab-case or is used twice, a title or detail over its limit, or a weight that is not positive. */
+/** Throws on a step id that is not kebab-case or is used twice, a title or detail over its limit, a weight or rate that is not positive, a direct count that is not a whole number of at least 1, a calendar day that is not YYYY-MM-DD or does not exist, or a span that runs backward. */
 export function checkSteps(steps: readonly StepDef[]): void {
   const seen = new Set<string>();
   for (const step of steps) {
@@ -16,10 +16,33 @@ export function checkSteps(steps: readonly StepDef[]): void {
     if (step.title.length > TITLE_LIMIT) throw new Error(`step "${step.id}" has a title of ${String(step.title.length)} characters; the limit is ${String(TITLE_LIMIT)}`);
     if (step.detail.length > DETAIL_LIMIT) throw new Error(`step "${step.id}" has a detail of ${String(step.detail.length)} characters; the limit is ${String(DETAIL_LIMIT)}`);
     if (!(step.weight > 0)) throw new Error(`step "${step.id}" needs a positive weight`);
+    if (!(step.rate > 0) || !Number.isFinite(step.rate)) throw new Error(`step "${step.id}" has a rate of ${String(step.rate)} real blows a second; give a positive number (docs/research/decisions.md, the real-blows rule)`);
+    if (step.realPerShown !== undefined && !(Number.isInteger(step.realPerShown) && step.realPerShown >= 1)) throw new Error(`step "${step.id}" gives ${String(step.realPerShown)} real blows per shown blow; a direct count is a whole number of at least 1`);
+    if (!isIsoDay(step.calendar.from) || !isIsoDay(step.calendar.to)) throw new Error(`step "${step.id}" has the calendar ${step.calendar.from} to ${step.calendar.to}; give days that exist as YYYY-MM-DD`);
+    if (step.calendar.to < step.calendar.from) throw new Error(`step "${step.id}" runs backward, from ${step.calendar.from} to ${step.calendar.to}; give the earlier day first`);
   }
 }
 
-/** The step's info with its blow range. */
+/** Whether `iso` is a day written YYYY-MM-DD that exists: Date.parse rolls 1501-02-30 over to 2 March and reads other forms as local time. */
+function isIsoDay(iso: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === iso;
+}
+
+/** Days a calendar span covers, at least one (a step dated on a single day is a day's work). */
+export function calendarDays(calendar: StepDef['calendar']): number {
+  return Math.max(1, Math.round((Date.parse(calendar.to) - Date.parse(calendar.from)) / 86_400_000));
+}
+
+/** Real blows one shown blow stands for (docs/research/decisions.md, the real-blows rule): the step's direct count when it gives one, else its days × WORK_HOURS_PER_DAY × 3600 s × its rate ÷ the planned blows, rounded, at least 1; 0 for a step with no planned blows yet. */
+export function realBlowsPerShown(step: StepDef, plannedBlows: number): number {
+  if (step.realPerShown !== undefined) return step.realPerShown;
+  if (plannedBlows <= 0) return 0;
+  return Math.max(1, Math.round((calendarDays(step.calendar) * WORK_HOURS_PER_DAY * 3600 * step.rate) / plannedBlows));
+}
+
+/** The step's info with its blow range; `blowCount` is the planned count (0 before planning), from which the real blows per shown blow are computed. */
 export function stepInfo(step: StepDef, firstBlow: number, blowCount: number): StepInfo {
   return {
     id: step.id,
@@ -27,7 +50,7 @@ export function stepInfo(step: StepDef, firstBlow: number, blowCount: number): S
     title: step.title,
     detail: step.detail,
     tool: step.tool,
-    blowsPerShown: step.blowsPerShown,
+    blowsPerShown: realBlowsPerShown(step, blowCount),
     weight: step.weight,
     calendar: step.calendar,
     ...(step.focus === undefined ? {} : { focus: step.focus }),

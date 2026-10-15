@@ -1,32 +1,23 @@
 /**
- * The making of the David, step by step: the 21 steps of docs/design/choreography.md (coordinator-owned), each citing docs/research/technique.md and tools.md, over the regions of ./regions.ts and the generators of ./generators/.
- * The calendar follows the two documented anchors (half done on 28 February 1502, nearly finished on 25 January 1504) with the technique note's inferred shares inside each span; `blowsPerShown` is the step's days × five hours × the tool's documented rate ÷ the shown blows the generator plans, rounded (docs/design/choreography.md, Steps).
+ * The making of the David, step by step: the steps of docs/design/choreography.md (coordinator-owned; the two setup steps of 1464 to 1466, `agostino` and `hole-between-legs`, were added on 2026-10-14 and await its table), each citing docs/research/technique.md and tools.md, over the regions of ./regions.ts and the generators of ./generators/.
+ * The calendar follows the two documented anchors (half done on 28 February 1502, nearly finished on 25 January 1504) with the technique note's inferred shares inside each span; each step carries its tool's inferred rate, and the engine computes the real blows one shown blow stands for from it once the step is planned, the step's days × five hours × the rate ÷ the planned blows, rounded, unless the step gives the record's direct count (docs/design/choreography.md, Steps; src/timeline/step-info.ts).
  * Known compromises, stated in the details: a shown blow stands for many, the toothed marks are shading at 8 mm, drill holes come out oversized, the sling and stump regions are boxes (docs/research/decisions.md). The finishing passes (fine claw, rasp, file, pumice, polish, gilding) tile the skin at three quarters of each tool's footprint so every flesh cell reaches the step's margin; the fine claw's finishing blow is a combing patch (src/stock/tool-volumes.ts, PATCH_SIZE_M).
  */
 import type { Blow, PlanContext, StepDef, ToolId } from '../contracts/making';
 import { combing } from './generators/combing';
 import { drawing } from './generators/drawing';
-import { furrows, furrowsPhases } from './generators/furrows';
 import { gild } from './generators/gild';
 import { holes } from './generators/holes';
 import { abrading, rasping } from './generators/rasping';
 import { scoop } from './generators/scoop';
-import { BACK, CROWN, DETAILS, FACE, FLESH, FRONT, GILT, HAIR, HAIR_BUT_CROWN, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, NOSTRILS_MARK, PUPILS_MARK, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, facePair, onHeadRing, relief, union } from './regions';
+import { webs } from './generators/webs';
+import { DAVID_LANDMARKS, FINGER_GAPS, LEG_GAPS, SLING_GAP, STUMP_GAPS } from './landmarks';
+import { pointPlan } from './point-work';
+import { AGOSTINO, BACK, BETWEEN_THE_LEGS, DETAILS, FACE, FLESH, FRONT, GAPS, GILT, HAIR, HAIR_BUT_CROWN, HOLE, HOLLOWS, LEFT_HAND, LEFT_SIDE, NODO, RIGHT_SIDE, SIDES_AND_BACK, SLING, STUMP, WHOLE_BUT_CROWN, relief, union } from './regions';
 
-/** The bulk cuts of the heavy point: one shown blow stands for a field of real pits, so its crater is flat-floored (src/stock/tool-volumes.ts); the pitch keeps neighbouring craters overlapping. */
-const BULK = { pitch: 0.2, size: 0.15, angle: 85 } as const;
-/** The sculptor's stroke: the point at 45 degrees, not lifted between blows (tools.md, Subbia); furrows 12 cm apart, each a run along the form. */
-const STROKE = { pitch: 0.04, rowPitch: 0.12, size: 0.035, angle: 45, maxPasses: 1 } as const;
-/** The bulk craters of a furrowed step stop a stroke's depth short of the step's margin, so the furrows are what finishes the layer. */
-const furrowed = (margin: number) => margin + STROKE.size;
 /** The front of the block as a half relief: the three roughing steps take layers off the whole front, the knee and the hand emerging in the first, the chest and the face in the second, the legs and the base in the last (technique.md, Stage 2: Vasari's water rule). */
 const FRONT_RELIEF = relief(FRONT, 'front');
-
-/** Real blows one shown blow stands for: `days` of work at five hours a day and `rate` blows a second, over `shown` planned blows. */
-function ratio(days: number, rate: number, shown: number): number {
-  return Math.max(1, Math.round((days * 5 * 3600 * rate) / shown));
-}
-
+/** The inferred rate of real blows a second by tool (docs/research/decisions.md, the real-blows rule; tools.md gives no rate): the point one a second, the toothed chisels and the roundel one and a half, the rubbing tools, the drill, the charcoal and the brush one stroke a second. The engine turns it into the real blows one shown blow stands for once a step is planned (src/timeline/step-info.ts). */
 const RATE: Readonly<Record<ToolId, number>> = { charcoal: 1, point: 1, 'two-tooth': 1.5, claw: 1.5, 'fine-claw': 1.5, roundel: 1.5, flat: 1.5, drill: 1, rasp: 1, file: 1, pumice: 1, polish: 1, gilding: 1 };
 
 interface StepSpec {
@@ -40,20 +31,13 @@ interface StepSpec {
   readonly weight: number;
   readonly from: string;
   readonly to: string;
-  /** Planned blows the generator is expected to produce (docs/design/choreography.md); only the ratio uses it. */
-  readonly shown: number;
-  /** Real blows per shown blow when the record gives them directly (the nodo's one or two blows, a drawn mark, a drilled hole), instead of the rate ratio. */
+  /** Real blows per shown blow when the record gives them directly (the nodo's one or two blows, a drawn mark, a drilled hole, a brush stroke), instead of the rate rule. */
   readonly realPerShown?: number;
   readonly focus?: StepDef['focus'];
   readonly plan: (ctx: PlanContext) => readonly Blow[];
 }
 
-function days(from: string, to: string): number {
-  return Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000));
-}
-
 function step(spec: StepSpec): StepDef {
-  const blowsPerShown = spec.realPerShown ?? ratio(days(spec.from, spec.to), RATE[spec.tool], spec.shown);
   const def: StepDef = {
     id: spec.id,
     stage: spec.stage,
@@ -62,7 +46,8 @@ function step(spec: StepSpec): StepDef {
     tool: spec.tool,
     region: spec.region,
     margin: spec.margin,
-    blowsPerShown,
+    rate: RATE[spec.tool],
+    ...(spec.realPerShown === undefined ? {} : { realPerShown: spec.realPerShown }),
     weight: spec.weight,
     calendar: { from: spec.from, to: spec.to },
     plan: spec.plan,
@@ -70,28 +55,35 @@ function step(spec: StepSpec): StepDef {
   return spec.focus === undefined ? def : { ...def, focus: spec.focus };
 }
 
-/**
- * The drill's landmarks on the head, built from the probed tables of ./regions.ts (HAIR_AXIS, the hairline, the head's radii and FACE_AZIMUTH), so every target lies on the David's surface and lands in its step's region; the values read off photographs before (review F16) were centred near x 0 facing +z, 10 cm off a head whose axis is at x −0.323 and whose face looks toward azimuth 38, so the generator moved them to the wrong part of the head or dropped them.
- * The hairline path runs the face side of the hairline from the left temple to the right (azimuth 337.5 to 90), 1 cm above it so its holes fall in HAIR; the curls ring runs 8 cm above the hairline round the whole head, open at the nape (from 202.5 round to 180): the generator drills every segment's start and the last segment's end, so a ring closed on its first vertex would get two holes at the seam. The pupils and the nostrils are the face marks' pairs. Exported for the David-grid case of ./david-steps.test.ts.
- */
-export const DAVID_LANDMARKS: Readonly<Record<'hairline' | 'curls' | 'pupils' | 'nostrils', readonly [number, number, number][]>> = {
-  hairline: [337.5, 0, 22.5, 45, 67.5, 90].map((azimuth) => onHeadRing(azimuth, 'hairline')),
-  curls: Array.from({ length: 16 }, (_, n) => onHeadRing((202.5 + n * 22.5) % 360, 'curls')),
-  pupils: facePair(PUPILS_MARK),
-  nostrils: facePair(NOSTRILS_MARK),
-};
-const FINGER_GAPS: readonly [number, number, number][] = [
-  [0.26, 4.15, 0.22],
-  [0.29, 4.08, 0.22],
-  [0.31, 4.02, 0.2],
-];
-const SLING_GAP: readonly [number, number, number][] = [[0.34, 4.35, -0.05]];
-const STUMP_GAPS: readonly [number, number, number][] = [
-  [-0.3, 1.0, -0.2],
-  [-0.3, 0.8, -0.25],
-];
-
 export const DAVID_STEPS: readonly StepDef[] = [
+  step({
+    id: 'agostino',
+    stage: 'setup',
+    title: 'Agostino di Duccio blocks out the legs',
+    detail: 'Subbia (point): commissioned in 1464, Agostino had by 1466 begun "only the trunk, lower limbs and feet", a coarse lump the 1500 inventory calls badly blocked out (technique.md, stage 0).',
+    tool: 'point',
+    region: relief(AGOSTINO, 'front'),
+    margin: 0.08,
+    weight: 1.0,
+    from: '1464-08-18',
+    to: '1466-04-30',
+    focus: { kind: 'tip', distance: 2.2 },
+    plan: pointPlan('agostino'),
+  }),
+  step({
+    id: 'hole-between-legs',
+    stage: 'setup',
+    title: 'The hole between the legs',
+    detail: 'Subbia (point): a hole cut through between the legs, which Vasari lays on a Maestro Simone and the documents on Agostino; the block then lay in the yard (technique.md, stage 0; david-history.md).',
+    tool: 'point',
+    region: HOLE,
+    margin: 0.03,
+    weight: 0.5,
+    from: '1466-04-30',
+    to: '1466-04-30',
+    focus: { kind: 'tip', distance: 1.8 },
+    plan: pointPlan('hole-between-legs'),
+  }),
   step({
     id: 'nodo',
     stage: 'setup',
@@ -103,10 +95,9 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.5,
     from: '1501-09-09',
     to: '1501-09-09',
-    shown: 2,
     realPerShown: 1,
     focus: { kind: 'tip', distance: 1.6 },
-    plan: (ctx) => furrows(ctx, { faces: ['front'], pitch: 0.2, size: 0.06, angle: 85, maxPasses: 1 }),
+    plan: pointPlan('nodo'),
   }),
   step({
     id: 'principal-view',
@@ -119,7 +110,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.6,
     from: '1501-09-13',
     to: '1501-09-20',
-    shown: 400,
     realPerShown: 1,
     plan: (ctx) => drawing(ctx, { stride: 0.05, angle: 35 }),
   }),
@@ -134,9 +124,8 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.85,
     from: '1501-09-20',
     to: '1501-10-22',
-    shown: 1500,
     focus: { kind: 'tip', distance: 2.2 },
-    plan: (ctx) => furrows(ctx, { faces: ['front'], ...BULK, maxPasses: 2 }),
+    plan: pointPlan('high-points'),
   }),
   step({
     id: 'chest-and-face',
@@ -149,9 +138,8 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.85,
     from: '1501-10-22',
     to: '1501-11-23',
-    shown: 1500,
     focus: { kind: 'tip', distance: 2.2 },
-    plan: (ctx) => furrows(ctx, { faces: ['front'], ...BULK, maxPasses: 2 }),
+    plan: pointPlan('chest-and-face'),
   }),
   step({
     id: 'front-furrows',
@@ -164,12 +152,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 2.5,
     from: '1501-11-23',
     to: '1502-01-04',
-    shown: 3000,
-    plan: (ctx) =>
-      furrowsPhases(ctx, [
-        { options: { faces: ['front'], ...BULK, margin: furrowed(ctx.margin) } },
-        { options: { faces: ['front'], ...STROKE } },
-      ]),
+    plan: pointPlan('front-furrows'),
   }),
   step({
     id: 'two-tooth-front',
@@ -182,7 +165,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.0,
     from: '1502-01-04',
     to: '1502-01-31',
-    shown: 1200,
     plan: (ctx) => combing(ctx, { tool: 'two-tooth', pitch: 0.1, stride: 0.08, size: 0.012, angle: 45, passes: ['horizontal'], untilCovered: false }),
   }),
   step({
@@ -196,7 +178,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.1,
     from: '1502-01-31',
     to: '1502-02-28',
-    shown: 1200,
     plan: (ctx) => combing(ctx, { tool: 'claw', pitch: 0.1, stride: 0.08, size: 0.008, angle: 45, passes: ['diagonal'], untilCovered: false }),
   }),
   step({
@@ -210,12 +191,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 3.0,
     from: '1502-02-28',
     to: '1502-05-09',
-    shown: 1500,
-    plan: (ctx) =>
-      furrowsPhases(ctx, [
-        { options: { faces: ['left', 'right', 'top'], ...BULK, keep: CROWN, margin: furrowed(ctx.margin) } },
-        { options: { faces: ['left', 'right'], ...STROKE, pitch: 0.06, rowPitch: 0.2 } },
-      ]),
+    plan: pointPlan('sides-point'),
   }),
   step({
     id: 'back-point',
@@ -228,12 +204,7 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.5,
     from: '1502-05-09',
     to: '1502-07-11',
-    shown: 1200,
-    plan: (ctx) =>
-      furrowsPhases(ctx, [
-        { options: { faces: ['back'], ...BULK, margin: furrowed(ctx.margin) } },
-        { options: { faces: ['back'], ...STROKE } },
-      ]),
+    plan: pointPlan('back-point'),
   }),
   step({
     id: 'sides-and-back-claw',
@@ -246,7 +217,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.75,
     from: '1502-07-11',
     to: '1502-09-19',
-    shown: 1500,
     plan: (ctx) => combing(ctx, { tool: 'claw', pitch: 0.1, stride: 0.08, size: 0.008, angle: 45, passes: ['diagonal'], untilCovered: false }),
   }),
   step({
@@ -259,9 +229,22 @@ export const DAVID_STEPS: readonly StepDef[] = [
     margin: 0.0015,
     weight: 1.9,
     from: '1502-09-19',
-    to: '1502-12-26',
-    shown: 2000,
+    to: '1502-12-05',
     plan: (ctx) => combing(ctx, { tool: 'fine-claw', pitch: 0.06, stride: 0.07, size: 0.04, angle: 45, passes: ['diagonal'] }),
+  }),
+  step({
+    id: 'fine-claw-gaps',
+    stage: 'fine-claw',
+    title: 'The dente di cane into the hollows and gaps',
+    detail: 'Dente di cane (fine claw): worked from the open side into the hollows and the gaps between the limbs, taking the stone its bands passed over wherever the chisel reaches (technique.md, stage 4).',
+    tool: 'fine-claw',
+    region: GAPS,
+    margin: 0.0015,
+    weight: 0.5,
+    from: '1502-12-05',
+    to: '1502-12-26',
+    focus: { kind: 'tip', distance: 1.4 },
+    plan: (ctx) => webs(ctx, { tool: 'fine-claw', size: 0.04, angles: [45, 60, 35] }),
   }),
   step({
     id: 'roundel-hollows',
@@ -274,7 +257,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.4,
     from: '1502-12-26',
     to: '1503-02-21',
-    shown: 600,
     focus: { kind: 'tip', distance: 1.4 },
     plan: (ctx) => scoop(ctx, { stride: 0.05, size: 0.004, angle: 45 }),
   }),
@@ -289,7 +271,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.5,
     from: '1503-02-21',
     to: '1503-03-25',
-    shown: 300,
     realPerShown: 3,
     focus: { kind: 'tip', distance: 1.2 },
     plan: (ctx) => holes(ctx, { paths: [DAVID_LANDMARKS.hairline, DAVID_LANDMARKS.curls], pitch: 0.02, depth: 0.015, runningAngle: 40 }),
@@ -305,7 +286,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.3,
     from: '1503-03-25',
     to: '1503-04-10',
-    shown: 12,
     realPerShown: 1,
     focus: { kind: 'tip', distance: 1.0 },
     plan: (ctx) => holes(ctx, { points: [...DAVID_LANDMARKS.pupils, ...DAVID_LANDMARKS.nostrils], pitch: 0.02, depth: 0.012, runningAngle: 40 }),
@@ -320,11 +300,25 @@ export const DAVID_STEPS: readonly StepDef[] = [
     margin: 0,
     weight: 0.4,
     from: '1503-04-10',
-    to: '1503-05-09',
-    shown: 200,
+    to: '1503-04-25',
     realPerShown: 2,
     focus: { kind: 'tip', distance: 1.2 },
     plan: (ctx) => holes(ctx, { points: [...FINGER_GAPS, ...SLING_GAP, ...STUMP_GAPS], paths: [FINGER_GAPS, STUMP_GAPS], pitch: 0.02, depth: 0.02, runningAngle: 40 }),
+  }),
+  step({
+    id: 'between-the-legs',
+    stage: 'drilling',
+    title: 'The bow drill between the legs',
+    detail: 'Trapano (bow drill): running holes down the crease between the thighs, where the chisel cannot reach, the webbing between them left (technique.md, stage 5; tools.md, Trapano).',
+    tool: 'drill',
+    region: BETWEEN_THE_LEGS,
+    margin: 0,
+    weight: 0.3,
+    from: '1503-04-25',
+    to: '1503-05-09',
+    realPerShown: 2,
+    focus: { kind: 'tip', distance: 1.2 },
+    plan: (ctx) => holes(ctx, { paths: LEG_GAPS, pitch: 0.02, depth: 0.02, runningAngle: 40 }),
   }),
   step({
     id: 'rasp-flesh',
@@ -337,7 +331,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 2.4,
     from: '1503-05-09',
     to: '1503-07-19',
-    shown: 1500,
     plan: (ctx) => rasping(ctx, { tool: 'rasp', pitch: 0.0375, stride: 0.07, size: 0.03, angle: 10, passes: ['diagonal'] }),
   }),
   step({
@@ -351,7 +344,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.5,
     from: '1503-07-19',
     to: '1503-09-02',
-    shown: 500,
     focus: { kind: 'tip', distance: 1.2 },
     plan: (ctx) => rasping(ctx, { tool: 'file', pitch: 0.0225, stride: 0.036, size: 0.02, angle: 10, passes: ['vertical'] }),
   }),
@@ -366,7 +358,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.3,
     from: '1503-09-02',
     to: '1503-11-21',
-    shown: 1500,
     plan: (ctx) => abrading(ctx, { tool: 'pumice', pitch: 0.06, stride: 0.07, size: 0.004, angle: 5, passes: ['horizontal'] }),
   }),
   step({
@@ -380,7 +371,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.95,
     from: '1503-11-21',
     to: '1504-01-25',
-    shown: 1000,
     plan: (ctx) => abrading(ctx, { tool: 'polish', pitch: 0.075, stride: 0.09, size: 0, angle: 8, passes: ['diagonal'] }),
   }),
   step({
@@ -394,7 +384,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 0.3,
     from: '1504-06-08',
     to: '1504-06-30',
-    shown: 60,
     realPerShown: 50,
     focus: { kind: 'tip', distance: 1.2 },
     plan: (ctx) => rasping(ctx, { tool: 'file', pitch: 0.2, stride: 0.15, size: 0.001, angle: 10, passes: ['diagonal'] }),
@@ -410,7 +399,6 @@ export const DAVID_STEPS: readonly StepDef[] = [
     weight: 1.3,
     from: '1504-07-01',
     to: '1504-09-08',
-    shown: 300,
     realPerShown: 4,
     focus: { kind: 'tip', distance: 1.6 },
     plan: (ctx) => gild(ctx, { pitch: 0.06, stride: 0.05, angle: 30 }),

@@ -3,7 +3,7 @@
  * The first pass goes over the whole region, as a sculptor's pass does, cutting where there is stone and leaving its mark everywhere; the passes after it are driven by the allowance left: each strikes the scratch stock (./scratch.ts) where it still stands above the margin by more than a quarter cell, in the listed orientations and then on round the crossing ones, until a pass finds nothing to strike or MAX_PASSES is reached, so the region ends within the margin at every band point. A step with `untilCovered` false runs its listed passes only: the coarse claws, whose bands are wider than their blades, texture rather than level.
  */
 import type { Blow, PlanContext, ToolId } from '../../contracts/making';
-import { type BandOrientation, bandBlows, bandSurfacePoints } from './bands';
+import { type BandOrientation, bandBlows, bandConfiner, bandSurfacePoints } from './bands';
 import { ScratchStock, scratchContext } from './scratch';
 
 export interface CombingOptions {
@@ -41,6 +41,8 @@ export function combing(ctx: PlanContext, options: CombingOptions): Blow[] {
   const sctx = scratchContext(ctx, scratch);
   const passes = options.untilCovered === false ? options.passes.length : MAX_PASSES;
   const points = bandSurfacePoints(ctx, options);
+  // One confinement for the step's passes (./confine.ts): they share the region's answers and the points where no blow kept inside.
+  const confiner = bandConfiner(sctx, options, scratch);
   for (let pass = 0; pass < passes; pass += 1) {
     const strokeBase = blows.length === 0 ? 0 : (blows[blows.length - 1]?.stroke ?? 0) + 1;
     const planned = bandBlows(
@@ -60,6 +62,7 @@ export function combing(ctx: PlanContext, options: CombingOptions): Blow[] {
       strokeBase,
       scratch,
       points,
+      confiner,
     );
     if (planned.length === 0) break;
     blows.push(...planned);

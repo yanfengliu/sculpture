@@ -1,5 +1,5 @@
 /**
- * The plan file's build (src/timeline/plan-build.ts) and a Making that runs from it (src/timeline/making.ts, `MakingOptions.plan`), on the synthetic figure at 2 cm cells with the first seven David steps (the knot, the layout, the three roughing passes of the point, the two-tooth chisel and the claw: 3,960 blows, four of the seven with cells for their end sweep). What a green run proves, and its bounds:
+ * The plan file's build (src/timeline/plan-build.ts) and a Making that runs from it (src/timeline/making.ts, `MakingOptions.plan`), on the synthetic figure at 2 cm cells with the first seven David steps (since 2026-10-14 Agostino's roughing, the hole between the legs, the knot, the layout and three roughing passes of the point: 2,336 blows, five of the seven with cells for their end sweep). What a green run proves, and its bounds:
  *   1. The build's snapshots hold the Making's bytes: every snapshot of the table, written into a fresh untouched block (src/stock/snapshot.ts), equals the stock and finish grids of a Making that plans in-process and is set to the snapshot's position (a step's end, or a visible cycle's start inside a step), byte for byte; the table starts at blow 0, has a snapshot at every step's end and some inside steps (the segment budget is cut to 0.05 s here so that it does).
  *   2. The plan file round-trips: the decoded blows and swept cells give the header's length and digests, and the Making from the file plans nothing and reports `planSource` `file`.
  *   3. The state stays a pure function of `t` through snapshots: after a seeded history of 40 moves (plays forward and backward in small steps, integer steps, scrubs anywhere) on a Making from the file that prefers a snapshot to any replay, with its carver in-process and jumps from 4 blows, the grids and the blow count equal a Making that plans in-process and follows the same moves at every tenth move, and at the end equal a fresh in-process replay to the last `t`; snapshots were loaded both forward and backward, and the undo log started past blow 0. The same holds with a loader that answers later (a promise), where `dirtyChunks` counts the load until it lands, and with a carver and a loader that both answer after random delays while later moves arrive (moves issued while a job or a load is out, checked at every tenth move and at the end).
@@ -26,6 +26,8 @@ import { decodedPlanProblem, decodePlan, type PlanHeader, type SnapshotEntry } f
 
 const figure = syntheticFigure(0.02);
 const STEPS = DAVID_STEPS.slice(0, 7);
+/** Every case that replays the first seven steps (all but the last) takes 3 to 33 s on this machine, more while the suite's other files run beside it, since engine A's steps lead the list (Agostino's 298 bulk craters, which apply about twice as slowly as a plain crater; 2026-10-14), against the suite's 20 s; a timeout is none of these tests' claims (vitest.config.ts). */
+const REPLAY_TIMEOUT_MS = 120_000;
 const STILL: BlowCycle = { posesAt: () => [], chipsAt: () => [], restPose: (tool) => ({ tool, position: [0, 0, 0], quaternion: [0, 0, 0, 1] }) };
 const NO_MESHER: ChunkMesher = {
   transfers: false,
@@ -108,7 +110,7 @@ describe('the plan file build', () => {
       expect(Buffer.from(state.finish.buffer).equals(Buffer.from(reference.finish.buffer)), `finish of ${entry.file} at blow ${String(entry.blow)}`).toBe(true);
     }
     reference.dispose();
-  });
+  }, REPLAY_TIMEOUT_MS);
 
   it('writes one snapshot where a step without blows ends where the step before it did', () => {
     const [nodo, layout] = STEPS;
@@ -120,7 +122,7 @@ describe('the plan file build', () => {
     expect(table.map((entry) => entry.blow)).toEqual([...new Set(table.map((entry) => entry.blow))].sort((a, b) => a - b));
     expect(built.header.planLength).toBe(decodePlan(built.bytes).blows.reduce((sum, blows) => sum + blows.length, 0));
     expect(decodePlan(built.bytes).blows[1]).toEqual([]);
-  });
+  }, REPLAY_TIMEOUT_MS);
 
   it('round-trips the plan, and a making from it plans nothing', () => {
     const decoded = decodePlan(planBytes);
@@ -138,7 +140,7 @@ describe('the plan file build', () => {
     expect(fromFile.steps.map((s) => [s.firstBlow, s.blowCount])).toEqual(reference.steps.map((s) => [s.firstBlow, s.blowCount]));
     reference.dispose();
     fromFile.dispose();
-  });
+  }, REPLAY_TIMEOUT_MS);
 });
 
 /** A seeded history of plays forward and backward in small steps, integer steps and scrubs anywhere. */
@@ -184,7 +186,7 @@ describe('a making that runs from the plan file', () => {
     fresh.setTime(last);
     sameGrids(making, fresh, `at the end, t = ${String(last)}`);
     for (const m of [making, follower, fresh]) m.dispose();
-  });
+  }, REPLAY_TIMEOUT_MS);
 
   it('counts a load that answers later in dirtyChunks and lands on the same bytes', async () => {
     const making = createMaking({ ...BASE, plan: source((entry) => Promise.resolve(files.get(entry.file) ?? new Uint8Array(0))), snapshotLoadSeconds: 0 });
@@ -199,7 +201,7 @@ describe('a making that runs from the plan file', () => {
     expect(making.snapshotLoads).toBeGreaterThanOrEqual(4);
     making.dispose();
     fresh.dispose();
-  });
+  }, REPLAY_TIMEOUT_MS);
 
   it('sets a missing or corrupt snapshot aside and replays to the same bytes', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -233,7 +235,7 @@ describe('a making that runs from the plan file', () => {
     errors.mockRestore();
     making.dispose();
     fresh.dispose();
-  });
+  }, REPLAY_TIMEOUT_MS);
 
   it('reaches the same bytes when moves come while chunk jobs and loads are out, both answering after random delays', async () => {
     const random = mulberry32(4242);
@@ -276,7 +278,7 @@ describe('a making that runs from the plan file', () => {
     fresh.setTime(last);
     sameGrids(making, fresh, `at the end, t = ${String(last)}`);
     for (const m of [making, follower, fresh]) m.dispose();
-  });
+  }, REPLAY_TIMEOUT_MS);
 
   it('starts over from the block when every snapshot below the undo log is refused', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -303,7 +305,7 @@ describe('a making that runs from the plan file', () => {
     errors.mockRestore();
     making.dispose();
     fresh.dispose();
-  });
+  }, REPLAY_TIMEOUT_MS);
 
   it('disposes the plan source with itself', () => {
     const disposed = vi.fn();

@@ -63,7 +63,7 @@ const REGION = { min: [-0.9, 2.5, -0.6] as const, max: [0.9, 5.2, 0.8] as const,
 const CALENDAR = { from: '1501-09-13', to: '1501-10-01' };
 
 function step(id: string, tool: ToolId, size: number, margin: number, rows: number, cols: number): StepDef {
-  return { id, stage: 'roughing', title: id, detail: `${id}: inline test step, docs/research/technique.md`, tool, region: REGION, margin, blowsPerShown: 10, weight: 1, calendar: CALENDAR, plan: rasterFront(tool, size, rows, cols) };
+  return { id, stage: 'roughing', title: id, detail: `${id}: inline test step, docs/research/technique.md`, tool, region: REGION, margin, rate: 1, realPerShown: 10, weight: 1, calendar: CALENDAR, plan: rasterFront(tool, size, rows, cols) };
 }
 
 const STEPS: readonly StepDef[] = [step('bulk', 'point', 0.12, 0.05, 4, 6), step('furrows', 'point', 0.08, 0.02, 4, 6), step('comb', 'claw', 0.004, 0.004, 3, 4), step('rasp', 'rasp', 0.002, 0, 2, 3)];
@@ -329,7 +329,7 @@ function craters(xs: readonly number[], ys: readonly number[], zs: readonly numb
 }
 
 function cutStep(id: string, blows: readonly Blow[]): StepDef {
-  return { id, stage: 'roughing', title: id, detail: `${id}: hand-placed craters, docs/research/technique.md`, tool: 'point', region: CUT_REGION, margin: 0, blowsPerShown: 1, weight: 1, calendar: CALENDAR, plan: () => blows };
+  return { id, stage: 'roughing', title: id, detail: `${id}: hand-placed craters, docs/research/technique.md`, tool: 'point', region: CUT_REGION, margin: 0, rate: 1, realPerShown: 1, weight: 1, calendar: CALENDAR, plan: () => blows };
 }
 
 const CUT_YS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];

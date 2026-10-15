@@ -18,10 +18,11 @@ import { SNAPSHOT_VERSION } from '../stock/snapshot';
 
 export const PLAN_FORMAT = 'sculpture-plan/1';
 /** Bump when the planner, the carving rule, the tool volumes or the sweep change their output, and add the new fingerprint to PLAN_FINGERPRINTS; a plan file of another version is not used. */
-export const PLAN_VERSION = 1;
+export const PLAN_VERSION = 2;
 /** Each PLAN_VERSION's fingerprint of the synthetic 2 cm plan (src/timeline/plan-build.ts, `planFingerprint`), which src/timeline/plan-file.test.ts recomputes. Add a line, never change one. */
 export const PLAN_FINGERPRINTS: Readonly<Record<number, string>> = {
   1: '02f19b94-2266b800-9d5c6848',
+  2: '9bbd392c-cf078207-be74e6b3',
 };
 /** The fingerprint this page's planner has; the build records it in the header and the page refuses a header with another. */
 export const PLAN_FINGERPRINT = PLAN_FINGERPRINTS[PLAN_VERSION] ?? 'none';

@@ -143,7 +143,7 @@ describe('the plan file', () => {
     figure.fill((x, y, z) => Math.hypot(x, y - 0.3, z) - 0.1);
     const block = { min: [-0.3, 0, -0.3] as Vec3, max: [0.3, 0.6, 0.3] as Vec3 };
     const blows = (tool: ToolId): Blow[] => [-0.1, 0, 0.1].flatMap((x) => [-0.1, 0.1].map((z, n): Blow => ({ tool, point: [x, 0.6, z], normal: [0, 1, 0], direction: [0, -1, 0], size: 0.002, stroke: n })));
-    const step = (id: string, tool: ToolId): StepDef => ({ id, stage: 'polishing', title: id, detail: `${id}: inline test step, docs/research/technique.md`, tool, region: { ...block, label: 'the block' }, margin: 0, blowsPerShown: 1, weight: 1, calendar: { from: '1504-01-01', to: '1504-01-02' }, plan: () => blows(tool) });
+    const step = (id: string, tool: ToolId): StepDef => ({ id, stage: 'polishing', title: id, detail: `${id}: inline test step, docs/research/technique.md`, tool, region: { ...block, label: 'the block' }, margin: 0, rate: 1, realPerShown: 1, weight: 1, calendar: { from: '1504-01-01', to: '1504-01-02' }, plan: () => blows(tool) });
     const options: MakingOptions = { figure, block, steps: [step('mark', 'charcoal'), step('polish', 'polish')], stages: STAGES, blowCycle: STILL, material: new THREE.MeshBasicMaterial(), mesher: NO_MESHER };
     const marks = TOOL_FINISH as Record<ToolId, number>;
     const drawn = marks.charcoal;

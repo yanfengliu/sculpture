@@ -1,6 +1,6 @@
 /**
- * Smoke test of the capture contract (docs/design/spec.md, Query contract): `/?shot=1` loads on the dev server, draws one canvas of 1400×1000 CSS pixels at a 1400×1000 viewport, reports `window.__shotReady` only once the full marble draws (src/viewer/marble.ts: the light first program is never captured), is not blank, exposes `window.__sculpture` with a making in it, labels the first step as Day 1 of 9 September 1501 (the first chisel blows, src/ui/label.ts), and logs no console error or uncaught exception.
- * Bound: it proves the toolchain, the WebGL path and the contract's plumbing on the synthetic figure; "not blank" means the sampled pixels are not all one colour, which says nothing about what was drawn. It does not test the built `dist/`. The making is whatever src/main.ts boots; the test asks only that it has steps whose first one starts on the day origin.
+ * Smoke test of the capture contract (docs/design/spec.md, Query contract): `/?shot=1` loads on the dev server, draws one canvas of 1400×1000 CSS pixels at a 1400×1000 viewport, reports `window.__shotReady` only once the full marble draws (src/viewer/marble.ts: the light first program is never captured), is not blank, exposes `window.__sculpture` with a making in it, labels the first step with its date, Day 1 of 9 September 1501 (the first chisel blows) or the years of a step before that day (Agostino di Duccio's 1464–1466; src/ui/label.ts), and logs no console error or uncaught exception.
+ * Bound: it proves the toolchain, the WebGL path and the contract's plumbing on the synthetic figure; "not blank" means the sampled pixels are not all one colour, which says nothing about what was drawn. It does not test the built `dist/`. The making is whatever src/main.ts boots; the test asks only that it has steps and that the label dates the first one in one of the label's two forms.
  */
 import { expect, test } from '@playwright/test';
 
@@ -46,7 +46,8 @@ test('/?shot=1 draws the yard and block to a 1400x1000 canvas, reaches shot-read
   expect(facts?.stages.length).toBeGreaterThan(0);
   expect(facts?.planLength).toBeGreaterThan(0);
   expect(facts?.planDigest).toMatch(/^[0-9a-f]{8,}$/);
-  await expect(page.getByTestId('label')).toHaveText(new RegExp(`^Day 1 · 9 September 1501 · .+ — ${(facts?.stepTitles[0] ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  // The label at t = 0 dates the first step: Day 1 · 9 September 1501 for the Operai's first blows, or the years of a step before that day, as Agostino di Duccio's 1464–1466 (src/ui/label.ts).
+  await expect(page.getByTestId('label')).toHaveText(new RegExp(`^(?:Day 1 · 9 September 1501|\\d{4}(?:–\\d{4})?) · .+ — ${(facts?.stepTitles[0] ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
   await expect(page.getByTestId('attribution')).toBeVisible();
   await expect(page.getByTestId('time-lapse')).toContainText('Time-lapse');
 

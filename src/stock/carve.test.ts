@@ -6,7 +6,7 @@
  *   4. The gilding leaf paints over tooth texture (claw, fine claw, roundel, drill) and never over polished, rasped or untouched stone (TOOL_PAINT_OVER); the other painting tools mark whatever they touch.
  *   5. Every tool volume's box is a bound of its shape at a slanted axis: with the tool axis 45 degrees off the normal and along the cube diagonal, the distance sampled on a lattice (at most 2 mm, no coarser than a hundredth of the box) over the box dilated by 5 cm is never negative outside the box, and is negative somewhere inside it (the reviewed revision's cube of the crater's reach was 36 mm short at 45 degrees; docs/work/0_making-of/reviews/0_integration.md, Bulk-crater bounds).
  *   6. A rasp blow on one face of a 7 cm hollow between two figure slabs, where the figure is near enough that the slab follows its level sets, leaves everything beyond the slab's reach above the point (its cut depth, the larger of SLAB_TOP and the size, plus the stock band the kernel updates) and the facing slab untouched (stock and finish), while it cuts the face it struck.
- *   7. The row form of a volume's distance (`distances`, the carving loop's per-row path) gives every cell the float of the per-cell `distance` over 40 random frames and rows with random figure values: bit for bit for the rubbing slab on both its paths (it keeps the per-cell order of sums), and within a few ulps for the bulk crater and the cone, whose row forms hoist the y and z products into one sum. The bytes cannot depend on the path either way: the carving loop evaluates every cell through the row form on the serial and the chunked path alike and uses the per-cell form only at block centres, where its reading decides a skip with margin to spare.
+ *   7. The row form of a volume's distance (`distances`, the carving loop's per-row path) gives every cell the float of the per-cell `distance` over 40 random frames and rows with random figure values: bit for bit for the rubbing slab on both its paths (it keeps the per-cell order of sums) and for the bulk crater (its per-cell form runs its row form for one cell), and within a few ulps for the cone, whose row form hoists the y and z products into one sum. The bytes cannot depend on the path either way: the carving loop evaluates every cell through the row form on the serial and the chunked path alike and uses the per-cell form only at block centres, where its reading decides a skip with margin to spare.
  * Bounds: the closed forms are the ones in src/stock/tool-volumes.ts, so this checks the carved shape against the stated geometry, not against a real chisel mark; the 45-degree strokes of the plan are exercised only by the random blows; the bound check samples a lattice, so a shape poking out of its box by less than the lattice step between samples would pass; the hollow is flat-faced, so a curved hollow's reach is not measured.
  */
 import { describe, expect, it } from 'vitest';
@@ -310,7 +310,7 @@ describe('a rubbing tool in a hollow', () => {
 
 describe('row distances against per-cell distances', () => {
   const rowCases: ReadonlyArray<{ tool: ToolId; size: number; figureAtPoint: number; exact: boolean }> = [
-    { tool: 'point', size: 0.15, figureAtPoint: 0.3, exact: false },
+    { tool: 'point', size: 0.15, figureAtPoint: 0.3, exact: true },
     { tool: 'point', size: 0.035, figureAtPoint: 0.1, exact: false },
     { tool: 'rasp', size: 0.03, figureAtPoint: 0.02, exact: true },
     { tool: 'rasp', size: 0.03, figureAtPoint: 0.2, exact: true },

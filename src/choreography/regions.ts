@@ -226,6 +226,8 @@ export const FACE: RegionDef = { label: 'face', min: [-WIDE, 4.5, -DEEP], max: [
 export const LEFT_HAND = box('left-hand', 3.95, 4.4, 0.05, 0.6, -0.3, DEEP);
 /** The hand at the thigh, with the stone. */
 export const RIGHT_HAND = box('right-hand', 2.0, 2.45, -0.95, -0.5, -0.4, DEEP);
+/** Between the thighs, where the crease under the crotch narrows to a centimetre or two (./landmarks.ts, LEG_GAPS): the walls the drill's rows run along. */
+export const BETWEEN_THE_LEGS = box('between-the-legs', 2.0, 2.4, -0.35, 0.05, -0.2, 0.3);
 
 /**
  * The sling strap on the David grid, traced 2026-10-11 from the grid's depth maps (the first zero crossing of the signed distance along a ray) under grazing light from +x and −x and from the steps those maps take at the band's two edges; the probe lived under tmp/ and is not kept.
@@ -329,6 +331,12 @@ export const FLESH: RegionDef = {
 
 /** A 0.2 m box at the chest where the knot stood, on the front. */
 export const NODO = box('nodo', 3.7, 3.9, -0.1, 0.1, 0.2, DEEP);
+/** What Agostino di Duccio began in 1464 to 1466, "only the trunk, lower limbs and feet" (technique.md, Stage 0): the front from the rock's top to the lower trunk. */
+export const AGOSTINO = box('agostino', 0.3, 2.6, -WIDE, WIDE, -DEEP, DEEP, facing(2, 1, 0.2));
+/**
+ * The hole between the legs that Vasari blames on a Maestro Simone (david-history.md, The block): the gap between the legs on the David grid, probed 2026-10-14 by columns front to back at a 3 cm margin (a read-only probe, not kept), open from x -0.02 to 0.25 at y 1.2, -0.02 to 0.20 at 1.4 and -0.08 to 0.09 at 1.6, closing at 2.1; the box runs through the block's depth so the cut goes through. No figure surface belongs to the hole (`contains` is false), so the point strikes only the columns that run through the gap without meeting the figure, and a column stopping on a leg in the box's corner is left alone (review of 2026-10-14: the box alone roughed a leg's front to 3 cm).
+ */
+export const HOLE: RegionDef = { ...box('hole', 1.2, 1.6, -0.05, 0.22, -DEEP, DEEP), contains: () => false };
 
 /** Whether a figure-surface point with its outward normal lies in the region. */
 export function inside(region: RegionDef, point: Vec3, normal: Vec3): boolean {
@@ -362,6 +370,8 @@ export const CROWN = box('crown', 5.08, TOP + 0.1, -WIDE, WIDE, -DEEP, DEEP, fac
 
 /** The whole figure except the crown, for the passes that bring the skin to its last millimetres. */
 export const WHOLE_BUT_CROWN: RegionDef = { label: 'whole-but-crown', min: WHOLE.min, max: WHOLE.max, contains: (point, normal) => !inside(CROWN, point, normal) };
+/** Where the webs are cleared (./generators/webs.ts): the figure above the rock, which is left rough, and under the crown's crust. */
+export const GAPS: RegionDef = { label: 'gaps', min: [WHOLE.min[0], BASE.max[1], WHOLE.min[2]], max: WHOLE.max, contains: (point, normal) => !inside(CROWN, point, normal) };
 
 /** The sides and the back together, reached last in the same order of tools. */
 export const SIDES_AND_BACK = union('sides-and-back', LEFT_SIDE, RIGHT_SIDE, BACK);
@@ -382,4 +392,4 @@ export function relief(region: RegionDef, side: 'front' | 'back'): RegionDef {
   return region.contains === undefined ? result : { ...result, contains: region.contains };
 }
 
-export const REGIONS: readonly RegionDef[] = [WHOLE, FRONT, BACK, LEFT_SIDE, RIGHT_SIDE, HIGH_POINTS, CHEST_AND_FACE, HEAD, HAIR, FACE, LEFT_HAND, RIGHT_HAND, SLING, STUMP, BASE, FLESH, NODO, CROWN, WHOLE_BUT_CROWN, SIDES_AND_BACK, HOLLOWS, HAIR_BUT_CROWN, DETAILS, GILT];
+export const REGIONS: readonly RegionDef[] = [WHOLE, FRONT, BACK, LEFT_SIDE, RIGHT_SIDE, HIGH_POINTS, CHEST_AND_FACE, HEAD, HAIR, FACE, LEFT_HAND, RIGHT_HAND, BETWEEN_THE_LEGS, SLING, STUMP, BASE, FLESH, NODO, AGOSTINO, HOLE, CROWN, WHOLE_BUT_CROWN, GAPS, SIDES_AND_BACK, HOLLOWS, HAIR_BUT_CROWN, DETAILS, GILT];
