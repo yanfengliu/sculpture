@@ -1,7 +1,7 @@
 /**
  * `window.__sculpture`: the read-only facts the page exposes for tests (docs/design/spec.md, Query contract), the `window.__shotReady` capture flag and the `window.__shotSeek` capture seek.
  * Tests read these and drive the page through its real controls; nothing writes state through them. `__shotSeek` exists under `?shot=1` only, for the video exporter (scripts/export-video.mjs): it seeks through the player, the same path as the scrubber, and re-arms `__shotReady`.
- * Beyond the contract's list, the page adds per-step `stepTools`, `stepWeights` and `stepBlowCounts` (for the capture scripts) and the page state `playing`, `speed`, `view`, `follow`, `finish`, `yard` and `hiddenSpans` (for the control tests).
+ * Beyond the contract's list, the page adds per-step `stepTools`, `stepWeights` and `stepBlowCounts` (for the capture scripts) and the page state `playing`, `speed`, `view`, `follow`, `finish`, `yard`, `hiddenSpans`, `bridges` and `bridgeProblems` (for the control tests and the captures).
  */
 import type { Making, PlayDirection, Player } from '../contracts/making';
 import { BASE_SECONDS } from '../contracts/making';
@@ -25,6 +25,8 @@ export interface SculptureFacts {
   /** Blows in the whole plan and a digest of it, both deterministic. */
   readonly planLength: number;
   readonly planDigest: string;
+  /** Where the plan came from: `file`, the plan file `npm run model` builds beside the David grid (src/timeline/plan-file.ts), or `page`, planned in the page as the making goes. */
+  readonly planSource: string;
   /** Blows applied to the stock so far and chunks waiting to be remeshed. */
   readonly blowsApplied: number;
   readonly dirtyChunks: number;
@@ -39,6 +41,9 @@ export interface SculptureFacts {
   /** Whether the yard structures show (the Yard toggle, `yard=0`), and the ids of the yard spans hidden now: those between the camera and the block, or every span while the yard is off (src/viewer/yard-spans.ts). */
   readonly yard: boolean;
   readonly hiddenSpans: readonly string[];
+  /** The plank bridges laid now (src/viewer/bridges.ts), and every needed bridge the stone was seen to fill, with its step and depth. */
+  readonly bridges: readonly string[];
+  readonly bridgeProblems: readonly string[];
   /** URL parameters the page ignored, each with why (`src/viewer/query.ts` and the page's own checks); empty for a well-formed URL, so a capture harness can tell a wrong shot from the asked one. */
   readonly queryProblems: readonly string[];
 }
@@ -66,6 +71,7 @@ export const EMPTY_FACTS: SculptureFacts = {
   t: 0,
   planLength: 0,
   planDigest: '',
+  planSource: 'page',
   blowsApplied: 0,
   dirtyChunks: 0,
   playing: null,
@@ -76,6 +82,8 @@ export const EMPTY_FACTS: SculptureFacts = {
   finish: false,
   yard: true,
   hiddenSpans: [],
+  bridges: [],
+  bridgeProblems: [],
   queryProblems: [],
 };
 
@@ -85,7 +93,10 @@ export interface PageState {
   readonly finish: boolean;
   readonly yard: boolean;
   readonly hiddenSpans: readonly string[];
+  readonly bridges: readonly string[];
+  readonly bridgeProblems: readonly string[];
   readonly queryProblems: readonly string[];
+  readonly planSource: string;
 }
 
 /** The facts at this instant, from the making, the player and the page state. */
@@ -103,6 +114,7 @@ export function buildFacts(making: Making, player: Player & { readonly moving: b
     t: player.t,
     planLength: making.planLength,
     planDigest: making.planDigest,
+    planSource: page.planSource,
     blowsApplied: making.blowsApplied,
     dirtyChunks: making.dirtyChunks,
     playing: player.playing,
@@ -113,6 +125,8 @@ export function buildFacts(making: Making, player: Player & { readonly moving: b
     finish: page.finish,
     yard: page.yard,
     hiddenSpans: page.hiddenSpans,
+    bridges: page.bridges,
+    bridgeProblems: page.bridgeProblems,
     queryProblems: page.queryProblems,
   };
 }
@@ -129,11 +143,13 @@ export function publishFacts(facts: SculptureFacts): void {
     stepBlowCounts: Object.freeze([...facts.stepBlowCounts]),
     stages: Object.freeze([...facts.stages]),
     hiddenSpans: Object.freeze([...facts.hiddenSpans]),
+    bridges: Object.freeze([...facts.bridges]),
+    bridgeProblems: Object.freeze([...facts.bridgeProblems]),
     queryProblems: Object.freeze([...facts.queryProblems]),
   });
 }
 
 /** The fields that change frame to frame, as one string, so the page republishes only on a change. */
 export function factsSignature(facts: SculptureFacts): string {
-  return [facts.t, facts.blowsApplied, facts.dirtyChunks, facts.playing, facts.speed, facts.moving, facts.view, facts.follow, facts.finish, facts.yard, facts.hiddenSpans.join(','), facts.planLength, facts.queryProblems.length].join('|');
+  return [facts.t, facts.blowsApplied, facts.dirtyChunks, facts.playing, facts.speed, facts.moving, facts.view, facts.follow, facts.finish, facts.yard, facts.hiddenSpans.join(','), facts.bridges.join(','), facts.bridgeProblems.length, facts.planLength, facts.queryProblems.length].join('|');
 }

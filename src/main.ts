@@ -9,14 +9,17 @@ import { DAVID_STEPS } from './choreography/david-steps';
 import { STAGES } from './choreography/stages';
 import type { GridHeader } from './contracts/grid';
 import type { Making, Vec3 } from './contracts/making';
-import { DEFAULT_CELL_M } from './david/frame';
+import { DEFAULT_CELL_M, STOCK_BAND_CELLS } from './david/frame';
 import { syntheticFigure } from './david/synthetic';
-import { loadFigureGrid } from './stock/grid';
+import { latticeBlockBox, loadFigureGrid } from './stock/grid';
 import type { Grid } from './stock/grid';
 import { defaultWorkerCount } from './stock/pool';
+import { maxSnapshotBytes } from './stock/snapshot';
+import { createSnapshotLoader } from './stock/snapshot-loader';
 import type { CarrySeconds } from './timeline/carry';
 import { advanceWithCarry } from './timeline/carry';
-import { createMaking } from './timeline/making';
+import { createMaking, type PlanSource } from './timeline/making';
+import { decodedPlanProblem, decodePlan, type PlanHeader, planHeaderProblem, sweptProblem } from './timeline/plan-file';
 import { createPlayer } from './timeline/player';
 import { createBlowCycle } from './tools/blow-cycle';
 import { TOOL_CATALOG } from './tools/catalog';
@@ -29,6 +32,7 @@ import { createUi } from './ui';
 import type { Attribution } from './ui';
 import { installKeyboard } from './ui/keyboard';
 import type { MakingBundle, RenderedTool } from './viewer/bundle';
+import { createBridgeTracker } from './viewer/bridges';
 import { buildFacts, factsSignature, publishFacts } from './viewer/facts';
 import { DEFAULT_FOLLOW_DISTANCE, createFollow, framingFor, viewDirectionFor } from './viewer/follow';
 import { createMarbleMaterial } from './viewer/marble';
@@ -44,6 +48,10 @@ const READY_FRAMES = 5;
 
 /** The pipeline's figure grid (docs/design/spec.md, Grid file format), served from `public/model/`, which `npm run model` writes. */
 const DAVID_HEADER = 'model/david.json';
+/** The plan file and its snapshots beside the grid (src/timeline/plan-file.ts), which `npm run model` builds after the grid. */
+const MODEL_DIRECTORY = 'model/';
+const DAVID_PLAN = 'model/david.plan.json';
+const DAVID_PLAN_DATA = 'model/david.plan.bin';
 
 interface Figure {
   readonly grid: Grid;
@@ -63,18 +71,68 @@ async function loadFigure(query: ViewerQuery, problems: string[]): Promise<Figur
   return { grid: syntheticFigure(DEFAULT_CELL_M), header: undefined };
 }
 
+/** The plan file's header and data, fetched while the grid loads; null when the query asks for no David. */
+function fetchPlanFile(query: ViewerQuery): Promise<[unknown, ArrayBuffer]> | null {
+  if (query.model !== 'david') return null;
+  const read = async (url: string): Promise<Response> => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url} answered ${String(response.status)}`);
+    return response;
+  };
+  return Promise.all([read(DAVID_PLAN).then((r) => r.json() as Promise<unknown>), read(DAVID_PLAN_DATA).then((r) => r.arrayBuffer())]);
+}
+
+function hex(bytes: ArrayBuffer): string {
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** The plan file's plan and snapshots when they were built for this grid and these steps by this planner (src/timeline/plan-file.ts), else why not: the making then plans in the page. */
+async function planFor(fetched: Promise<[unknown, ArrayBuffer]> | null, header: GridHeader | undefined): Promise<PlanSource | string> {
+  if (fetched === null || header === undefined) return 'the figure is not the David grid';
+  try {
+    const [parsed, data] = await fetched;
+    // The Making starts a header's figure from the lattice's block (src/timeline/making.ts), with the stock's band of src/david/frame.ts.
+    const problem = planHeaderProblem(parsed, { gridSha256: header.sha256, steps: DAVID_STEPS.map((step) => step.id), block: latticeBlockBox(header), stockBand: STOCK_BAND_CELLS });
+    if (problem !== null) return `${DAVID_PLAN} does not fit: ${problem}`;
+    const plan = parsed as PlanHeader;
+    const digest = hex(await crypto.subtle.digest('SHA-256', data));
+    if (digest !== plan.planSha256) return `${DAVID_PLAN_DATA} has SHA-256 ${digest} and its header says ${plan.planSha256}`;
+    const decoded = decodePlan(new Uint8Array(data));
+    const mismatch = decodedPlanProblem(decoded, plan) ?? sweptProblem(decoded.swept, header.size[0] * header.size[1] * header.size[2]);
+    if (mismatch !== null) return `${DAVID_PLAN_DATA} does not fit its header or the grid: ${mismatch}`;
+    const loader = createSnapshotLoader(MODEL_DIRECTORY, maxSnapshotBytes(header.size));
+    return { blows: decoded.blows, swept: decoded.swept, snapshots: plan.snapshots, load: (entry) => loader.load(entry), dispose: () => { loader.dispose(); } };
+  } catch (error: unknown) {
+    return `${DAVID_PLAN} could not be read (${error instanceof Error ? error.message : String(error)})`;
+  }
+}
+
 /**
- * INTEGRATION POINT. The engine and the tools plug in here and nowhere else: the figure grid `query.model` names, the engine's Making (src/timeline/making.ts) over the David steps of src/choreography/ (docs/design/choreography.md) with `material` for its chunk meshes, the tools' cycle and meshes (src/tools/), the catalogue's names and the grid header's `source` for the footer.
+ * INTEGRATION POINT. The engine and the tools plug in here and nowhere else: the figure grid `query.model` names, the plan file built for it when there is a usable one, the engine's Making (src/timeline/making.ts) over the David steps of src/choreography/ (docs/design/choreography.md) with `material` for its chunk meshes, the tools' cycle and meshes (src/tools/), the catalogue's names and the grid header's `source` for the footer.
  */
-async function createMakingForQuery(query: ViewerQuery, material: Material, problems: string[]): Promise<MakingBundle> {
+async function createMakingForQuery(query: ViewerQuery, material: Material, problems: string[]): Promise<MakingBundle & { readonly planSource: 'file' | 'page' }> {
   const blowCycle = createBlowCycle();
   // The Making asks the cycle for chips; the log keeps those strikes for the dust puffs.
   const strikes = recordStrikes(blowCycle);
   const toolMeshes = new Map<RenderedTool, Object3D>();
   for (const id of Object.keys(TOOL_CATALOG) as CatalogId[]) toolMeshes.set(id, toolModel(id));
+  const fetched = fetchPlanFile(query);
+  // An unused fetch must not surface as an unhandled rejection; planFor reads its outcome.
+  fetched?.catch(() => undefined);
   const figure = await loadFigure(query, problems);
-  const options = { figure: figure.grid, steps: DAVID_STEPS, stages: STAGES, blowCycle: strikes.cycle, material, workers: defaultWorkerCount() };
+  const plan = await planFor(fetched, figure.header);
+  if (typeof plan === 'string' && query.model === 'david' && figure.header !== undefined) console.warn(`model=david plans in the page, which takes tens of seconds for a late position: ${plan}. Run npm run model to build the plan file.`);
+  const options = { figure: figure.grid, steps: DAVID_STEPS, stages: STAGES, blowCycle: strikes.cycle, material, workers: defaultWorkerCount(), ...(typeof plan === 'string' ? {} : { plan }) };
   const making = createMaking(figure.header === undefined ? options : { ...options, header: figure.header });
+  const bridges = createBridgeTracker({
+    N: making.N,
+    blowsOf: (step) => making.blowsOf(step),
+    get blowsApplied() {
+      return making.blowsApplied;
+    },
+    sampleStock: (x, y, z) => making.stock.sample(x, y, z),
+    stepId: (step) => making.steps[step]?.id ?? String(step),
+  });
   return {
     making,
     blowCycle,
@@ -83,6 +141,8 @@ async function createMakingForQuery(query: ViewerQuery, material: Material, prob
     carrySeconds: (blow, previous) => blowCycle.approachSeconds(blow, previous),
     source: figure.header?.source ?? null,
     strikes,
+    bridges,
+    planSource: making.planSource,
   };
 }
 
@@ -163,10 +223,20 @@ viewer.controls.addEventListener('start', () => {
   view = 'free';
 });
 
+let bridgeProblems: readonly string[] = [];
+/** Lays the plank bridges the work needs at the making's position (src/viewer/bridges.ts) and warns of a needed bridge the stone still fills. */
+function layBridges(): void {
+  if (bundle.bridges === undefined) return;
+  const state = bundle.bridges.update(making.t);
+  viewer.yard.setBridges(state.laid);
+  for (const problem of state.problems.slice(bridgeProblems.length)) console.warn(problem);
+  bridgeProblems = state.problems;
+}
+
 let lastSignature = '';
 /** Publishes the facts when any of them changed: every frame, and right after a control acts, so a test that reads them after a click never sees the frame before it. */
 function publish(): void {
-  const facts = buildFacts(making, player, { view, follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled, hiddenSpans: viewer.yard.hidden, queryProblems: problems });
+  const facts = buildFacts(making, player, { view, follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled, hiddenSpans: viewer.yard.hidden, bridges: viewer.yard.bridges, bridgeProblems, queryProblems: problems, planSource: bundle.planSource });
   const signature = factsSignature(facts);
   if (signature === lastSignature) return;
   lastSignature = signature;
@@ -303,6 +373,7 @@ viewer.start((seconds) => {
     if (player.t !== making.t) making.setTime(player.t);
     if (followPending !== null && making.dirtyChunks === 0) applyFollowView();
   }
+  layBridges();
   const current = making.current;
   rig.update(making.poses, current === null ? null : { tool: current.blow.tool, phase: current.phase });
   bundle.strikes?.clear();

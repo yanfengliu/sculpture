@@ -5,6 +5,7 @@
  *   - Cameras: the presets' positions, and for each of the five distinct preset targets 100 positions on shells at 11 radii from 0.5 m to the orbit's MAX_DISTANCE, above the target's horizon by the orbit's MAX_POLAR_ANGLE (src/viewer/orbit-limits.ts), from a fixed seed. Positions inside the block or under the floor are skipped: the orbit never shows the stock from there. Radii under 0.5 m are not drawn.
  *   - Geometry: every mesh and instance of each span group of `buildYard` (src/viewer/yard.ts), as its world-space box, which is exact for the timbers, decks and planks and holds the props' true shapes inside it; a piece holding the camera is skipped, since its faces are culled from inside. A sight line ends where it first meets the block's box (src/david/frame.ts), not at the carved stock, so a piece behind the block's face, like the head bridge's near edge, does not count.
  *   - The bench is exempt: the spec keeps it for the camera, because the tools rest on it (docs/design/spec.md, Page, Yard spans). The floor is not a span.
+ *   - Bridges: checked with every bridge laid and with none, the two ends of src/viewer/bridges.ts's choice; a bridge's planks count only while it is laid.
  *   - It checks nine sight lines, not every pixel of the block: a piece that hides part of a face between them passes.
  * The mutation case shows the check fails when a span that crosses the block's sight lines stays shown.
  */
@@ -14,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../contracts/making';
 import { BLOCK_M } from '../david/frame';
 import { MAX_DISTANCE, MAX_POLAR_ANGLE } from './orbit-limits';
+import { BRIDGES } from '../tools/scaffold';
 import { PRESETS } from './presets';
 import type { Yard } from './yard';
 import { buildYard } from './yard';
@@ -40,6 +42,13 @@ interface Piece {
   readonly span: YardSpanId;
   readonly name: string;
   readonly box: THREE.Box3;
+  /** The bridge the piece belongs to, or null: a bridge's planks stand only while it is laid. */
+  readonly bridge: string | null;
+}
+
+function bridgeOf(object: THREE.Object3D): string | null {
+  const bridge: unknown = object.userData['bridge'];
+  return typeof bridge === 'string' ? bridge : null;
 }
 
 /** Every mesh and instance of every span as a world-space box. */
@@ -57,10 +66,10 @@ function piecesOf(yard: Yard): Piece[] {
       if (object instanceof THREE.InstancedMesh) {
         for (let i = 0; i < object.count; i += 1) {
           object.getMatrixAt(i, instance);
-          pieces.push({ span: span.id, name: `${object.name}[${String(i)}]`, box: local.clone().applyMatrix4(instance.premultiply(object.matrixWorld)) });
+          pieces.push({ span: span.id, name: `${object.name}[${String(i)}]`, box: local.clone().applyMatrix4(instance.premultiply(object.matrixWorld)), bridge: bridgeOf(object) });
         }
       } else {
-        pieces.push({ span: span.id, name: object.name || object.parent?.name || 'mesh', box: local.clone().applyMatrix4(object.matrixWorld) });
+        pieces.push({ span: span.id, name: object.name || object.parent?.name || 'mesh', box: local.clone().applyMatrix4(object.matrixWorld), bridge: bridgeOf(object) });
       }
     });
   }
@@ -149,13 +158,13 @@ function blockEntry(camera: Vec3, end: Vec3): Vec3 {
   return hit === null ? end : [hit.x, hit.y, hit.z];
 }
 
-/** The pieces of the `shown` spans that cross a sight line from `camera` before it reaches the block, as readable lines. A piece holding the camera is skipped: its faces are culled from inside. */
-function crossings(shown: ReadonlySet<YardSpanId>, pieces: readonly Piece[], camera: Camera): string[] {
+/** The pieces of the `shown` spans that cross a sight line from `camera` before it reaches the block, as readable lines; a bridge counts only when `laid` names it. A piece holding the camera is skipped: its faces are culled from inside. */
+function crossings(shown: ReadonlySet<YardSpanId>, pieces: readonly Piece[], camera: Camera, laid: ReadonlySet<string>): string[] {
   const found: string[] = [];
   const at = new THREE.Vector3(...camera.position);
   const lines = SIGHT_ENDS.map((end) => ({ end, entry: blockEntry(camera.position, end) }));
   for (const piece of pieces) {
-    if (!shown.has(piece.span) || piece.box.containsPoint(at)) continue;
+    if (!shown.has(piece.span) || piece.box.containsPoint(at) || (piece.bridge !== null && !laid.has(piece.bridge))) continue;
     const line = lines.find(({ entry }) => segmentCrosses(camera.position, entry, piece.box));
     if (line !== undefined) found.push(`${camera.label}: ${piece.span} ${piece.name} crosses the sight line to [${line.end.join(', ')}]`);
   }
@@ -172,16 +181,23 @@ describe('yard sight lines', () => {
     expect(all.length).toBeGreaterThan(PRESETS.length + 350);
   });
 
-  it('leaves no shown span across a sight line from any preset or seeded orbit position to the block', () => {
-    const found = all.flatMap((camera) => crossings(shownSpans(yard, camera), pieces, camera));
+  it.each([
+    ['every bridge laid', BRIDGES.map((bridge) => bridge.id)],
+    ['no bridge laid', []],
+  ])('leaves no shown span across a sight line from any preset or seeded orbit position to the block, %s', (_name, ids) => {
+    yard.setBridges(ids);
+    const laid = new Set(ids);
+    const found = all.flatMap((camera) => crossings(shownSpans(yard, camera), pieces, camera, laid));
     expect(found.slice(0, 20), `${String(found.length)} crossings`).toEqual([]);
   });
 
   it('reports a span the rule hides when it is kept shown (mutation: every span shown from every camera)', () => {
     const every = new Set(yard.spans.map((span) => span.id).filter((id) => !EXEMPT.has(id)));
-    const found = all.flatMap((camera) => crossings(every, pieces, camera));
+    const laid = new Set(BRIDGES.map((bridge) => bridge.id));
+    yard.setBridges([...laid]);
+    const found = all.flatMap((camera) => crossings(every, pieces, camera, laid));
     const spans = new Set(found.map((line) => /: (\S+) /.exec(line)?.[1]));
     expect(found.length).toBeGreaterThan(0);
-    expect([...spans].sort()).toEqual(expect.arrayContaining(['scaffold-front', 'scaffold-left', 'scaffold-right']));
+    expect([...spans].sort()).toEqual(expect.arrayContaining(['head-bridge', 'scaffold-front', 'scaffold-left', 'scaffold-right']));
   });
 });
