@@ -7,6 +7,8 @@
  * - Crystals: a cellular grain of 1.5 mm, each grain a little brighter or darker with its facet tilted, which the sun picks out as a faint sparkle.
  * Every feature is faded by the pixel footprint (`px`, metres per pixel), so a feature under a pixel or two fades to its mean instead of aliasing into regular lines or a shimmer.
  * The marks: the point leaves irregular pits 1 to 3 cm across with whiter bottoms (technique.md: the furrow bottoms stay whiter from the crushed crystals), the drill smaller pits, the toothed and flat chisels, rasps and files parallel bands whose phase runs along fixed world directions in each axis plane, blended by the normal, so neighbouring flat-shaded triangles agree.
+ * Compile cost: the fbm's loop runs to a bound scaled by the uniform `marbleLoop` (always 1), so the compiler keeps it a loop. Unrolled into its seven call sites, Direct3D's shader compiler (Chrome on Windows) took 8 to 12 s over this program on 2026-10-14 and the page waited for it; as a loop it takes about 2 s.
+ * The light first program (`fragmentFunctions(n, false)`, `COLOUR_CHUNK_LITE`) has the finish codes' colours and roughness on the stone's mean colour and no noise: the page draws it while the full stone compiles (src/viewer/marble.ts).
  */
 import { FINISH } from '../contracts/grid';
 
@@ -45,8 +47,8 @@ const mat3 MARBLE_TURN = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48
 float marbleFbm(vec3 p, int octaves) {
   float sum = 0.0;
   float amplitude = 0.5;
-  for (int octave = 0; octave < 5; octave++) {
-    if (octave >= octaves) break;
+  // octaves * marbleLoop is the same count, but one the compiler cannot see, so the loop stays a loop (see fragmentFunctions).
+  for (int octave = 0; octave < octaves * marbleLoop; octave++) {
     sum += amplitude * marbleGradient(p);
     p = MARBLE_TURN * p * 2.03 + 0.17;
     amplitude *= 0.5;
@@ -137,6 +139,7 @@ vec4 marblePit(vec3 p, int code) {
 }
 `;
 
+/** The finish codes' colours, roughness and metalness, which both programs use. */
 const FINISHES = `
 int marbleCode(float finish) { return int(finish + 0.5); }
 
@@ -179,6 +182,9 @@ float marbleMetalness(float finish) {
   // Gold leaf over stone: mostly metal, with enough diffuse left that it reads gold under a dim sky.
   return marbleCode(finish) == ${code('gilt')} ? 0.75 : 0.0;
 }
+`;
+
+const MARKS = `
 /** Parallel bands of \`pitch\` metres at \`angle\` in each axis plane, blended by the normal; the tilt lies in the surface; faded out between seven and three pixels a band, so a fine claw seen from a metre does not hatch the face. */
 vec3 marbleBands(vec3 p, vec3 n, float pitch, float amplitude, float angle, float px) {
   float fade = 1.0 - smoothstep(0.15, 0.3, px / pitch);
@@ -226,13 +232,21 @@ vec3 marbleMark(vec3 p, float finish, vec3 n, float px, vec4 pit) {
 }
 `;
 
-/** The fragment functions, after the uniforms: `finishColours` holds `codeCount` flat colours for `?finish=1`. */
-export function fragmentFunctions(codeCount: number): string {
+/** The fragment functions, after the uniforms: `finishColours` holds `codeCount` flat colours for `?finish=1`; `marbleLoop` is 1, set by src/viewer/marble.ts, and only hides the fbm's loop bound from the compiler. `full` false gives the light first program's: the finish tables alone. */
+export function fragmentFunctions(codeCount: number, full: boolean): string {
   return `
 uniform vec3 finishColours[${String(codeCount)}];
 uniform float flatCodes;
-${NOISE}${STONE}${FINISHES}`;
+${full ? `uniform int marbleLoop;\n${NOISE}${STONE}${FINISHES}${MARKS}` : FINISHES}`;
 }
+
+/** The stone's mean colour under the clouding and the veins, for the light first program. */
+const MEAN_STONE = 'vec3(0.90, 0.89, 0.86)';
+
+/** Replaces `color_fragment` in the light first program: the finish code's colour on the stone's mean, no grain and no pits. */
+export const COLOUR_CHUNK_LITE = `
+diffuseColor.rgb = flatCodes > 0.5 ? finishColours[marbleCode(vFinish)] * 0.35 : marbleColour(${MEAN_STONE}, vFinish, vec4(0.0), vec4(0.0));
+`;
 
 /** Replaces `color_fragment`. At the top of main, in uniform control flow, so the derivatives are defined: the pixel footprint, the stone, the crystal and the pit, which the normal chunk reuses. */
 export const COLOUR_CHUNK = `

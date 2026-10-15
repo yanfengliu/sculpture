@@ -1,6 +1,6 @@
 /**
- * Smoke test of the capture contract (docs/design/spec.md, Query contract): `/?shot=1` loads on the dev server, draws one canvas of 1400×1000 CSS pixels at a 1400×1000 viewport, reports `window.__shotReady`, is not blank, exposes `window.__sculpture` with a making in it, labels the first step as Day 1 of 9 September 1501 (the first chisel blows, src/ui/label.ts), and logs no console error or uncaught exception.
- * Bound: it proves the toolchain, the WebGL path and the contract's plumbing on the synthetic figure; "not blank" means the sampled pixels are not all one colour, which says nothing about what was drawn. It does not test the built `dist/`. The making is whatever src/main.ts boots; the test asks only that it has steps whose first one starts on the day origin.
+ * Smoke test of the capture contract (docs/design/spec.md, Query contract): `/?shot=1` loads on the dev server, draws one canvas of 1400×1000 CSS pixels at a 1400×1000 viewport, reports `window.__shotReady` only once the full marble draws (src/viewer/marble.ts: the light first program is never captured), is not blank, exposes `window.__sculpture` with a making in it, labels the first step with its date, Day 1 of 9 September 1501 (the first chisel blows) or the years of a step before that day (Agostino di Duccio's 1464–1466; src/ui/label.ts), and logs no console error or uncaught exception.
+ * Bound: it proves the toolchain, the WebGL path and the contract's plumbing on the synthetic figure; "not blank" means the sampled pixels are not all one colour, which says nothing about what was drawn. It does not test the built `dist/`. The making is whatever src/main.ts boots; the test asks only that it has steps and that the label dates the first one in one of the label's two forms.
  */
 import { expect, test } from '@playwright/test';
 
@@ -38,7 +38,7 @@ test('/?shot=1 draws the yard and block to a 1400x1000 canvas, reaches shot-read
   expect(colours, 'no sampled pixel is transparent black, the colour of an undrawn canvas').not.toContain('0,0,0,0');
 
   const facts = await page.evaluate(() => window.__sculpture);
-  expect(facts).toMatchObject({ t: 0, blowsApplied: 0, dirtyChunks: 0, playing: null, queryProblems: [] });
+  expect(facts).toMatchObject({ t: 0, blowsApplied: 0, dirtyChunks: 0, playing: null, queryProblems: [], marble: 'full' });
   expect(facts?.N).toBeGreaterThan(0);
   expect(facts?.stepIds).toHaveLength(facts?.N ?? -1);
   expect(facts?.stepTitles).toHaveLength(facts?.N ?? -1);

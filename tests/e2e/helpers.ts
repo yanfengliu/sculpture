@@ -20,7 +20,7 @@ export function collectProblems(page: Page): string[] {
   return problems;
 }
 
-/** Loads `/?<query>` on the synthetic figure (docs/design/spec.md, Query contract: tests pass `model=synthetic`; a spec that wants the David grid names `model=` itself) and waits for the first published facts and two rendered frames. */
+/** Loads `/?<query>` on the synthetic figure (docs/design/spec.md, Query contract: tests pass `model=synthetic`; a spec that wants the David grid names `model=` itself) and waits for the first published facts, every chunk meshed, the full marble and two rendered frames. */
 export async function openPage(page: Page, query: string): Promise<void> {
   const full = /(^|&)model=/.test(query) ? query : `model=synthetic${query === '' ? '' : `&${query}`}`;
   const response = await page.goto(`/?${full}`);
@@ -28,6 +28,8 @@ export async function openPage(page: Page, query: string): Promise<void> {
   await page.waitForFunction(() => window.__sculpture !== undefined);
   // The engine meshes the stock in workers after the first facts; a canvas read before every chunk is in would show a partly meshed block.
   await page.waitForFunction(() => window.__sculpture?.dirtyChunks === 0, undefined, { timeout: 60_000 });
+  // The stock draws a light first marble until the full stone's program has compiled (src/viewer/marble.ts, seconds in a new browser): a canvas read before it compares another program's pixels with a later load's.
+  await page.waitForFunction(() => window.__sculpture?.marble === 'full', undefined, { timeout: 60_000 });
   await waitFrames(page, 2);
 }
 
