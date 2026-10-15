@@ -88,3 +88,4 @@ Each `detail` names its tool in Italian and English, the real blows one shown bl
 - Drill holes at 8 mm come out wider than the documented 3 to 8 mm bits; the drilling steps say so in their detail until the refinement boxes land.
 - Every footprint tool (the fine claw's patch, the rasp, the file, the pumice, the polish, the gilding leaf) keeps its paint and cut inside its step's region: the planner tries each blow on the step's scratch and moves it inward or drops it (2026-10-14). Where a region is narrower than the footprint, as on the stump beside the calf, the leaf cannot lie, so the stump shows gold in patches; open.
 - The garland of 28 copper leaves on a brass thread was a separate object and is not shown.
+- Gaps narrower than the 8 mm grid resolves close in the figure grid itself: between the right hand's fingers and the thigh the statue shows a flat face of stone that the real David does not (review 2, CE19); it waits for the 4 mm refinement boxes.
