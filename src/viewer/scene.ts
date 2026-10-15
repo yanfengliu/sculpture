@@ -5,9 +5,10 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 import { BLOCK_M } from '../david/frame';
+import { createCompileGate } from './compile-gate';
+import { buildEnvironment } from './environment';
 import { MAX_DISTANCE, MAX_POLAR_ANGLE, MIN_DISTANCE } from './orbit-limits';
 import type { CameraPose } from './query';
 import type { Yard } from './yard';
@@ -42,10 +43,12 @@ export interface Viewer {
   readonly controls: OrbitControls;
   /** The yard's spans and their visibility rule (src/viewer/yard.ts): applied after every camera move, before the frame renders. */
   readonly yard: Yard;
+  /** Settles once a program compiled for the scene is the one it draws with: its lights are in and its environment, or a stand-in with the same mapping and size, is set. */
+  readonly lit: Promise<void>;
   /** Frames rendered since `start`. */
   readonly frames: number;
   setPose(pose: CameraPose): void;
-  /** Starts the render loop; `tick` runs before every render with the clamped seconds since the previous frame. */
+  /** Starts the render loop; `tick` runs before every render with the clamped seconds since the previous frame. A frame whose scene holds a material with no compiled program yet neither ticks nor draws until the compile, off the page's thread, is done (src/viewer/compile-gate.ts); a frame whose tick brought one in ticks but does not draw. */
   start(tick?: (seconds: number) => void): void;
 }
 
@@ -63,8 +66,23 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(SKY_COLOUR);
   scene.fog = new THREE.Fog(SKY_COLOUR, 40, 90);
-  const environment = new THREE.PMREMGenerator(renderer);
-  scene.environment = environment.fromScene(new RoomEnvironment(), 0.04).texture;
+  // The room's PMREM is built once its programs have compiled in the background (src/viewer/environment.ts); programs compile against its stand-in meanwhile, and nothing draws before it is in.
+  const environment = buildEnvironment(renderer);
+  scene.environment = environment.standIn;
+  let environmentIn = false;
+  const built = environment.texture.then(
+    (texture) => {
+      scene.environment = texture;
+    },
+    (error: unknown) => {
+      scene.environment = null;
+      console.error(`The yard's environment light could not be built (${error instanceof Error ? error.message : String(error)}); the scene draws without it.`);
+    },
+  );
+  void built.then(() => {
+    environmentIn = true;
+  });
+  const lit = environment.standIn === null ? built : Promise.resolve();
   scene.environmentIntensity = 0.25;
   const yard = buildYard();
   scene.add(...buildLights(), yard.group);
@@ -76,6 +94,10 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
   controls.maxPolarAngle = MAX_POLAR_ANGLE;
   controls.minDistance = MIN_DISTANCE;
   controls.maxDistance = MAX_DISTANCE;
+  // The yard's programs start compiling as soon as the light is in, while the page loads the rest.
+  const gate = createCompileGate(renderer, scene, camera, lit);
+  /** Starts compiling new materials, and is true when nothing waits: every program compiled and the environment in. */
+  const drawable = (): boolean => gate.ready() && environmentIn;
 
   function setPose(pose: CameraPose): void {
     camera.position.set(...pose.position);
@@ -99,6 +121,7 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
     camera,
     controls,
     yard,
+    lit,
     get frames() {
       return frames;
     },
@@ -107,14 +130,23 @@ export function createViewer(container: HTMLElement, options: ViewerOptions): Vi
       window.addEventListener('resize', resize);
       resize();
       const frame = (now: number): void => {
+        // Nothing ticks and nothing is drawn while new materials compile off the page's thread or the environment is built.
+        if (!drawable()) {
+          last = now;
+          requestAnimationFrame(frame);
+          return;
+        }
         const seconds = last === null ? 0 : Math.min(MAX_FRAME_SECONDS, (now - last) / 1000);
         last = now;
         tick?.(seconds);
         controls.update();
         // After the controls, so an orbit in progress hides the spans the camera has just moved outside of.
         yard.update(camera.position);
-        renderer.render(scene, camera);
-        frames += 1;
+        // The tick may have brought a material in (the stock's first chunk): it compiles before anything draws it.
+        if (drawable()) {
+          renderer.render(scene, camera);
+          frames += 1;
+        }
         requestAnimationFrame(frame);
       };
       requestAnimationFrame(frame);

@@ -1,7 +1,7 @@
 /**
  * `window.__sculpture`: the read-only facts the page exposes for tests (docs/design/spec.md, Query contract), the `window.__shotReady` capture flag and the `window.__shotSeek` capture seek.
  * Tests read these and drive the page through its real controls; nothing writes state through them. `__shotSeek` exists under `?shot=1` only, for the video exporter (scripts/export-video.mjs): it seeks through the player, the same path as the scrubber, and re-arms `__shotReady`.
- * Beyond the contract's list, the page adds per-step `stepTools`, `stepWeights` and `stepBlowCounts` (for the capture scripts) and the page state `playing`, `speed`, `view`, `follow`, `finish`, `yard`, `hiddenSpans`, `bridges` and `bridgeProblems` (for the control tests and the captures).
+ * Beyond the contract's list, the page adds per-step `stepTools`, `stepWeights` and `stepBlowCounts` (for the capture scripts) and the page state `playing`, `speed`, `view`, `follow`, `finish`, `yard`, `hiddenSpans`, `bridges`, `bridgeProblems` and `marble` (for the control tests, the captures and the load probe).
  */
 import type { Making, PlayDirection, Player } from '../contracts/making';
 import { BASE_SECONDS } from '../contracts/making';
@@ -27,6 +27,8 @@ export interface SculptureFacts {
   readonly planDigest: string;
   /** Where the plan came from: `file`, the plan file `npm run model` builds beside the David grid (src/timeline/plan-file.ts), or `page`, planned in the page as the making goes. */
   readonly planSource: string;
+  /** Which marble program the stock draws with: `lite`, the light first program, while the full stone compiles off the page's thread, then `full` (src/viewer/marble.ts); `__shotReady` waits for `full`. */
+  readonly marble: string;
   /** Blows applied to the stock so far and chunks waiting to be remeshed. */
   readonly blowsApplied: number;
   readonly dirtyChunks: number;
@@ -72,6 +74,7 @@ export const EMPTY_FACTS: SculptureFacts = {
   planLength: 0,
   planDigest: '',
   planSource: 'page',
+  marble: 'lite',
   blowsApplied: 0,
   dirtyChunks: 0,
   playing: null,
@@ -97,6 +100,7 @@ export interface PageState {
   readonly bridgeProblems: readonly string[];
   readonly queryProblems: readonly string[];
   readonly planSource: string;
+  readonly marble: string;
 }
 
 /** The facts at this instant, from the making, the player and the page state. */
@@ -115,6 +119,7 @@ export function buildFacts(making: Making, player: Player & { readonly moving: b
     planLength: making.planLength,
     planDigest: making.planDigest,
     planSource: page.planSource,
+    marble: page.marble,
     blowsApplied: making.blowsApplied,
     dirtyChunks: making.dirtyChunks,
     playing: player.playing,
@@ -151,5 +156,5 @@ export function publishFacts(facts: SculptureFacts): void {
 
 /** The fields that change frame to frame, as one string, so the page republishes only on a change. */
 export function factsSignature(facts: SculptureFacts): string {
-  return [facts.t, facts.blowsApplied, facts.dirtyChunks, facts.playing, facts.speed, facts.moving, facts.view, facts.follow, facts.finish, facts.yard, facts.hiddenSpans.join(','), facts.bridges.join(','), facts.bridgeProblems.length, facts.planLength, facts.queryProblems.length].join('|');
+  return [facts.t, facts.blowsApplied, facts.dirtyChunks, facts.playing, facts.speed, facts.moving, facts.view, facts.follow, facts.finish, facts.yard, facts.hiddenSpans.join(','), facts.bridges.join(','), facts.bridgeProblems.length, facts.planLength, facts.queryProblems.length, facts.marble].join('|');
 }

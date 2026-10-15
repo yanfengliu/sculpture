@@ -86,6 +86,8 @@ test('a key the page does not read is reported; t above N is reported and clampe
 });
 
 test('view= picks a preset, cam= wins over it, and an unknown view is reported', async ({ page }) => {
+  // Four loads of the synthetic figure, each about 5 s to a meshed block: 24 s of the default 30 when the machine is quiet, so it gets the slow budget the other many-load tests have.
+  test.slow();
   await openPage(page, 'autoplay=0&view=front');
   expect((await facts(page)).view).toBe('front');
   await expect(page.getByTestId('view-menu')).toHaveValue('front');
