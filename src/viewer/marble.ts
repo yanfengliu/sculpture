@@ -4,12 +4,13 @@
  * One MeshPhysicalMaterial: sheen for the soft grazing highlight, a little transmission as the cheap subsurface approximation, ior 1.55 for calcite, flat shading so the engine's chunks need no normals.
  * `onBeforeCompile` injects the stone of src/viewer/marble-glsl.ts (domain-warped veins, taroli and the crystal grain, evaluated at the fragment's world position, so every cut reveals the interior consistently) into `color_fragment`, and reads the per-vertex `finish` attribute (Uint8, the codes of `FINISH` in src/contracts/grid.ts) to pick the colour, roughness, metalness and a procedural mark normal pattern of the last tool that touched the surface there. The code reaches the fragment as a `flat` varying, one code per triangle, so no fragment shows a tool between its vertices' codes.
  * The flat variant (`?finish=1`) paints each code as one flat colour from `FINISH_FLAT_COLOURS` for checking the finish grid by eye.
+ * First visit: the full stone's program takes seconds to compile, so the material starts on a light first program (the finish codes on the stone's mean colour) and `prepare` switches it to the full stone once a twin's program has compiled in the background (docs/design/spec.md, Budgets).
  */
 import * as THREE from 'three';
 
 import type { FinishCode } from '../contracts/grid';
 import { FINISH } from '../contracts/grid';
-import { COLOUR_CHUNK, NORMAL_CHUNK, fragmentFunctions } from './marble-glsl';
+import { COLOUR_CHUNK, COLOUR_CHUNK_LITE, NORMAL_CHUNK, fragmentFunctions } from './marble-glsl';
 
 /** Name of the per-vertex attribute the engine's chunk geometries carry: one unsigned byte per vertex, a code of `FINISH`, not normalised. */
 export const FINISH_ATTRIBUTE = 'finish';
@@ -60,8 +61,15 @@ export interface MarbleOptions {
 export interface Marble {
   readonly material: THREE.MeshPhysicalMaterial;
   readonly flat: boolean;
+  /** True once the material draws the full stone; until `prepare` has switched it, it draws the light first program (finish colours on the stone's mean, no noise). */
+  readonly full: boolean;
   /** Switches between the marble and the flat finish-code colours; a uniform, so no recompile. */
   setFlat(flat: boolean): void;
+  /**
+   * Compiles the full stone's program off the page's thread for a mesh like the stock's under `scene`'s lights (three.js `compileAsync`, in the background where the browser has `KHR_parallel_shader_compile`), then switches the material to it, so the switch finds the program compiled and the page never waits for it. Resolves once switched.
+   * The compile is a twin material's, the same in every program parameter, so three.js hands the material the twin's program by its cache key.
+   */
+  prepare(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): Promise<void>;
 }
 
 /** `vFinish` is `flat`: a finish code is a category, so a triangle whose vertices carry different codes takes its provoking vertex's code everywhere, never a blend that rounds to tools that touched neither vertex (the defect of 2026-10-11, pinned in marble.test.ts). */
@@ -86,7 +94,16 @@ if (flatCodes > 0.5) totalEmissiveRadiance += finishColours[marbleCode(vFinish)]
 const ROUGHNESS = `float roughnessFactor = flatCodes > 0.5 ? 0.9 : marbleRoughness(vFinish);`;
 const METALNESS = `float metalnessFactor = flatCodes > 0.5 ? 0.0 : marbleMetalness(vFinish);`;
 
-export function createMarbleMaterial(options: MarbleOptions): Marble {
+/** The uniforms every marble program reads; shared by the material and its twin. */
+interface StoneUniforms {
+  readonly colours: readonly THREE.Color[];
+  readonly flatCodes: { value: number };
+  /** Always 1: scales the fbm's loop bound so the compiler keeps the loop (src/viewer/marble-glsl.ts). */
+  readonly loop: { value: number };
+}
+
+/** The physical material with the stone injected: the full stone while `full()` is true, else the light first program; the cache key tells the two apart. */
+function stoneMaterial(uniforms: StoneUniforms, full: () => boolean): THREE.MeshPhysicalMaterial {
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
     roughness: 0.55,
@@ -102,32 +119,62 @@ export function createMarbleMaterial(options: MarbleOptions): Marble {
     attenuationColor: new THREE.Color(0xf6e9d2),
     attenuationDistance: 0.25,
   });
-  const colours = Object.entries(FINISH_FLAT_COLOURS)
-    .sort(([a], [b]) => Number(a) - Number(b))
-    .map(([, rgb]) => new THREE.Color(...rgb));
-  const flatCodes = { value: options.flat ? 1 : 0 };
   material.onBeforeCompile = (shader) => {
-    shader.uniforms['finishColours'] = { value: colours };
-    shader.uniforms['flatCodes'] = flatCodes;
+    const stone = full();
+    shader.uniforms['finishColours'] = { value: uniforms.colours };
+    shader.uniforms['flatCodes'] = uniforms.flatCodes;
+    if (stone) shader.uniforms['marbleLoop'] = uniforms.loop;
     shader.vertexShader = VERTEX_DECLARATIONS + shader.vertexShader.replace('#include <worldpos_vertex>', VERTEX_ASSIGN);
-    shader.fragmentShader =
-      DECLARATIONS +
-      fragmentFunctions(FINISH_CODE_COUNT) +
-      shader.fragmentShader
-        .replace('#include <color_fragment>', COLOUR_CHUNK)
-        .replace('#include <emissivemap_fragment>', EMISSIVE)
-        .replace('#include <roughnessmap_fragment>', ROUGHNESS)
-        .replace('#include <metalnessmap_fragment>', METALNESS)
-        .replace('#include <normal_fragment_maps>', NORMAL_CHUNK);
+    const fragment = shader.fragmentShader
+      .replace('#include <color_fragment>', stone ? COLOUR_CHUNK : COLOUR_CHUNK_LITE)
+      .replace('#include <emissivemap_fragment>', EMISSIVE)
+      .replace('#include <roughnessmap_fragment>', ROUGHNESS)
+      .replace('#include <metalnessmap_fragment>', METALNESS);
+    shader.fragmentShader = DECLARATIONS + fragmentFunctions(FINISH_CODE_COUNT, stone) + (stone ? fragment.replace('#include <normal_fragment_maps>', NORMAL_CHUNK) : fragment);
   };
-  material.customProgramCacheKey = () => 'marble';
+  material.customProgramCacheKey = () => (full() ? 'marble' : 'marble-lite');
+  return material;
+}
+
+/** A triangle with the stock chunks' attributes (a position, a finish code, no normal; src/stock/remesh.ts), so a program compiled for it is the one the chunks draw with. */
+function standInGeometry(): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+  geometry.setAttribute(FINISH_ATTRIBUTE, finishAttribute(3, FINISH.block));
+  return geometry;
+}
+
+export function createMarbleMaterial(options: MarbleOptions): Marble {
+  const uniforms: StoneUniforms = {
+    colours: Object.entries(FINISH_FLAT_COLOURS)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([, rgb]) => new THREE.Color(...rgb)),
+    flatCodes: { value: options.flat ? 1 : 0 },
+    loop: { value: 1 },
+  };
+  let full = false;
+  const material = stoneMaterial(uniforms, () => full);
+  let preparing: Promise<void> | null = null;
   return {
     material,
     get flat() {
-      return flatCodes.value > 0.5;
+      return uniforms.flatCodes.value > 0.5;
+    },
+    get full() {
+      return full;
     },
     setFlat(flat) {
-      flatCodes.value = flat ? 1 : 0;
+      uniforms.flatCodes.value = flat ? 1 : 0;
+    },
+    prepare(renderer, scene, camera) {
+      preparing ??= (async () => {
+        // The stand-ins cast and take shadows as the chunks do; the light program compiles alongside, for the frame that first draws the stock. The twin is kept, not disposed, so its program stays in three.js's cache for the switch.
+        const standIn = (stone: THREE.Material): THREE.Mesh => Object.assign(new THREE.Mesh(standInGeometry(), stone), { castShadow: true, receiveShadow: true });
+        await Promise.all([renderer.compileAsync(standIn(material), camera, scene), renderer.compileAsync(standIn(stoneMaterial(uniforms, () => true)), camera, scene)]);
+        full = true;
+        material.needsUpdate = true;
+      })();
+      return preparing;
     },
   };
 }

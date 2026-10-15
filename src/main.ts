@@ -195,7 +195,15 @@ function attributionOf(bundle: MakingBundle): Attribution | null {
 const query = readViewerQuery();
 const problems = [...query.problems];
 const marble = createMarbleMaterial({ flat: query.finish });
-const bundle = await createMakingForQuery(query, marble.material, problems);
+// The making's fetches start first and the viewer is built while they run, so the yard's programs and the full marble's compile, off the page's thread, while the grid loads (docs/design/spec.md, Budgets).
+const loading = createMakingForQuery(query, marble.material, problems);
+const viewer = createViewer(document.body, { shot: query.shot });
+viewer.lit
+  .then(() => marble.prepare(viewer.renderer, viewer.scene, viewer.camera))
+  .catch((error: unknown) => {
+    console.error(`The full marble's program did not compile (${error instanceof Error ? error.message : String(error)}); the stock keeps the light first marble.`);
+  });
+const bundle = await loading;
 const { making } = bundle;
 const player = createPlayer(making.steps.map((step) => step.weight));
 const position = initialPosition(query, making, problems);
@@ -204,7 +212,7 @@ player.seek(position ?? 0);
 const camera = initialCamera(query, problems);
 for (const problem of problems) console.warn(problem);
 
-const viewer = createViewer(document.body, { shot: query.shot, pose: camera.pose });
+viewer.setPose(camera.pose);
 viewer.yard.setEnabled(query.yard);
 const isGroup = (object: Object3D): object is Group => object instanceof Group;
 const rig = createToolRig({
@@ -236,7 +244,7 @@ function layBridges(): void {
 let lastSignature = '';
 /** Publishes the facts when any of them changed: every frame, and right after a control acts, so a test that reads them after a click never sees the frame before it. */
 function publish(): void {
-  const facts = buildFacts(making, player, { view, follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled, hiddenSpans: viewer.yard.hidden, bridges: viewer.yard.bridges, bridgeProblems, queryProblems: problems, planSource: bundle.planSource });
+  const facts = buildFacts(making, player, { view, follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled, hiddenSpans: viewer.yard.hidden, bridges: viewer.yard.bridges, bridgeProblems, queryProblems: problems, planSource: bundle.planSource, marble: marble.full ? 'full' : 'lite' });
   const signature = factsSignature(facts);
   if (signature === lastSignature) return;
   lastSignature = signature;
@@ -324,11 +332,12 @@ if (query.autoplay && position === null) player.play('forward');
  */
 let followPending: 'load' | 'seek' | null = view === FOLLOW_VIEW ? 'load' : null;
 
-let readyFrames = 0;
+/** `viewer.frames` when the requested state was first seen settled, null while it is not: ready once READY_FRAMES frames of it are drawn (a frame can wait for a compile without drawing, src/viewer/scene.ts). */
+let settledAt: number | null = null;
 if (query.shot) {
   window.__shotSeek = (t: number): void => {
     window.__shotReady = false;
-    readyFrames = 0;
+    settledAt = null;
     player.pause();
     player.seek(t);
     making.setTime(player.t);
@@ -386,12 +395,13 @@ viewer.start((seconds) => {
   ui?.update({ t: player.t, playing: player.playing, speed: player.speed, view: isPresetId(view) ? view : 'free', follow: follow.enabled, finish: marble.flat, yard: viewer.yard.enabled });
   publish();
   if (query.shot) {
-    // Ready only once the follow framing, if any, has been applied: the frames before it show the pose the load started from.
-    if (making.dirtyChunks === 0 && !player.moving && followPending === null) {
-      readyFrames += 1;
-      if (readyFrames >= READY_FRAMES) window.__shotReady = true;
+    // Ready only once the follow framing, if any, has been applied (the frames before it show the pose the load started from) and the full marble draws, so a capture never shows the light first marble.
+    if (making.dirtyChunks === 0 && !player.moving && followPending === null && marble.full) {
+      settledAt ??= viewer.frames;
+      // This frame draws after the tick: with the frames drawn since the state settled, READY_FRAMES.
+      if (viewer.frames - settledAt >= READY_FRAMES - 1) window.__shotReady = true;
     } else {
-      readyFrames = 0;
+      settledAt = null;
     }
   }
 });
