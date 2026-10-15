@@ -36,7 +36,7 @@ const BLOW_BUDGET = 60_000;
 const UNDO_BYTES_PER_BLOW = 400e6 / BLOW_BUDGET;
 /** Rows above the base row a crumb of the block's bottom skin may reach: the crumbs measured on 2026-10-13 are one or two rows tall (8 to 16 mm), so the stock band, one row more, bounds them; a piece reaching this row is a pillar of waste or a floater. */
 const SKIN_ROWS = STOCK_BAND_CELLS;
-/** The webs are counted between the rock's top and the crown's crust, metres, as src/stock/connectivity.test.ts counts them at 2 cm, and up to the crust's edge: the crown keeps its stone from 5.08 (CROWN) and the fine claw's patch, 8 cm across, cannot work within its half width of it without reaching it (./generators/confine.ts), so the stone left there is the crust's edge, not a web (21 cells at y 5.028 to 5.044 on the David on 2026-10-14, after the confinement), and is logged on its own, not counted. */
+/** The webs are counted between the rock's top and the crown's crust, metres, as src/stock/connectivity.test.ts counts them at 2 cm, and up to the crust's edge: the crown keeps its stone from 5.08 (CROWN) and the fine claw's patch, 8 cm across, cannot work within its half width of it without reaching it (./generators/confine.ts), so the stone left there is the crust's edge, not a web, and is logged on its own, not counted: on the David on 2026-10-14, after the confinement, 21 cells at y 5.028 to 5.044 stood below the census's old top of 5.05 after fine-claw-gaps, and 828 from 5.0 to 5.08 at t = N. */
 const WEB_Y_MIN = 0.4;
 const WEB_Y_MAX = 5.0;
 /** The finest margin of the making (the dente di cane's 1.5 mm, fine-claw-all), metres: a web cell stands more than this plus one cell from the figure. */

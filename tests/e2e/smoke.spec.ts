@@ -46,7 +46,8 @@ test('/?shot=1 draws the yard and block to a 1400x1000 canvas, reaches shot-read
   expect(facts?.stages.length).toBeGreaterThan(0);
   expect(facts?.planLength).toBeGreaterThan(0);
   expect(facts?.planDigest).toMatch(/^[0-9a-f]{8,}$/);
-  await expect(page.getByTestId('label')).toHaveText(new RegExp(`^Day 1 · 9 September 1501 · .+ — ${(facts?.stepTitles[0] ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  // The label at t = 0 dates the first step: Day 1 · 9 September 1501 for the Operai's first blows, or the years of a step before that day, as Agostino di Duccio's 1464–1466 (src/ui/label.ts).
+  await expect(page.getByTestId('label')).toHaveText(new RegExp(`^(?:Day 1 · 9 September 1501|\\d{4}(?:–\\d{4})?) · .+ — ${(facts?.stepTitles[0] ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
   await expect(page.getByTestId('attribution')).toBeVisible();
   await expect(page.getByTestId('time-lapse')).toContainText('Time-lapse');
 
