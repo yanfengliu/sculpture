@@ -76,9 +76,22 @@ The older series "Fir JBU006–044" (CC BY 3.0, 3648 × 5472) is the same photog
 
 Category pages by view: front https://commons.wikimedia.org/wiki/Category:David_by_Michelangelo_Buonarroti_(front_view) ; back https://commons.wikimedia.org/wiki/Category:David_by_Michelangelo_Buonarroti_(back) ; left https://commons.wikimedia.org/wiki/Category:David_by_Michelangelo_Buonarroti_(left) ; right https://commons.wikimedia.org/wiki/Category:David_by_Michelangelo_Buonarroti_(right) ; historical https://commons.wikimedia.org/wiki/Category:David_by_Michelangelo_Buonarroti_-_historical_images
 
+## Found in the detail series by the visual audit (2026-10-15)
+
+Seen by eye in the category gallery and, where marked, at 1280 px (`docs/work/0_making-of/reviews/3_visual-audit.md`, The detail series); each file is `https://commons.wikimedia.org/wiki/File:%27David%27_by_Michelangelo_FI_Acca_<JBS or JBU>_<nnn>.jpg`. Licences follow the series note above (CC BY 4.0 to about JBS 068, CC BY-SA 4.0 from JBS 069 and for JBU 111 to 128) and were not checked file by file through the Commons API: check before a handoff relies on one.
+
+- The stump with its rows of claw cuts and branch stubs: JBU 124 and 127 (seen at 1280 px), with JBU 120, 121 and JBS 020.
+- The base rock's chisel-cut facets and claw hatching: JBU 126 (seen at 1280 px) and 128, with JBU 125 and 117.
+- The feet: JBU 125 to 128, better than the 386 × 133 crop of reference 43.
+- The sling's end and strap at the left hand: JBS 053, 097, 098, 107, 108.
+- The right hand at the thigh, with the dark gap between the fingers and the thigh: JBS 040 to 050 (047 seen at 1280 px) and 069 to 071 (070 seen at 1280 px).
+- The face, the eyes and the pupils close: JBS 087, 088, 099, 100, 106.
+- The curls and their drilled recesses: JBS 075, 076, 095, 110.
+- Correction: references 32 (JBS 029) and 33 (JBS 028) show the head, the chest and the left hand from the front, below, landscape, not the head from the statue's right and the left shoulder with the strap.
+
 ## Gaps in open images
 
-No open image was confirmed for: the pupils close up, the top of the head, the tree stump, the base rock, the sling strap in isolation, or tool marks at the sideburns. The restricted sources below show them.
+No open image was confirmed for: the pupils close up, the top of the head, the tree stump, the base rock, the sling strap in isolation, or tool marks at the sideburns. The visual audit of 2026-10-15 (below) found open images in the detail series for the stump, the base, the feet, the pupils and the curls; the top of the head still has none (every file of both series is shot from the floor). The restricted sources below show them.
 
 ## Restricted images (view only, not reusable)
 

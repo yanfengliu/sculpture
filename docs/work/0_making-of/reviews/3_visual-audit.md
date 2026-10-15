@@ -209,24 +209,24 @@ Severity: high marks what the owner sees in an ordinary viewing of the finished 
 
 ## Findings and disposition
 
-Dispositions are left to the coordinator.
+Dispositions by the coordinator, 2026-10-15; the repairs are round 3's (`plan.md`), beside review 2's findings.
 
 | ID | Severity | Finding | Likely owner | Disposition |
 |---|---|---|---|---|
-| V1 | high | Concave detail and narrow gaps keep stair-stepped stone: the eyes, lips, curls, finger edges, the hand's web at the thigh, the crease between the thighs | engine; model for the hand's one-cell gap | open |
-| V2 | high | Stone hangs in the air during the sides step, and the back is opened inside it | engine | open |
-| V3 | medium | A flat-faced stub between the right hand's fingers (known; confirmed) | model or engine, open | open |
-| V4 | high | From the fine claw to the pumice the flesh looks the same (bands fade out beyond 0.7 to 2.2 m) | page (shader) | open |
-| V5 | medium | The point reads as crescents, the claw as scattered dashes | engine and page | open |
-| V6 | medium | The stump and the base read smooth where the statue shows claw rows and chisel facets | page; engine for the base | open |
-| V7 | low | Single-cell nubs and thin fins on finished surfaces | engine | open |
-| V8 | medium | The gilding covers the stump in patches and the strap with toothed edges (known; confirmed) | engine | open |
-| V9 | medium | The crown is terraced (known; confirmed) | engine | open |
-| V10 | medium | No knot is ever shown; a pit is dug with 11 blows (known in part) | engine | open |
-| V11 | medium | The follow view puts stone between itself and the tool; the standard set's follow time ignores visible cycles | page | open |
-| V12 | low | The polish reads wet | page (shader) | open |
-| V13 | low | A false warning about the head bridge in the console and the facts | page | open |
-| V14 | low | The finish view's gilt and claw colours look alike | page | open |
+| V1 | high | Concave detail and narrow gaps keep stair-stepped stone: the eyes, lips, curls, finger edges, the hand's web at the thigh, the crease between the thighs | engine; model for the hand's one-cell gap | Accepted: plan the late face, hair, hand and crease blows from the residual with a footprint smaller than the concavity (engine-e, with CE4); the hand's one-cell gap is CE19 |
+| V2 | high | Stone hangs in the air during the sides step, and the back is opened inside it | engine | Accepted: pieces a visible cycle cuts loose are swept at that cycle, recorded in the plan file (engine-d); the sides pass stops short of the back (engine-c) |
+| V3 | medium | A flat-faced stub between the right hand's fingers (known; confirmed) | model or engine, open | Same as review 2 CE19: no stock stands more than 2.5 mm off the figure there at t = N, so the face is the figure grid's (the pipeline's hole fill or a gap under 8 mm); deferred to the refinement boxes, a known compromise |
+| V4 | high | From the fine claw to the pumice the flesh looks the same (bands fade out beyond 0.7 to 2.2 m) | page (shader) | Accepted: the marks fade to a floor that still reads as worked stone, each finish code told apart at 2 m (page-6, with CP1) |
+| V5 | medium | The point reads as crescents, the claw as scattered dashes | engine and page | Accepted: the last roughing pass on the figure in long runs of the 45-degree stroke (engine-c); the claw's strokes side by side (page-6, with CP1) |
+| V6 | medium | The stump and the base read smooth where the statue shows claw rows and chisel facets | page; engine for the base | Accepted: V4's floor (page-6); the stump and the base end on the coarse claw (engine-e) |
+| V7 | low | Single-cell nubs and thin fins on finished surfaces | engine | Accepted: the last flesh step takes stock standing more than half a cell proud; one claw pass over the base (engine-e) |
+| V8 | medium | The gilding covers the stump in patches and the strap with toothed edges (known; confirmed) | engine | Accepted: same as review 2 CE18 (engine-e); the strap's 8 mm saw teeth are the finish grid's cells: page-6 says whether the shader can soften the gilt boundary without an engine attribute |
+| V9 | medium | The crown is terraced (known; confirmed) | engine | Accepted: same as review 2 CE17; the crown ends on a claw pass that follows the form, and decisions.md says the crust is tool-cut (engine-e) |
+| V10 | medium | No knot is ever shown; a pit is dug with 11 blows (known in part) | engine | Accepted: same as review 2 CE3 and CE20, a knob left by Agostino and taken off in one or two blows (engine-c) |
+| V11 | medium | The follow view puts stone between itself and the tool; the standard set's follow time ignores visible cycles | page | Accepted: the follow pose keeps the stock off the line to the tip; the standard set's follow time at a visible cycle's strike (page-7) |
+| V12 | low | The polish reads wet | page (shader) | Accepted (page-6) |
+| V13 | low | A false warning about the head bridge in the console and the facts | page | Accepted: same as review 2 XP5 and CP10, and a problem is withdrawn once its box is found clear (page-7) |
+| V14 | low | The finish view's gilt and claw colours look alike | page | Accepted (page-6) |
 
 ## Verification
 
