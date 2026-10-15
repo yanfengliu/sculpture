@@ -54,3 +54,13 @@ front-furrows: the run at (0.16, 5.11, 0.05) turns 48 degrees off the contour (a
 and its log showed all 729 runs within 10 degrees of a world axis (the bound is under half). The spread claim stayed green under the raster, as expected: a raster that starts at a corner also moves away from its first blow, so the highest-points claim is what catches it. The gate also carries the two mutants in its own body (each layer sorted into raster order must fail the highest-points claim somewhere, each run turned to x must fail the contour claim somewhere), so a check that stops seeing either goes red on the clean plan.
 
 **Commit:** the gate and the pass order it holds landed together in `7354268` on the `engine-a` branch.
+
+## The paint and the cut of a step stay inside its region (2026-10-14)
+
+**Gate:** `src/choreography/paint-confinement.test.ts`, for review finding C2.7 (the crown lost its crust and only 37 percent of the hair kept its tooth texture, because a step's tools cut and painted wherever their 3 to 15 cm footprints reached; a rasp blow beside the hairline painted about 6 cm into the hair). On the synthetic figure at 2 cm, after rasp-flesh and file-details (t = the index of file-details + 1), no HAIR cell of the stock's band carries the rasp's or the file's finish code, and the scan must examine at least 1,000 HAIR cells; `src/choreography/david-steps.slow.test.ts` makes the same claim on the David at 8 mm. A second case holds the footprints the planner sizes its moves by (`src/stock/footprint.ts`) to the volumes the kernel carves.
+
+**Mutation:** in `src/choreography/generators/bands.ts`, `bandConfiner` made to return null for every tool, so the footprint tools are placed as they were before the confinement.
+
+**Red run:** `npx vitest run src/choreography/paint-confinement.test.ts` failed with `709 HAIR cells carry the rasp's code and 206 the file's after file-details: expected 915 to be +0`; its log read `67322 examined; by finish: block 856, point 58330, twoTooth 105, claw 1156, fineClaw 5629, drill 331, rasp 709, file 206; rasp 709 (one at 0.000, 4.765, -0.360), file 206 (one at -0.180, 4.945, 0.000)`. Restored, the run examined 67,253 HAIR cells with none carrying either code, and the file passes 2 of 2.
+
+**Commit:** the gate and the confinement it holds landed together on the `engine-a-paint` branch and were brought into `engine-a` (round 2, item 5).

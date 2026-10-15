@@ -47,7 +47,7 @@ export const BULK_CUT_SIZE_M = 0.04;
  */
 export const PATCH_SIZE_M = 0.02;
 /** The combing patch's footprint, metres: a hand's breadth along the stroke by half across. */
-const PATCH_SPEC: ToolVolumeSpec = { width: 0.08, push: 0.12, angle: 45 * DEG, removes: true, source: 'technique.md, Stage 4: the dente di cane over the whole figure, one shown blow standing for a combed patch' };
+export const PATCH_SPEC: ToolVolumeSpec = { width: 0.08, push: 0.12, angle: 45 * DEG, removes: true, source: 'technique.md, Stage 4: the dente di cane over the whole figure, one shown blow standing for a combed patch' };
 /**
  * A bulk cut's crater: one shown bulk blow stands for about a thousand real ones (docs/research/decisions.md, Time and scale), so its removed volume is the union of a field of 90-degree pits, which tools.md (Subbia, The mark) describes as a pitted, crater-like crust: a crater of radius about `BULK_RADIUS_RATIO × size`, its rim ragged and its floor pitted, not one pit. A departure from a single blow's cone, stated in the handoff.
  * The floor meets the wall sharply: a rounded bottom edge left a ring of stock between neighbouring craters that the planner could not predict (src/choreography/generators/furrows.ts predicts the floors it has made) and that read as slivers.
@@ -70,7 +70,9 @@ const PIT_AXES = rotationRows(0.29, -0.29, -0.29, -0.86).map((axis) => axis.map(
 /** The lattice's own seed for the pits' radii and centres: a constant, since the field belongs to the stone, not to a blow. */
 const PIT_SEED = 0x2545f491;
 /** Corner radius of the rasp, file and pumice footprints as a fraction of the width. */
-const FOOTPRINT_ROUNDING = 0.3;
+export const FOOTPRINT_ROUNDING = 0.3;
+/** Corner radius of the charcoal, polish and gilding footprints as a fraction of the lesser half extent. */
+export const PAINT_ROUNDING = 0.5;
 /** Width of the feathered edge of a rasped patch as a fraction of the footprint's half width: the depth tapers to nothing there, as a rubbed patch does. */
 const FEATHER = 0.5;
 /** Above and below the surface, the painting tools reach one blow size, so both sides of a crossing edge are painted. */
@@ -464,7 +466,7 @@ function paintFootprint(f: Frame, spec: ToolVolumeSpec): ToolVolume {
       const a = rx * f.u[0] + ry * f.u[1] + rz * f.u[2];
       const b = rx * f.w[0] + ry * f.w[1] + rz * f.w[2];
       const c = rx * f.n[0] + ry * f.n[1] + rz * f.n[2];
-      return extrude(roundedBox2(a, b, hx, hy, Math.min(hx, hy) * 0.5), Math.abs(c) - PAINT_HALF_THICKNESS);
+      return extrude(roundedBox2(a, b, hx, hy, Math.min(hx, hy) * PAINT_ROUNDING), Math.abs(c) - PAINT_HALF_THICKNESS);
     },
   };
 }

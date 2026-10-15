@@ -5,7 +5,7 @@
  */
 import type { Blow, PlanContext, ToolId } from '../../contracts/making';
 import { TOOL_VOLUMES } from '../../stock/tool-volumes';
-import { type BandOrientation, bandBlows, bandSurfacePoints } from './bands';
+import { type BandOrientation, bandBlows, bandConfiner, bandSurfacePoints } from './bands';
 import { MAX_PASSES, orientationOf } from './combing';
 import { ScratchStock, scratchContext } from './scratch';
 
@@ -29,6 +29,8 @@ function stroking(ctx: PlanContext, options: StrokingOptions): Blow[] {
   const sctx = scratch === undefined ? ctx : scratchContext(ctx, scratch);
   const passes = removes ? MAX_PASSES : options.passes.length;
   const points = bandSurfacePoints(ctx, options);
+  // One confinement for the step's passes (./confine.ts): they share the region's answers and the points where no blow kept inside.
+  const confiner = bandConfiner(sctx, options, scratch);
   for (let pass = 0; pass < passes; pass += 1) {
     const strokeBase = blows.length === 0 ? 0 : (blows[blows.length - 1]?.stroke ?? 0) + 1;
     const planned = bandBlows(
@@ -47,6 +49,7 @@ function stroking(ctx: PlanContext, options: StrokingOptions): Blow[] {
       strokeBase,
       scratch,
       points,
+      confiner,
     );
     if (planned.length === 0) break;
     blows.push(...planned);
