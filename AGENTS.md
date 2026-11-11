@@ -58,7 +58,7 @@ The designated coordinator reads `../fleet/docs/skills/coordinator.md` before pl
 
 Node 24 (`.nvmrc`), npm, Vite 8, strict TypeScript 6, Vitest 5, ESLint 10 and Playwright 1.64 on the installed Chrome (no browser download; `scripts/harness.mjs` says why).
 
-`npm run verify` is the pre-commit gate: the five commands below, in this order, all green before any commit that touches code.
+`npm run verify` is the gate for a tree that is handed back or lands: the five commands below, in this order, all green.
 
 - `npm test`: Vitest over `src/**/*.test.ts` and `scripts/**/*.test.ts`. `src/repo-conventions.test.ts` is the repo's rules as a gate; it fails on a file over 500 lines (inclusive bound) under `src/`, `scripts/` or `tests/`, on a page-URL read (`location`, `new URL(`, `URLSearchParams`) in any non-test file under `src/` other than `src/viewer/query.ts`, on a missing or URL-blind `query.ts`, and on an `import.meta.env` or `process.env` read anywhere under `src/`. Its header names its bounds. `src/viewer/query.test.ts` pins the query contract's parser.
 - `npm run typecheck`: `tsc --noEmit`, strict plus `noUncheckedIndexedAccess`, DOM and WebWorker libs, over `src/`, `scripts/`, `tests/` and the root configs.
